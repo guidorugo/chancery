@@ -35,6 +35,7 @@ def create_app(config_class=Config):
     _validate_key_backend_config(app)
     _configure_session(app)
     _setup_security_headers(app)
+    _setup_error_handlers(app)
     _register_template_context(app)
     _setup_password_change_guard(app)
 
@@ -186,6 +187,17 @@ def _setup_basic_auth(app):
         )
         db.session.commit()
 
+        # AUTH-3: a Basic-Auth user still flagged for a forced password change
+        # must rotate it (via the web UI) before programmatic access is allowed,
+        # so a never-rotated bootstrap seed can't be used indefinitely via the API.
+        if getattr(result.user, "must_change_password", False):
+            response = jsonify({
+                "error": "Password change required — set a new password via the web UI "
+                         "before using Basic Auth."
+            })
+            response.status_code = 403
+            return response
+
     @login_manager.unauthorized_handler
     def handle_unauthorized():
         # login_manager is a module-level singleton, so every create_app()
@@ -198,6 +210,11 @@ def _setup_basic_auth(app):
             response.status_code = 401
             response.headers["WWW-Authenticate"] = f'Basic realm="{realm}"'
             return response
+        # API-4: a JSON client with no Basic-Auth header gets a clean 401 JSON
+        # (no WWW-Authenticate, so no browser Basic dialog) rather than an HTML redirect.
+        from .responses import wants_json
+        if wants_json():
+            return jsonify({"error": "Authentication required."}), 401
         return current_app.login_manager.login_view and _redirect_to_login() or ("Unauthorized", 401)
 
     def _redirect_to_login():
@@ -339,6 +356,30 @@ def _setup_security_headers(app):
             "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
         )
         return response
+
+
+def _setup_error_handlers(app):
+    """API-4/CORE-6: return JSON on common error statuses for API clients
+    (Basic Auth / Accept: application/json), the default HTML otherwise."""
+    from .responses import wants_json
+
+    @app.errorhandler(404)
+    def _handle_404(e):
+        if wants_json():
+            return jsonify({"error": "Not found."}), 404
+        return e.get_response()
+
+    @app.errorhandler(405)
+    def _handle_405(e):
+        if wants_json():
+            return jsonify({"error": "Method not allowed."}), 405
+        return e.get_response()
+
+    @app.errorhandler(500)
+    def _handle_500(e):
+        if wants_json():
+            return jsonify({"error": "Internal server error."}), 500
+        return "Internal Server Error", 500
 
 
 def _configure_session(app):
