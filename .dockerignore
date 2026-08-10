@@ -1,5 +1,9 @@
 venv/
 data/
+secrets/
+deploy/
+scripts/
+.claude/
 .env
 .git/
 .github/

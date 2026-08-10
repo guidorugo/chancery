@@ -111,8 +111,14 @@ def test_generate_crl_via_json(auth_admin, app):
 def test_user_json_omits_password_hash(auth_admin):
     users = auth_admin.get("/users/", headers=JSON).get_json()
     assert users
+    # META-2: assert the WHOLE key set stays within an allowlist, so ANY new
+    # (possibly secret) field added to to_dict() fails the test — not just the
+    # two names we currently know to be sensitive.
+    allowed = {"id", "username", "role", "is_active", "auth_source",
+               "must_change_password", "created_at"}
     for u in users:
         assert "password_hash" not in u
+        assert set(u) <= allowed
         assert {"id", "username", "role"} <= set(u)
 
 
@@ -125,5 +131,33 @@ def test_ca_detail_json_has_no_key_material(auth_admin):
     cas = auth_admin.get("/ca/", headers=JSON).get_json()
     ca_id = next(c["id"] for c in cas if c["name"] == "leakcheck")
     detail = auth_admin.get(f"/ca/{ca_id}", headers=JSON).get_json()
+    ca_allowed = {
+        "id", "name", "common_name", "serial_number", "key_type", "key_size",
+        "key_backend", "is_root", "parent_id", "not_before", "not_after",
+        "days_until_expiry", "expiry_status", "is_revoked", "has_private_key",
+        "has_signing_key", "is_exportable", "created_at", "path_length",
+        "crl_number", "revoked_at", "revocation_reason", "certificate_pem",
+    }
     assert "private_key_enc" not in detail
+    assert "key_label" not in detail
+    assert set(detail) <= ca_allowed          # META-2: nothing outside the allowlist
     assert detail["certificate_pem"].startswith("-----BEGIN CERTIFICATE-----")
+
+
+# ---- META-1: JSON authz negative paths (ownership) ------------------------
+
+def test_csr_requester_cross_user_cert_json_403(app, client, admin_user, csr_requester):
+    """A csr_requester requesting a cert they don't own, via JSON, gets a
+    403 JSON body (not an HTML redirect)."""
+    from app.services import ca_service, cert_service
+    with app.app_context():
+        ca = ca_service.create_root_ca(
+            name="OwnCA", subject_attrs={"CN": "Own CA"}, key_type="RSA",
+            key_size=2048, validity_days=3650, passphrase="test-passphrase")
+        cert = cert_service.create_certificate(
+            ca=ca, subject_attrs={"CN": "notyours.example.com"}, san_list=[],
+            validity_days=365, passphrase="test-passphrase")   # requested_by=None
+        cid = cert.id
+    client.post("/auth/login", data={"username": "testrequester", "password": "requesterpass"})
+    r = client.get(f"/certificates/{cid}", headers=JSON)
+    assert r.status_code == 403 and r.is_json

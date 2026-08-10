@@ -16,6 +16,10 @@ services:
       - MASTER_PASSPHRASE_FILE=/run/secrets/master_passphrase
       - DATABASE_URL=sqlite:////app/data/cert-manager.db
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      # INFRA-4: ADMIN_PASSWORD seeds the first admin (removable after first
+      # login). To keep it out of `docker inspect` / the process env, deliver it
+      # as a Docker secret instead — set ADMIN_PASSWORD_FILE=/run/secrets/admin_password
+      # and add an admin_password secret (the app honours the *_FILE convention).
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - SERVER_NAME_FOR_OCSP=${SERVER_NAME_FOR_OCSP:-localhost:5000}
       # This reference stack serves plain HTTP, so secure cookies are disabled;
@@ -68,6 +72,11 @@ services:
       - pkcs11_user_pin
       - pkcs11_so_pin
     restart: unless-stopped
+    # INFRA-6: cap resources so a crashing/compromised worker can't exhaust the
+    # host (memory / fork bomb). Tune to your box.
+    mem_limit: 512m
+    pids_limit: 256
+    cpus: 2
     # Liveness/DB probe via the unauthenticated /health endpoint (curl is not in
     # the slim image, so use python). urlopen exits non-zero on 503/refused.
     healthcheck:
