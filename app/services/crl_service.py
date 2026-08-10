@@ -98,9 +98,16 @@ def revoke_ca(ca_id, reason="unspecified", passphrase=None):
     return ca, certs_revoked, sub_cas_revoked
 
 
-def generate_crl(ca, passphrase, validity_days=7):
+def generate_crl(ca, passphrase, validity_days=None):
     if not ca.has_signing_key:
         raise ValueError("This CA was imported without its private key and cannot sign CRLs.")
+    if validity_days is None:
+        # PKI-1: configurable CRL validity window (default 7 days).
+        try:
+            from flask import current_app
+            validity_days = current_app.config.get("CRL_VALIDITY_DAYS", 7)
+        except RuntimeError:
+            validity_days = 7
     ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
 
     now = datetime.now(timezone.utc)
