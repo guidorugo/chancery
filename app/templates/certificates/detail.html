@@ -7,6 +7,8 @@
         <div class="btn-group">
             <a href="{{ url_for('certificates.download', cert_id=cert.id, format='pem') }}" class="btn btn-sm btn-outline-primary">PEM</a>
             <a href="{{ url_for('certificates.download', cert_id=cert.id, format='der') }}" class="btn btn-sm btn-outline-primary">DER</a>
+            <a href="{{ url_for('certificates.download', cert_id=cert.id, format='fullchain') }}" class="btn btn-sm btn-outline-primary" title="Leaf + issuing chain (fullchain.pem)">Full chain</a>
+            <a href="{{ url_for('certificates.download', cert_id=cert.id, format='chain') }}" class="btn btn-sm btn-outline-primary" title="Issuing CA chain only (chain.pem)">CA chain</a>
         </div>
         {% if cert.private_key_enc %}
         {# C3: PKCS#12 and Key export private-key material — POST-only, so nothing sensitive lands in a GET URL/log #}

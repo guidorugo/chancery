@@ -269,6 +269,22 @@ def download(cert_id):
         except ValueError as e:
             flash(str(e), "danger")
             return redirect(url_for("certificates.detail", cert_id=cert_id))
+    elif fmt == "fullchain":
+        # leaf -> intermediates -> root; public material, GET is fine.
+        data = cert_service.export_fullchain_pem(certificate)
+        return Response(
+            data,
+            mimetype="application/x-pem-file",
+            headers={"Content-Disposition": _safe_filename(f"{certificate.common_name}-fullchain", "pem")},
+        )
+    elif fmt == "chain":
+        # issuing CA chain only (no leaf); public material, GET is fine.
+        data = cert_service.export_chain_pem(certificate)
+        return Response(
+            data,
+            mimetype="application/x-pem-file",
+            headers={"Content-Disposition": _safe_filename(f"{certificate.common_name}-chain", "pem")},
+        )
     else:
         data = cert_service.export_certificate_pem(certificate)
         return Response(
