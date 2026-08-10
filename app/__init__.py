@@ -42,6 +42,7 @@ def create_app(config_class=Config):
     from .routes.csr import csr_bp
     from .routes.public import public_bp
     from .routes.users import users_bp
+    from .routes.health import health_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -50,6 +51,11 @@ def create_app(config_class=Config):
     app.register_blueprint(csr_bp)
     app.register_blueprint(public_bp)
     app.register_blueprint(users_bp)
+    app.register_blueprint(health_bp)
+
+    # Monitoring probes must not be throttled if rate limiting is enabled.
+    if getattr(app, "limiter", None) is not None:
+        app.limiter.exempt(health_bp)
 
     from .cli import keys_cli
     app.cli.add_command(keys_cli)
@@ -99,7 +105,7 @@ def _setup_password_change_guard(app):
     def _require_password_change():
         if getattr(g, "basic_auth_used", False):
             return
-        if request.blueprint == "public" or request.endpoint in _ALLOWED:
+        if request.blueprint in ("public", "health") or request.endpoint in _ALLOWED:
             return
         if not current_user.is_authenticated:
             return

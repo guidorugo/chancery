@@ -65,6 +65,14 @@ services:
       - pkcs11_user_pin
       - pkcs11_so_pin
     restart: unless-stopped
+    # Liveness/DB probe via the unauthenticated /health endpoint (curl is not in
+    # the slim image, so use python). urlopen exits non-zero on 503/refused.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     # H1: the app process runs as non-root (see entrypoint.sh). Block privilege
     # escalation and drop all Linux capabilities except the few the root startup
     # phase needs (chown the volume + setuid to drop privileges).
