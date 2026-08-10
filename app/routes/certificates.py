@@ -138,6 +138,10 @@ def create():
                 return jsonify(certificate.to_dict(detail=True)), 201
             flash(f"Certificate '{certificate.common_name}' created.", "success")
             return redirect(url_for("certificates.detail", cert_id=certificate.id))
+        except ValueError as e:
+            # Invalid input (e.g. a bad subject field or out-of-range validity)
+            # — surface the specific reason as a 400 rather than a generic 500.
+            return _err(str(e))
         except Exception:
             logger.exception("Error creating certificate")
             return _err("An unexpected error occurred while creating the certificate.", 500)
