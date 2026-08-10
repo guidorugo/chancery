@@ -3,6 +3,8 @@
 > **Assessment date: 2026-08-08.** Method: static source/config/filesystem review + local behavioral checks (no live exploitation). Lens: **security vulnerabilities and functional correctness** (pure style excluded).
 > This assessment was produced by executing `SECURITY_ASSESSMENT_PROMPT.md` — a point-by-point pass over all **25 reviewable areas** — and **supersedes nothing**; it *extends* `SECURITY_ASSESSMENT_05-08-26.md` by (a) re-verifying its "Resolved" claims against current code and (b) covering surface added since (the JSON content-negotiation API, the update-check service, keybackend internals, the CLI, and the test/CI/infra layers).
 
+> **🛠 Remediation status — updated 2026-08-10.** Every finding in this report has since been triaged and addressed **except three deliberate residuals** (API-2 / TMPL-2, PKI-5, and INFRA-1's SO-PIN half). The fixes shipped in **v2.5.0** (PRs [#66](https://github.com/guidorugo/cert-manager/pull/66)–[#77](https://github.com/guidorugo/cert-manager/pull/77)), with follow-ups in **v2.5.1** and **v2.6.0** ([#79](https://github.com/guidorugo/cert-manager/pull/79), [#82](https://github.com/guidorugo/cert-manager/pull/82)). See the **[Remediation status](#remediation-status-updated-2026-08-10)** section (just below the findings table) for the per-finding ✅/📌 status and the closing PR; each detailed finding is also tagged inline. The test suite grew **406 → 470** passing across the batch.
+
 ## Scope & Method
 
 Full repository + runtime posture, decomposed into 25 areas (app bootstrap/config/decorators; crypto & PKI core; key backends/HSM; authn/authz; HTTP routes + JSON API; public surface; models/migration; audit; update-check; templates/static; CLI; container/entrypoints; compose/deploy; secret bootstrap; CI/CD; dependencies; repo hygiene; docs; tests; git history; threat model). Reviewed by **8 independent reviewers** (one per area cluster), each required to cite `file:line`, treat prior docs as claims to re-verify, refute-before-report, and mark confidence; results consolidated and de-duplicated here.
@@ -84,7 +86,54 @@ Plus two Low-Medium data/URL-integrity issues and ~23 Low/Info hardening items. 
 | INFRA-6 | Low | Avail | Compose lacks resource/pids limits, healthcheck, read-only rootfs | Deploy | New |
 | META-2 | Low | Test | JSON no-leak assertions are field-name-specific, not structural | Tests | New |
 
-Counts: **0 Critical, 0 High, 6 Medium, 2 Low-Medium, ~23 Low/Info.**
+Counts: **0 Critical, 0 High, 6 Medium, 2 Low-Medium, ~23 Low/Info.** — **Remediation: 28 fixed, 3 deliberate residuals** (details below).
+
+---
+
+## Remediation status (updated 2026-08-10)
+
+Every finding in this assessment was triaged and addressed after it was written: **28 fixed** (shipped in **v2.5.0**, with UI polish in **v2.5.1** and a PIN-entropy follow-up in **v2.6.0**) and **3 deliberate residuals** kept by decision. The original finding text below this section is preserved unchanged; the tags here — and the ✅/📌 notes inline in each detailed finding — record what shipped. PR links point to `github.com/guidorugo/cert-manager/pull/<n>`.
+
+| ID | Sev | Status | PR | What shipped |
+|---|---|---|---|---|
+| INFRA-1 | Med | ✅ Fixed¹ | [#79](https://github.com/guidorugo/cert-manager/pull/79), [#82](https://github.com/guidorugo/cert-manager/pull/82) | `init-secrets.sh` generates high-entropy alphanumeric PINs (v2.5.0), raised to **32 chars** + a PIN-migration guide (v2.6.0); live user PIN re-keyed. |
+| PKI-1 | Med | ✅ Fixed | [#74](https://github.com/guidorugo/cert-manager/pull/74) | `CRL_VALIDITY_DAYS` window + `flask crl refresh [--all]` regenerate stale CRLs. |
+| DoS-1 | Med | ✅ Fixed | [#73](https://github.com/guidorugo/cert-manager/pull/73), [#74](https://github.com/guidorugo/cert-manager/pull/74) | Per-IP rate limiting **on by default** (before the Basic-Auth hook); OCSP response cache keyed by `(ca, serial, status, hash_alg)`. |
+| DoS-2 | Med | ✅ Fixed | [#71](https://github.com/guidorugo/cert-manager/pull/71) | Last active admin never hard-locked; `flask users unlock`; reset/reactivate clear the lockout. |
+| TMPL-1 | Med | ✅ Fixed | [#78](https://github.com/guidorugo/cert-manager/pull/78) | Per-request CSP nonce; `script-src` drops `'unsafe-inline'`; inline handlers → `addEventListener`. |
+| META-1 | Med | ✅ Fixed | [#77](https://github.com/guidorugo/cert-manager/pull/77) | JSON API authz / negative-path tests added. |
+| PKI-3 / API-1 | Low-Med | ✅ Fixed | [#68](https://github.com/guidorugo/cert-manager/pull/68) | Issuance stores the CA-clamped `not_after`; `flask certs recompute-expiry` backfills. |
+| API-2 / TMPL-2 | Low-Med | 📌 Residual | — | **Documented mitigation** (pin `SERVER_NAME_FOR_OCSP`); host auto-detected + `localhost` warning banner added; not code-enforced to preserve the zero-config default. |
+| HSM-1 | Low | ✅ Fixed | [#70](https://github.com/guidorugo/cert-manager/pull/70) | Curve validated before the migrate-to-HSM scrub; friendly error, no `KeyError`. |
+| HSM-3 | Low | ✅ Fixed | [#75](https://github.com/guidorugo/cert-manager/pull/75) | PKCS#11 session invalidated/cleared on error. |
+| PKI-4 | Low | ✅ Fixed | [#70](https://github.com/guidorugo/cert-manager/pull/70) | Expired-CA issuance guarded. |
+| PKI-6 | Low | ✅ Fixed | [#72](https://github.com/guidorugo/cert-manager/pull/72) | Intermediate `pathLenConstraint` validated against the parent. |
+| PKI-7 | Low | ✅ Fixed | [#70](https://github.com/guidorugo/cert-manager/pull/70) | Key/curve strength floor enforced on CA import. |
+| PKI-5 | Low | 📌 Accepted | — | OCSP nonce omission accepted per RFC 5019 (bounded by `nextUpdate`). |
+| AUTH-2 | Low | ✅ Fixed | [#72](https://github.com/guidorugo/cert-manager/pull/72) | Generic login-failure message; reason only in the audit log. |
+| AUTH-3 | Low | ✅ Fixed | [#76](https://github.com/guidorugo/cert-manager/pull/76) | `must_change_password` enforced on the Basic-Auth path. |
+| AUTH-4 | Low | ✅ Fixed | [#71](https://github.com/guidorugo/cert-manager/pull/71) | Lockout cleared on reset/reactivate; unlock CLI. |
+| CORE-2 | Low | ✅ Fixed | [#70](https://github.com/guidorugo/cert-manager/pull/70) | Startup guard also rejects empty/too-short secrets. |
+| CORE-3 | Low | ✅ Fixed | [#75](https://github.com/guidorugo/cert-manager/pull/75) | Verify the token key before scrubbing the software copy. |
+| CORE-4 | Low | ✅ Fixed | [#70](https://github.com/guidorugo/cert-manager/pull/70) | `refreshing` reset in `finally`; non-dict JSON validated. |
+| CORE-5 | Low | ✅ Fixed | [#70](https://github.com/guidorugo/cert-manager/pull/70) | Empty-safe numeric env parsing. |
+| API-3 | Low | ✅ Fixed | [#76](https://github.com/guidorugo/cert-manager/pull/76) | CSRF exemption also requires a cross-site guard. |
+| API-4 / CORE-6 | Low/Info | ✅ Fixed | [#76](https://github.com/guidorugo/cert-manager/pull/76) | Error responses honor `wants_json()`; JSON 404/405/500 handlers. |
+| API-5 | Info | ✅ Fixed | [#70](https://github.com/guidorugo/cert-manager/pull/70) | `csr.reject` guarded on `pending`. |
+| TMPL-3 | Low | ✅ Fixed | [#72](https://github.com/guidorugo/cert-manager/pull/72) | Logout is POST + CSRF. |
+| INFRA-2 | Low | ✅ Fixed | [#77](https://github.com/guidorugo/cert-manager/pull/77) | Trivy scan scope reconciled with the docs. |
+| INFRA-3 | Low | ✅ Fixed | [#77](https://github.com/guidorugo/cert-manager/pull/77) | `.claude/` untracked + gitignored. |
+| INFRA-4 | Low | ✅ Fixed | [#77](https://github.com/guidorugo/cert-manager/pull/77) | Compose cookie/admin-password defaults hardened. |
+| INFRA-5 | Low | ✅ Fixed | [#77](https://github.com/guidorugo/cert-manager/pull/77) | `.dockerignore` excludes `secrets/`, `deploy/`, `scripts/`, `.claude/`. |
+| INFRA-6 | Low | ✅ Fixed | [#77](https://github.com/guidorugo/cert-manager/pull/77), [#67](https://github.com/guidorugo/cert-manager/pull/67) | Compose healthcheck + limits; `/health` endpoint. |
+| META-2 | Low | ✅ Fixed | [#77](https://github.com/guidorugo/cert-manager/pull/77) | No-leak tests assert an allowlist subset. |
+
+¹ **INFRA-1 residual:** the token **SO PIN** cannot be rotated in place while it holds non-extractable keys, so it is **deferred** — bounded by filesystem access control on `./data/softhsm`. The everyday **user PIN** is fixed (32-char). See the v2.6.0 release notes' PIN-migration guide.
+
+### Deliberate residuals (kept by decision — do not "re-fix" without revisiting)
+- **API-2 / TMPL-2** — host-header → cert OCSP/CRL URLs. Left as the **documented** mitigation: pin `SERVER_NAME_FOR_OCSP` in production. Enforcing it in code would break the zero-config `localhost` default, so instead the host is auto-detected and a **warning banner** shows in Advanced Settings when it contains `localhost`, and the CRL-DP field is operator-editable. The `{{ ocsp_server }}` interpolation stays autoescape-safe in its (now nonce-gated) `<script>` context.
+- **PKI-5** — OCSP request nonce omitted. **Accepted** as RFC 5019 lightweight-OCSP behaviour; replay is bounded by the response `nextUpdate`.
+- **INFRA-1 (SO-PIN half)** — see footnote 1 above.
 
 ---
 
@@ -93,26 +142,42 @@ Counts: **0 Critical, 0 High, 6 Medium, 2 Low-Medium, ~23 Low/Info.**
 ### [INFRA-1] SoftHSM user PIN is a 6-digit (~20-bit) at-rest KEK for HSM-backed CA keys — Medium — Confirmed (PIN length) / Plausible (exploitation)
 `scripts/init-secrets.sh:79` writes a **6-digit** user PIN (`rand_pin 6`); the SoftHSM token store lives in the DB volume (`docker-compose.yml:36` `SOFTHSM2_CONF=/app/data/softhsm/...`, `:9` `./data:/app/data`). SoftHSM2's file backend encrypts private-key objects with a **PIN-derived** key. An attacker who obtains `./data` (backup, snapshot, stolen disk, uid-1000 read) can brute-force 10⁶ candidates offline in seconds and recover the CA signing keys — **without** the PIN secret file. This **inverts** the intended posture: software CAs in the same volume are sealed with the ~144-bit `MASTER_PASSPHRASE` (not in the volume), so the "hardware-backed" option is *weaker* at rest against volume theft. Affects any HSM-backed CA. **Fix:** generate high-entropy alphanumeric PINs (SoftHSM permits non-numeric — e.g. `rand_alnum 16`) for both user and SO PIN; re-init/re-migrate affected tokens; and/or store the token dir on a separately-encrypted volume excluded from ordinary DB backups. This refines A1: HSM-at-rest strength is only as good as the PIN entropy.
 
+> **✅ Fixed — [#79](https://github.com/guidorugo/cert-manager/pull/79) (v2.5.0) + [#82](https://github.com/guidorugo/cert-manager/pull/82) (v2.6.0).** `init-secrets.sh` now generates high-entropy **32-char alphanumeric** PINs and #82 shipped a PIN-migration guide; the live token's **user PIN was re-keyed**. **📌 Residual:** the **SO PIN** can't be rotated in place while the token holds non-extractable keys — deferred, bounded by filesystem access to `./data/softhsm`.
+
 ### [PKI-1] Published CRL silently expires 7 days after the last change, with no auto-refresh — Medium — Confirmed
 `crl_service.py:120` sets `nextUpdate = now + 7d` (default `validity_days=7`, never overridden); the public serve path (`public.py:29-37`) returns the cached `crl_pem` as-is and never regenerates; `get_crl_*` only regenerate when `crl_pem` is falsy, and there is **no scheduler anywhere in the app** (grep-confirmed). So after the initial CRL is published at CA creation, if no revocation occurs, `nextUpdate` lapses at day 7 and nothing refreshes it. RFC 5280 §6.3.3 makes an expired CRL untrustworthy → CRL-checking clients fail (closed = outage, open = revocation ignored). The app stamps a CRL-DP into every issued cert, so relying parties will hit this. OCSP is unaffected (freshly signed, 24h `nextUpdate`). No config knob to lengthen the window. **Fix:** lazily regenerate when `now > nextUpdate` on an authenticated/serve path, or add a scheduled regeneration, or a much longer configurable `nextUpdate` with documented periodic regen.
+
+> **✅ Fixed — [#74](https://github.com/guidorugo/cert-manager/pull/74) (v2.5.0).** `CRL_VALIDITY_DAYS` sets the `nextUpdate` window and `flask crl refresh [--all]` regenerates stale CRLs (cron-friendly).
 
 ### [DoS-1] Unauthenticated Basic-Auth KDF + unbounded audit-flood; OCSP re-signs per request (rate limiting off by default) — Medium — Confirmed
 `RATE_LIMIT_ENABLED` defaults false. Any request with `Authorization: Basic <garbage>` on **any** route (`app/__init__.py:130-149`) runs two `User` SELECTs + a full `generate_password_hash` "burn" (`auth_service.py:68-71`) + an `AuditLog` INSERT **and commit**; failures are never cached, so each bogus attempt re-pays the KDF, and the `audit_logs` table has no cap (unbounded disk + write contention against real CA ops on the same SQLite file). Separately, OCSP (`public.py:74-89`, `@csrf.exempt`, no auth) performs a fresh asymmetric **signature per request** for any known serial (`software.py:99` / HSM `softhsm.py` under a process-wide lock) with no response cache — a known serial pins both workers on signing (HSM variant also contends the signing lock with privileged issuance — HSM-2). **Fix:** enable/scope rate limiting by default on the Basic-Auth and `/public/ocsp/*` paths; coalesce repeated `basic_auth_failed` audit writes; add an OCSP response cache keyed by `(ca, serial, status, hash_alg)`; add audit-log retention. (This is the residual of C1: the PBKDF2 key-decrypt amplifier was fixed, but the signing + flood amplifiers remain.)
 
+> **✅ Fixed — [#73](https://github.com/guidorugo/cert-manager/pull/73) + [#74](https://github.com/guidorugo/cert-manager/pull/74) (v2.5.0).** Per-IP rate limiting is **on by default**, initialised **before** the Basic-Auth hook so a flood is 429'd before the KDF/audit write; OCSP responses are cached per `(ca, serial, status, hash_alg)`, ending per-request re-signing.
+
 ### [DoS-2] Unauthenticated last-admin lockout DoS — Medium — Confirmed
 Lockout (`auth_service.py:116-132`, 5 fails → 15 min) is reachable unauthenticated via the CSRF-exempt Basic-Auth path and has **no last-admin exemption** (unlike deactivate/demote) and **no unlock**: `reset_password`/`toggle_active` don't clear `locked_until` (AUTH-4), and no CLI unlock exists. An attacker who knows the admin username (default `admin`) locks the sole administrator out of the entire admin plane for 15 min, repeatably. The D1 lockout control thus doubles as a self-DoS. **Fix:** prefer IP/endpoint throttling over hard per-account lockout for the admin, or exempt the last active admin while still throttling; clear lockout on password reset/reactivation; add a `users unlock` CLI. **Reproduction:** `for i in 1..5; do curl -u admin:wrong$i host/auth/login; done` → correct creds then rejected.
+
+> **✅ Fixed — [#71](https://github.com/guidorugo/cert-manager/pull/71) (v2.5.0).** The **last active admin is never hard-locked** (throttled instead), `flask users unlock <user>` was added, and password-reset/reactivation now clear `locked_until` (closes AUTH-4).
 
 ### [TMPL-1] CSP retains `'unsafe-inline'` in `script-src` — Medium (defense-in-depth) — Confirmed
 `app/__init__.py:307-317` ships a CSP, but `script-src ... 'unsafe-inline'` means any injected inline script/`on*` handler executes regardless of origin. The app is XSS-safe **only** because Jinja autoescape holds (verified: no `|safe`/`|urlize`/`autoescape false` anywhere). For a CA console, script execution in an admin session = full CA control, so the compensating control being neutralized matters. Documented as intended pending nonce work (E2 comment). **Fix:** per-response nonce, add `'nonce-…'`, drop `'unsafe-inline'` from `script-src`, and move the existing inline `on*` handlers to `addEventListener` (pattern already used in `base.html:128-134`).
 
+> **✅ Fixed — [#78](https://github.com/guidorugo/cert-manager/pull/78) (v2.5.0).** A per-request nonce (`g.csp_nonce`) authorises inline `<script>` and `script-src` **no longer carries `'unsafe-inline'`**; all inline `on*` handlers were moved to `addEventListener`.
+
 ### [META-1] JSON content-negotiation API is untested for authz and omitted from the 05-08 closure claim — Medium — Confirmed
 `tests/test_json_api.py` exercises only `auth_admin` happy paths. There is **no** test that a `csr_requester` (or unauthenticated client) using `Accept: application/json` / Basic Auth gets ownership-filtered results and **403/401 JSON** on cross-user or admin routes. `SECURITY_ASSESSMENT_05-08-26.md:113` says "No open residuals remain," but grep shows the assessment never mentions the JSON API (merged after, PR #64). **Verified mitigation:** authz is enforced *before* the `wants_json()` branch in every handler (`certificates.py:164-171`, `csr.py:128-135`, `users.py:15`), so the property holds today — this is a **false-assurance/coverage** gap, not an exploitable bug. **Fix:** add JSON negative-path tests mirroring `test_rbac.py`/`test_csr_requester.py` with `Accept: application/json`; add a dated "JSON API" subsection to the assessment.
+
+> **✅ Fixed — [#77](https://github.com/guidorugo/cert-manager/pull/77) (v2.5.0).** JSON authz/negative-path tests were added (cross-user 403, unauth 401, ownership-filtered results) mirroring the RBAC suite.
 
 ### [PKI-3 / API-1] Issued cert `not_after` stored **unclamped** — Low-Medium — Confirmed (independently, twice)
 `cert_service.py` clamps the real cert to the CA's expiry (`bounded_not_after`, used at `:270`/`:101`) but stores the **raw** `now + validity_days` in the DB (`:383` in `create_certificate`, `:231` in `sign_csr`). Whenever the requested validity would outlive the issuing CA (routine for intermediates/aging CAs), the DB row, the detail page (`certificates/detail.html:46`), and the JSON `not_after` (`certificate.py:40`) report a **later** expiry than the certificate actually has. `ca_service` does this correctly, so it's isolated to `cert_service`. Impact: wrong renewal scheduling → surprise early expiry. **Fix:** store the clamped `not_after` in both constructors.
 
+> **✅ Fixed — [#68](https://github.com/guidorugo/cert-manager/pull/68) (v2.5.0).** Issuance now stores the **CA-clamped** `not_after` in both constructors; `flask certs recompute-expiry` backfills legacy rows.
+
 ### [API-2 / TMPL-2] Cert OCSP/CRL URLs derived from an unvalidated `Host` under default config — Low-Medium — Confirmed
 With `SERVER_NAME_FOR_OCSP` at its default, `certificates.py:55-57` / `csr.py:158-160` set the AIA/CRL-DP host from `request.host` (no Flask `SERVER_NAME`/allowlist). A spoofed `Host` (naïve proxy forwarding client Host, cache poisoning, or a tricked admin) bakes attacker-controlled revocation URLs into long-lived certs → serve `GOOD` for a revoked cert / blackhole revocation. Admin-gated issuance, so preconditioned; reaffirms C4 (still trust-the-Host by default). The template also interpolates `request.host` into a JS string without `|tojson` (`certificates/create.html:262`) — **not** exploitable today (autoescape blocks breakout in `<script>` raw-text context) but fragile. **Fix:** require an explicit `SERVER_NAME_FOR_OCSP` in non-debug mode / set a trusted-host allowlist; encode the template value with `|tojson`.
+
+> **📌 Residual — documented mitigation (by design).** Not code-enforced because requiring `SERVER_NAME_FOR_OCSP` would break the zero-config `localhost` default. Instead the host is **auto-detected** from `request.host` and a **warning banner** appears in Advanced Settings when it contains `localhost`; the CRL-DP field is operator-editable. The `{{ ocsp_server }}` value stays autoescape-safe in its (now nonce-gated) `<script>` context. Re-open only if strict host-pinning becomes a requirement.
 
 ### Low / Informational (condensed)
 - **[HSM-1]** EC CA whose curve `key_size ∉ {256,384,521}` → `migrate-to-hsm` imports fine then bricks on first sign (`_ca_key_info` `KeyError`, `softhsm.py:55`); software copy already scrubbed → irreversible loss of a trust anchor's signing/CRL/OCSP. Reachable because import skips the strength/curve floor (PKI-7). **Fix:** validate curve before scrub; friendly error not `KeyError`.
