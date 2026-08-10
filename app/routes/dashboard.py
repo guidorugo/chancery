@@ -1,4 +1,6 @@
-from flask import Blueprint, render_template, jsonify
+from datetime import datetime, timedelta, timezone
+
+from flask import Blueprint, render_template, jsonify, current_app
 from flask_login import login_required, current_user
 
 from ..models.ca import CertificateAuthority
@@ -13,11 +15,19 @@ dashboard_bp = Blueprint("dashboard", __name__)
 @login_required
 def index():
     if current_user.is_admin:
+        # Expiry counts (active certs only). notAfter is stored naive-UTC, so
+        # compare against naive-UTC bounds.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        soon = now + timedelta(days=current_app.config.get("CERT_EXPIRY_WARNING_DAYS", 30))
         stats = {
             "ca_count": CertificateAuthority.query.filter_by(is_revoked=False).count(),
             "cert_count": Certificate.query.count(),
             "cert_active": Certificate.query.filter_by(is_revoked=False).count(),
             "cert_revoked": Certificate.query.filter_by(is_revoked=True).count(),
+            "cert_expiring_soon": Certificate.query.filter_by(is_revoked=False).filter(
+                Certificate.not_after >= now, Certificate.not_after <= soon).count(),
+            "cert_expired": Certificate.query.filter_by(is_revoked=False).filter(
+                Certificate.not_after < now).count(),
             "csr_pending": CertificateSigningRequest.query.filter_by(status="pending").count(),
             "csr_total": CertificateSigningRequest.query.count(),
         }

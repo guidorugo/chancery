@@ -72,3 +72,72 @@ def migrate_to_hsm(ca_id, dry_run, yes):
         migrated += 1
         click.echo(f"Migrated [{ca.id}] {ca.name} -> HSM ({label})")
     click.echo(f"\nDone. {migrated} CA key(s) migrated.")
+
+
+certs_cli = AppGroup("certs", help="Certificate lifecycle utilities.")
+
+
+@certs_cli.command("expiring")
+@click.option("--days", type=int, default=None,
+              help="Warning window in days (default: CERT_EXPIRY_WARNING_DAYS).")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON instead of text.")
+def certs_expiring(days, as_json):
+    """List certificates and CAs expiring within N days (includes already-expired)."""
+    from .models.certificate import Certificate
+
+    warning = days if days is not None else current_app.config.get("CERT_EXPIRY_WARNING_DAYS", 30)
+
+    items = []
+    for c in Certificate.query.filter_by(is_revoked=False).all():
+        d = c.days_until_expiry
+        if d is not None and d <= warning:
+            items.append({"type": "certificate", "id": c.id, "name": c.common_name,
+                          "days_until_expiry": d, "status": c.expiry_status})
+    for ca in CertificateAuthority.query.filter_by(is_revoked=False).all():
+        d = ca.days_until_expiry
+        if d is not None and d <= warning:
+            items.append({"type": "ca", "id": ca.id, "name": ca.common_name,
+                          "days_until_expiry": d, "status": ca.expiry_status})
+    items.sort(key=lambda x: x["days_until_expiry"])
+
+    if as_json:
+        import json
+        click.echo(json.dumps(items))
+        return
+    if not items:
+        click.echo(f"Nothing expiring within {warning} days.")
+        return
+    for it in items:
+        click.echo(f"[{it['type']}:{it['id']}] {it['name']} — "
+                   f"{it['days_until_expiry']}d ({it['status']})")
+
+
+@certs_cli.command("recompute-expiry")
+@click.option("--dry-run", is_flag=True, help="Show changes without writing.")
+def recompute_expiry(dry_run):
+    """Recompute each certificate's stored notAfter from its PEM.
+
+    Fixes PKI-3 on rows issued before the fix (the stored notAfter overstated
+    expiry). Idempotent — safe to re-run.
+    """
+    from cryptography import x509
+    from .models.certificate import Certificate
+
+    changed = 0
+    for c in Certificate.query.all():
+        try:
+            cert = x509.load_pem_x509_certificate(c.certificate_pem.encode())
+        except Exception:
+            click.echo(f"[{c.id}] {c.common_name}: unreadable PEM, skipped", err=True)
+            continue
+        real = cert.not_valid_after_utc.replace(tzinfo=None)
+        if c.not_after != real:
+            click.echo(f"[{c.id}] {c.common_name}: {c.not_after} -> {real}")
+            if not dry_run:
+                c.not_after = real
+            changed += 1
+    if dry_run:
+        click.echo(f"--dry-run: {changed} row(s) would change.")
+    else:
+        db.session.commit()
+        click.echo(f"Updated {changed} row(s).")

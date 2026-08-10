@@ -228,7 +228,10 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
         key_type=key_type,
         key_size=key_size,
         not_before=now,
-        not_after=now + timedelta(days=validity_days),
+        # PKI-3: store the certificate's ACTUAL notAfter (clamped to the CA's
+        # expiry and second-truncated), not the raw requested window — the DB
+        # must not overstate expiry.
+        not_after=cert.not_valid_after_utc.replace(tzinfo=None),
         san_json=json.dumps(effective_san) if effective_san else csr_model.san_json,
         key_usage_json=json.dumps(key_usage) if key_usage else None,
         extended_key_usage_json=json.dumps(extended_key_usage) if extended_key_usage else None,
@@ -380,7 +383,10 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
         key_type=key_type,
         key_size=key_size,
         not_before=now,
-        not_after=now + timedelta(days=validity_days),
+        # PKI-3: store the certificate's ACTUAL notAfter (clamped to the CA's
+        # expiry and second-truncated), not the raw requested window — the DB
+        # must not overstate expiry.
+        not_after=cert.not_valid_after_utc.replace(tzinfo=None),
         san_json=json.dumps(san_list) if san_list else None,
         key_usage_json=json.dumps(key_usage) if key_usage else None,
         extended_key_usage_json=json.dumps(extended_key_usage) if extended_key_usage else None,

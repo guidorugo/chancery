@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from ..extensions import db
-from ..serialization import iso
+from ..serialization import iso, days_until, expiry_status as _expiry_status
 
 
 class CertificateAuthority(db.Model):
@@ -69,6 +69,22 @@ class CertificateAuthority(db.Model):
             db.or_(cls.key_backend == "softhsm", cls.private_key_enc != b"")
         )
 
+    @property
+    def days_until_expiry(self):
+        """Whole days until notAfter (negative if already expired), or None."""
+        return days_until(self.not_after)
+
+    @property
+    def expiry_status(self):
+        """valid | expiring_soon | expired | unknown, using CERT_EXPIRY_WARNING_DAYS."""
+        warning = 30
+        try:
+            from flask import current_app
+            warning = current_app.config.get("CERT_EXPIRY_WARNING_DAYS", 30)
+        except RuntimeError:
+            pass  # outside an app context — fall back to the default
+        return _expiry_status(self.not_after, warning)
+
     def to_dict(self, detail=False):
         d = {
             "id": self.id,
@@ -82,6 +98,8 @@ class CertificateAuthority(db.Model):
             "parent_id": self.parent_id,
             "not_before": iso(self.not_before),
             "not_after": iso(self.not_after),
+            "days_until_expiry": self.days_until_expiry,
+            "expiry_status": self.expiry_status,
             "is_revoked": self.is_revoked,
             "has_private_key": self.has_private_key,
             "has_signing_key": self.has_signing_key,
