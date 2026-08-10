@@ -42,6 +42,10 @@ class TestConfig(Config):
     # across the session would make unrelated tests flaky — pin it off here and
     # test it with an explicit config (see test_rate_limiting).
     RATE_LIMIT_ENABLED = False
+    # PKI-2: OCSP response cache off in tests for determinism — the differential
+    # HSM OCSP tests re-sign and compare, so a cache must not return the first
+    # result. The cache itself is exercised in test_crl_ocsp_availability.
+    OCSP_RESPONSE_CACHE_TTL_SECONDS = 0
 
 
 @pytest.fixture(scope="session")

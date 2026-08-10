@@ -59,6 +59,17 @@ class Config:
     # 0 disables the cache (decrypt every request).
     OCSP_KEY_CACHE_TTL_SECONDS = int(os.environ.get("OCSP_KEY_CACHE_TTL_SECONDS") or "300")
 
+    # PKI-2: cache the SIGNED OCSP response per (CA, serial, status) for this
+    # many seconds so an unauthenticated flood doesn't re-sign on every request.
+    # Status is part of the cache key and read fresh, so a revoked cert is never
+    # answered GOOD from cache. 0 disables.
+    OCSP_RESPONSE_CACHE_TTL_SECONDS = int(os.environ.get("OCSP_RESPONSE_CACHE_TTL_SECONDS") or "60")
+
+    # PKI-1: validity window stamped into a generated CRL (nextUpdate = now +
+    # this many days). Raise it to reduce how often CRLs expire; cron
+    # `flask crl refresh` to keep published CRLs fresh.
+    CRL_VALIDITY_DAYS = int(os.environ.get("CRL_VALIDITY_DAYS") or "7")
+
     # A1: default backend for NEW CA signing keys. "software" (Fernet-encrypted,
     # today's behaviour) or "softhsm" (key held in a PKCS#11 token). Existing CAs
     # keep whatever backend they were created with, per-CA.

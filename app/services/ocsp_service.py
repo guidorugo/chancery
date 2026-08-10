@@ -1,3 +1,5 @@
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 from cryptography import x509
@@ -9,6 +11,48 @@ from ..models.ca import CertificateAuthority
 from .keybackend import backend_for_ca, OcspResponseSpec
 
 OCSP_RESPONSE_VALIDITY_HOURS = 24
+
+
+class _OcspResponseCache:
+    """Short-TTL cache of signed OCSP responses (PKI-2).
+
+    Keyed by (ca_id, serial, is_revoked, hash-alg). The status is part of the
+    key and re-read from the DB on every request, so a revoked certificate is
+    never answered GOOD from cache — the stale GOOD entry is simply never
+    matched again. Bounds the per-request asymmetric signing an unauthenticated
+    flood would otherwise cause.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._entries = {}
+
+    def get(self, key, ttl):
+        if ttl <= 0:
+            return None
+        now = time.monotonic()
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            der, expires_at = entry
+            if now >= expires_at:
+                del self._entries[key]
+                return None
+            return der
+
+    def put(self, key, der, ttl):
+        if ttl <= 0:
+            return
+        with self._lock:
+            self._entries[key] = (der, time.monotonic() + ttl)
+
+    def clear(self):
+        with self._lock:
+            self._entries.clear()
+
+
+_response_cache = _OcspResponseCache()
 
 _ALLOWED_OCSP_HASHES = (
     hashes.SHA1, hashes.SHA224, hashes.SHA256, hashes.SHA384, hashes.SHA512,
@@ -76,6 +120,19 @@ def build_ocsp_response(ocsp_request_der: bytes, ca, passphrase: str) -> bytes:
     if subject is None:
         return _unauthorized()
 
+    # PKI-2: serve a recent signed response from cache when available. The
+    # status is part of the key (read fresh above), so a revoked cert is never
+    # answered GOOD from cache.
+    cache_key = (ca.id, serial_hex, bool(subject.is_revoked), algorithm.name)
+    try:
+        from flask import current_app
+        cache_ttl = current_app.config.get("OCSP_RESPONSE_CACHE_TTL_SECONDS", 60)
+    except RuntimeError:
+        cache_ttl = 60
+    cached = _response_cache.get(cache_key, cache_ttl)
+    if cached is not None:
+        return cached
+
     ca_cert_der = x509.load_pem_x509_certificate(
         ca.certificate_pem.encode()
     ).public_bytes(serialization.Encoding.DER)
@@ -107,4 +164,6 @@ def build_ocsp_response(ocsp_request_der: bytes, ca, passphrase: str) -> bytes:
         revocation_reason=revocation_reason,
         algorithm=algorithm,
     )
-    return backend_for_ca(ca).sign_ocsp(spec, ca, secret=passphrase)
+    der = backend_for_ca(ca).sign_ocsp(spec, ca, secret=passphrase)
+    _response_cache.put(cache_key, der, cache_ttl)
+    return der

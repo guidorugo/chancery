@@ -163,3 +163,40 @@ def unlock_user(username):
     auth_service.clear_lockout(user)
     db.session.commit()
     click.echo(f"Cleared lockout for {username!r}.")
+
+
+crl_cli = AppGroup("crl", help="CRL utilities.")
+
+
+@crl_cli.command("refresh")
+@click.option("--all", "refresh_all", is_flag=True,
+              help="Regenerate every signing CA's CRL, not only expired ones.")
+def crl_refresh(refresh_all):
+    """Regenerate CRLs whose nextUpdate has passed (PKI-1).
+
+    Cron this (e.g. daily) to keep published CRLs fresh without a built-in
+    scheduler; --all forces regeneration regardless of expiry.
+    """
+    from datetime import datetime, timezone
+    from cryptography import x509
+    from .models.ca import CertificateAuthority
+    from .services import crl_service
+
+    secret = current_app.config["MASTER_PASSPHRASE"]
+    now = datetime.now(timezone.utc)
+    refreshed = 0
+    for ca in CertificateAuthority.query.filter_by(is_revoked=False).all():
+        if not ca.has_signing_key:
+            continue
+        stale = True
+        if not refresh_all and ca.crl_pem:
+            try:
+                nu = x509.load_pem_x509_crl(ca.crl_pem.encode()).next_update_utc
+                stale = nu is None or nu <= now
+            except Exception:
+                stale = True
+        if refresh_all or stale:
+            crl_service.generate_crl(ca, secret)
+            refreshed += 1
+            click.echo(f"Refreshed CRL for [{ca.id}] {ca.name}")
+    click.echo(f"Done. {refreshed} CRL(s) refreshed.")
