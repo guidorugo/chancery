@@ -27,7 +27,7 @@
                                 <label for="key_type" class="form-label">Key Type
                                     <span class="field-info" data-bs-toggle="tooltip" title="RSA is widely compatible. EC (Elliptic Curve) offers smaller keys with equivalent security.">!</span>
                                 </label>
-                                <select class="form-select" id="key_type" name="key_type" onchange="updateKeySizes()">
+                                <select class="form-select" id="key_type" name="key_type">
                                     <option value="RSA">RSA</option>
                                     <option value="EC">EC</option>
                                 </select>
@@ -116,7 +116,7 @@
                     <label for="cert_profile" class="form-label">Certificate Profile
                         <span class="field-info" data-bs-toggle="tooltip" title="Preset profiles configure Key Usage and Extended Key Usage for common scenarios.">!</span>
                     </label>
-                    <select class="form-select" id="cert_profile" onchange="applyProfile()">
+                    <select class="form-select" id="cert_profile">
                         <option value="webServer" selected>Web Server</option>
                         <option value="clientAuth">Client Auth</option>
                         <option value="email">Email / S-MIME</option>
@@ -129,25 +129,25 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-check">
-                                <input class="form-check-input ku-check" type="checkbox" name="ku_digital_signature" id="ku_digital_signature" checked onchange="syncProfile()">
+                                <input class="form-check-input ku-check" type="checkbox" name="ku_digital_signature" id="ku_digital_signature" checked>
                                 <label class="form-check-label" for="ku_digital_signature">Digital Signature</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input ku-check" type="checkbox" name="ku_key_encipherment" id="ku_key_encipherment" checked onchange="syncProfile()">
+                                <input class="form-check-input ku-check" type="checkbox" name="ku_key_encipherment" id="ku_key_encipherment" checked>
                                 <label class="form-check-label" for="ku_key_encipherment">Key Encipherment</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input ku-check" type="checkbox" name="ku_content_commitment" id="ku_content_commitment" onchange="syncProfile()">
+                                <input class="form-check-input ku-check" type="checkbox" name="ku_content_commitment" id="ku_content_commitment">
                                 <label class="form-check-label" for="ku_content_commitment">Content Commitment</label>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-check">
-                                <input class="form-check-input ku-check" type="checkbox" name="ku_data_encipherment" id="ku_data_encipherment" onchange="syncProfile()">
+                                <input class="form-check-input ku-check" type="checkbox" name="ku_data_encipherment" id="ku_data_encipherment">
                                 <label class="form-check-label" for="ku_data_encipherment">Data Encipherment</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input ku-check" type="checkbox" name="ku_key_agreement" id="ku_key_agreement" onchange="syncProfile()">
+                                <input class="form-check-input ku-check" type="checkbox" name="ku_key_agreement" id="ku_key_agreement">
                                 <label class="form-check-label" for="ku_key_agreement">Key Agreement</label>
                             </div>
                         </div>
@@ -158,29 +158,29 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="form-check">
-                                <input class="form-check-input eku-check" type="checkbox" name="eku_serverAuth" id="eku_serverAuth" checked onchange="syncProfile()">
+                                <input class="form-check-input eku-check" type="checkbox" name="eku_serverAuth" id="eku_serverAuth" checked>
                                 <label class="form-check-label" for="eku_serverAuth">Server Auth (TLS)</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input eku-check" type="checkbox" name="eku_clientAuth" id="eku_clientAuth" checked onchange="syncProfile()">
+                                <input class="form-check-input eku-check" type="checkbox" name="eku_clientAuth" id="eku_clientAuth" checked>
                                 <label class="form-check-label" for="eku_clientAuth">Client Auth</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input eku-check" type="checkbox" name="eku_codeSigning" id="eku_codeSigning" onchange="syncProfile()">
+                                <input class="form-check-input eku-check" type="checkbox" name="eku_codeSigning" id="eku_codeSigning">
                                 <label class="form-check-label" for="eku_codeSigning">Code Signing</label>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-check">
-                                <input class="form-check-input eku-check" type="checkbox" name="eku_emailProtection" id="eku_emailProtection" onchange="syncProfile()">
+                                <input class="form-check-input eku-check" type="checkbox" name="eku_emailProtection" id="eku_emailProtection">
                                 <label class="form-check-label" for="eku_emailProtection">Email Protection</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input eku-check" type="checkbox" name="eku_timeStamping" id="eku_timeStamping" onchange="syncProfile()">
+                                <input class="form-check-input eku-check" type="checkbox" name="eku_timeStamping" id="eku_timeStamping">
                                 <label class="form-check-label" for="eku_timeStamping">Time Stamping</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input eku-check" type="checkbox" name="eku_ocspSigning" id="eku_ocspSigning" onchange="syncProfile()">
+                                <input class="form-check-input eku-check" type="checkbox" name="eku_ocspSigning" id="eku_ocspSigning">
                                 <label class="form-check-label" for="eku_ocspSigning">OCSP Signing</label>
                             </div>
                         </div>
@@ -208,7 +208,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 function updateKeySizes() {
     const keyType = document.getElementById('key_type').value;
     const keySizeSelect = document.getElementById('key_size');
@@ -271,6 +271,13 @@ document.getElementById('advancedSettings').addEventListener('show.bs.collapse',
 });
 document.getElementById('advancedSettings').addEventListener('hide.bs.collapse', function() {
     document.getElementById('advancedToggle').innerHTML = '&#9654;';
+});
+
+// TMPL-1: event bindings moved off inline on* handlers (CSP nonce, no unsafe-inline).
+document.getElementById('key_type').addEventListener('change', updateKeySizes);
+document.getElementById('cert_profile').addEventListener('change', applyProfile);
+document.querySelectorAll('.ku-check, .eku-check').forEach(function(cb) {
+    cb.addEventListener('change', syncProfile);
 });
 </script>
 {% endblock %}

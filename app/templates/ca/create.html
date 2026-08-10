@@ -34,7 +34,7 @@
                                 <label for="ca_type" class="form-label">CA Type
                                     <span class="field-info" data-bs-toggle="tooltip" title="Root CA is self-signed. Intermediate CA is signed by a parent CA.">!</span>
                                 </label>
-                                <select class="form-select" id="ca_type" name="ca_type" onchange="toggleParent()">
+                                <select class="form-select" id="ca_type" name="ca_type">
                                     <option value="root">Root CA</option>
                                     <option value="intermediate">Intermediate CA</option>
                                 </select>
@@ -56,7 +56,7 @@
                                         <label for="key_type" class="form-label">Key Type
                                             <span class="field-info" data-bs-toggle="tooltip" title="RSA is widely compatible. EC (Elliptic Curve) offers smaller keys with equivalent security.">!</span>
                                         </label>
-                                        <select class="form-select" id="key_type" name="key_type" onchange="updateKeySizes()">
+                                        <select class="form-select" id="key_type" name="key_type">
                                             <option value="RSA">RSA</option>
                                             <option value="EC">EC</option>
                                         </select>
@@ -169,11 +169,11 @@
             <div class="mb-3">
                 <span class="form-label me-3">Source format:</span>
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="import_format" id="fmt_pem" value="pem" checked onchange="toggleImportFormat()">
+                    <input class="form-check-input" type="radio" name="import_format" id="fmt_pem" value="pem" checked>
                     <label class="form-check-label" for="fmt_pem">PEM</label>
                 </div>
                 <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="import_format" id="fmt_p12" value="pkcs12" onchange="toggleImportFormat()">
+                    <input class="form-check-input" type="radio" name="import_format" id="fmt_p12" value="pkcs12">
                     <label class="form-check-label" for="fmt_p12">PKCS#12 (.p12/.pfx)</label>
                 </div>
             </div>
@@ -284,7 +284,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 function toggleParent() {
     const caType = document.getElementById('ca_type').value;
     document.getElementById('parent_div').style.display = caType === 'intermediate' ? 'block' : 'none';
@@ -386,5 +386,12 @@ function detectParent() {
         statusEl.className = 'form-text';
     });
 }
+
+// TMPL-1: event bindings moved off inline on* handlers (CSP nonce, no unsafe-inline).
+var _caType = document.getElementById('ca_type'); if (_caType) _caType.addEventListener('change', toggleParent);
+var _keyType = document.getElementById('key_type'); if (_keyType) _keyType.addEventListener('change', updateKeySizes);
+document.querySelectorAll('input[name="import_format"]').forEach(function(r) {
+    r.addEventListener('change', toggleImportFormat);
+});
 </script>
 {% endblock %}
