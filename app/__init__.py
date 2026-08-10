@@ -218,14 +218,19 @@ def _check_security(app):
     insecure_secret = Config._INSECURE_SECRET_KEY
     insecure_passphrase = Config._INSECURE_PASSPHRASE
 
-    if app.config.get("SECRET_KEY") == insecure_secret:
-        print("FATAL: SECRET_KEY is set to the insecure default. "
-              "Set a strong SECRET_KEY environment variable.", file=sys.stderr)
+    # CORE-2: reject empty/blank as well as the literal insecure default — an
+    # empty secret file (e.g. truncated on disk) must not boot silently. An
+    # empty MASTER_PASSPHRASE would encrypt every CA key under an empty KDF input.
+    secret = app.config.get("SECRET_KEY")
+    if not secret or not secret.strip() or secret == insecure_secret:
+        print("FATAL: SECRET_KEY is unset, blank, or the insecure default. "
+              "Set a strong SECRET_KEY.", file=sys.stderr)
         sys.exit(1)
 
-    if app.config.get("MASTER_PASSPHRASE") == insecure_passphrase:
-        print("FATAL: MASTER_PASSPHRASE is set to the insecure default. "
-              "Set a strong MASTER_PASSPHRASE environment variable.", file=sys.stderr)
+    passphrase = app.config.get("MASTER_PASSPHRASE")
+    if not passphrase or not passphrase.strip() or passphrase == insecure_passphrase:
+        print("FATAL: MASTER_PASSPHRASE is unset, blank, or the insecure default. "
+              "Set a strong MASTER_PASSPHRASE.", file=sys.stderr)
         sys.exit(1)
 
     # NOTE: the ADMIN_PASSWORD insecure-default guard lives in

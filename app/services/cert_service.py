@@ -88,6 +88,11 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
     enforce_public_key_strength(csr.public_key())  # B5
 
     now = datetime.now(timezone.utc)
+    # PKI-4: refuse issuance from an expired (but not-yet-revoked) CA with a
+    # clear error, rather than an opaque 500 or a silently ultra-short cert.
+    _ca_na = ca.not_after if ca.not_after.tzinfo else ca.not_after.replace(tzinfo=timezone.utc)
+    if _ca_na <= now:
+        raise ValueError("The issuing CA has expired and can no longer issue certificates.")
     not_after = bounded_not_after(now, validity_days, ca.not_after)  # B4
     serial = x509.random_serial_number()
 
@@ -260,6 +265,11 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
     subject = _build_subject(subject_attrs)
 
     now = datetime.now(timezone.utc)
+    # PKI-4: refuse issuance from an expired (but not-yet-revoked) CA with a
+    # clear error, rather than an opaque 500 or a silently ultra-short cert.
+    _ca_na = ca.not_after if ca.not_after.tzinfo else ca.not_after.replace(tzinfo=timezone.utc)
+    if _ca_na <= now:
+        raise ValueError("The issuing CA has expired and can no longer issue certificates.")
     not_after = bounded_not_after(now, validity_days, ca.not_after)  # B4
     serial = x509.random_serial_number()
 

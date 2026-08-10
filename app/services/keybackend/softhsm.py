@@ -53,7 +53,15 @@ class Pkcs11Backend(KeyBackend):
         if ca.key_type == "RSA":
             return "RSA", None
         if ca.key_type == "EC":
-            return "EC", _EC_CURVE_BY_SIZE[ca.key_size]()
+            # HSM-1: fail with a clear error (not a raw KeyError) for an EC curve
+            # the backend doesn't support — otherwise `keys migrate-to-hsm` would
+            # scrub the software key and then brick the CA on first sign.
+            curve_cls = _EC_CURVE_BY_SIZE.get(ca.key_size)
+            if curve_cls is None:
+                raise ValueError(
+                    f"EC key on an unsupported curve (size {ca.key_size}); the HSM "
+                    "backend supports P-256, P-384, and P-521 only.")
+            return "EC", curve_cls()
         raise ValueError("Unsupported CA key type for the HSM backend.")
 
     def _throwaway_key(self, ca):

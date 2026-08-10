@@ -253,6 +253,15 @@ def reject(csr_id):
         flash("CSR not found.", "danger")
         return redirect(url_for("csr.list_csrs"))
 
+    # API-5: only a pending CSR can be rejected. Without this guard an already
+    # approved CSR could be flipped to "rejected" while its issued certificate
+    # stays live — a misleading, inconsistent state.
+    if csr_model.status != "pending":
+        if wants_json():
+            return api_error("This CSR has already been processed.", 409)
+        flash("This CSR has already been processed.", "warning")
+        return redirect(url_for("csr.detail", csr_id=csr_id))
+
     csr_model.status = "rejected"
     audit_service.log_action("reject_csr", target_type="csr", target_id=csr_id)
     db.session.commit()
