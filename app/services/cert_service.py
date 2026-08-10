@@ -399,6 +399,27 @@ def export_certificate_der(certificate):
     return cert.public_bytes(serialization.Encoding.DER)
 
 
+def export_chain_pem(certificate):
+    """The issuing CA chain only (issuer -> ... -> root), PEM, no leaf.
+
+    Suitable for a web server's `ssl_trusted_certificate` / `chain.pem`. All
+    public material, so callable over GET.
+    """
+    from .ca_service import get_ca_chain
+    return get_ca_chain(certificate.ca)
+
+
+def export_fullchain_pem(certificate):
+    """Leaf certificate + issuing CA chain (leaf -> intermediates -> root), PEM.
+
+    The classic `fullchain.pem` that nginx/apache/haproxy expect. Public
+    material only (no private key), so callable over GET.
+    """
+    from .ca_service import get_ca_chain
+    leaf = certificate.certificate_pem.rstrip("\n")
+    return leaf + "\n" + get_ca_chain(certificate.ca)
+
+
 def export_pkcs12(certificate, passphrase, export_password):
     cert = x509.load_pem_x509_certificate(certificate.certificate_pem.encode())
 
