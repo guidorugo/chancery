@@ -70,7 +70,7 @@
             <div class="card-header bg-warning text-dark">Private Key (save now!)</div>
             <div class="card-body">
                 <pre class="bg-body-tertiary p-2" style="max-height:200px;overflow:auto;font-size:0.75rem">{{ key_pem }}</pre>
-                <button class="btn btn-sm btn-outline-secondary" onclick="copyKey()">Copy to Clipboard</button>
+                <button id="copyKeyBtn" class="btn btn-sm btn-outline-secondary">Copy to Clipboard</button>
             </div>
         </div>
         {% endif %}
@@ -80,10 +80,11 @@
 
 {% block scripts %}
 {% if key_pem is defined and key_pem %}
-<script>
+<script nonce="{{ csp_nonce }}">
 function copyKey() {
     navigator.clipboard.writeText({{ key_pem|tojson }});
 }
+document.getElementById('copyKeyBtn').addEventListener('click', copyKey);
 </script>
 {% endif %}
 {% endblock %}

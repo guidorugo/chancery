@@ -63,7 +63,7 @@
                                 <label for="key_type" class="form-label">Key Type
                                     <span class="field-info" data-bs-toggle="tooltip" title="RSA is widely compatible. EC (Elliptic Curve) offers smaller keys with equivalent security.">!</span>
                                 </label>
-                                <select class="form-select" id="key_type" name="key_type" onchange="updateKeySizes()">
+                                <select class="form-select" id="key_type" name="key_type">
                                     <option value="RSA">RSA</option>
                                     <option value="EC">EC</option>
                                 </select>
@@ -113,7 +113,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 function updateKeySizes() {
     const keyType = document.getElementById('key_type').value;
     const keySizeSelect = document.getElementById('key_size');
@@ -126,5 +126,8 @@ function updateKeySizes() {
         keySizeSelect.add(new Option('384', '384'));
     }
 }
+
+// TMPL-1: binding moved off the inline onchange handler.
+document.getElementById('key_type').addEventListener('change', updateKeySizes);
 </script>
 {% endblock %}

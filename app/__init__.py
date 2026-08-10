@@ -328,20 +328,32 @@ def _validate_key_backend_config(app):
 
 def _setup_security_headers(app):
     """Add security response headers to all responses."""
+    import secrets
+
+    @app.before_request
+    def _set_csp_nonce():
+        # TMPL-1: a per-request nonce authorises exactly the inline <script>
+        # blocks our templates emit, so 'unsafe-inline' can be dropped from
+        # script-src (inline event handlers were moved to addEventListener).
+        g.csp_nonce = secrets.token_urlsafe(16)
+
+    @app.context_processor
+    def _inject_csp_nonce():
+        return {"csp_nonce": g.get("csp_nonce", "")}
 
     @app.after_request
     def set_security_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        # E2: restrict resource origins, frame embedding, and base URI. Bootstrap
-        # is served from jsdelivr; 'unsafe-inline' is retained because several
-        # templates use inline <script> and on* handlers — a future step is to
-        # nonce those and drop 'unsafe-inline'. object/frame-ancestors are locked
-        # down and base-uri is pinned regardless.
+        # E2/TMPL-1: restrict resource origins, frame embedding, and base URI.
+        # script-src uses a per-request nonce (no 'unsafe-inline'); style-src
+        # keeps 'unsafe-inline' for the handful of inline style="" attributes
+        # (far lower risk than script). object/frame-ancestors are locked down.
+        nonce = g.get("csp_nonce", "")
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; "
-            "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+            f"script-src 'self' https://cdn.jsdelivr.net 'nonce-{nonce}'; "
             "style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
             "img-src 'self' data:; "
             "font-src 'self' https://cdn.jsdelivr.net; "
