@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import expiry_badge %}
 {% block title %}{{ ca.name }} - Cert Manager{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center">
@@ -67,7 +68,7 @@
                         {% else %}Not stored (certificate-only import){% endif %}
                     </td></tr>
                     <tr><th>Valid From</th><td>{{ ca.not_before.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
-                    <tr><th>Valid Until</th><td>{{ ca.not_after.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
+                    <tr><th>Valid Until</th><td>{{ ca.not_after.strftime('%Y-%m-%d %H:%M UTC') }}{{ expiry_badge(ca) }}</td></tr>
                     <tr><th>Path Length</th><td>{{ ca.path_length if ca.path_length is not none else "Unlimited" }}</td></tr>
                     <tr><th>CRL Number</th><td>{{ ca.crl_number }}</td></tr>
                     <tr><th>Created</th><td>{{ ca.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
@@ -150,7 +151,7 @@
                     <span class="badge bg-success">Active</span>
                     {% endif %}
                 </td>
-                <td>{{ cert.not_after.strftime('%Y-%m-%d') }}</td>
+                <td>{{ cert.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(cert) }}</td>
                 <td>
                     <a href="{{ url_for('certificates.detail', cert_id=cert.id) }}" class="btn btn-sm btn-outline-primary">View</a>
                 </td>
@@ -174,7 +175,7 @@
             <tr>
                 <td><a href="{{ url_for('ca.detail', ca_id=child.id) }}">{{ child.name }}</a></td>
                 <td>{{ child.common_name }}</td>
-                <td>{{ child.not_after.strftime('%Y-%m-%d') }}</td>
+                <td>{{ child.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(child) }}</td>
             </tr>
             {% endfor %}
             </tbody>

@@ -88,6 +88,10 @@ class Config:
     # change-password page (incl. the forced first-login change).
     MIN_PASSWORD_LENGTH = int(os.environ.get("MIN_PASSWORD_LENGTH") or "12")
 
+    # A certificate/CA is flagged "expiring soon" this many days before its
+    # notAfter (dashboard counts, list/detail badges, JSON API, `flask certs`).
+    CERT_EXPIRY_WARNING_DAYS = int(os.environ.get("CERT_EXPIRY_WARNING_DAYS") or "30")
+
     # Opt-in "newer release available?" check shown in the footer. Off by
     # default so a hardened / air-gapped CA never makes an outbound call. When
     # on, the latest GitHub release tag is fetched at most once per interval

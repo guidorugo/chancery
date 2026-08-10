@@ -1,0 +1,10 @@
+{# Expiry badge for a Certificate or CA (both expose is_revoked / expiry_status /
+   days_until_expiry). Renders nothing for revoked or still-valid objects. #}
+{% macro expiry_badge(obj) -%}
+  {%- if not obj.is_revoked -%}
+    {%- set st = obj.expiry_status -%}
+    {%- if st == 'expired' %} <span class="badge bg-danger" title="Certificate has expired">Expired</span>
+    {%- elif st == 'expiring_soon' %} <span class="badge bg-warning text-dark" title="Expiring soon">{{ obj.days_until_expiry }}d left</span>
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro %}

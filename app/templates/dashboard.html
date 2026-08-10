@@ -22,6 +22,17 @@
         </div>
     </div>
     <div class="col-md-3">
+        <div class="card text-bg-warning mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Expiring Soon</h5>
+                <p class="card-text display-6">{{ stats.cert_expiring_soon }}</p>
+                {% if stats.cert_expired %}
+                <p class="card-text small mb-0">{{ stats.cert_expired }} already expired</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
         <div class="card text-bg-danger mb-3">
             <div class="card-body">
                 <h5 class="card-title">Revoked Certificates</h5>

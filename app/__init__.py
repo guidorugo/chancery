@@ -51,8 +51,9 @@ def create_app(config_class=Config):
     app.register_blueprint(public_bp)
     app.register_blueprint(users_bp)
 
-    from .cli import keys_cli
+    from .cli import keys_cli, certs_cli
     app.cli.add_command(keys_cli)
+    app.cli.add_command(certs_cli)
 
     with app.app_context():
         from . import models  # noqa: F401

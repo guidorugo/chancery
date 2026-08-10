@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import expiry_badge %}
 {% block title %}Certificates - Cert Manager{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center">
@@ -32,7 +33,7 @@
                 <span class="badge bg-success">Active</span>
                 {% endif %}
             </td>
-            <td>{{ cert.not_after.strftime('%Y-%m-%d') }}</td>
+            <td>{{ cert.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(cert) }}</td>
             <td>
                 <a href="{{ url_for('certificates.detail', cert_id=cert.id) }}" class="btn btn-sm btn-outline-primary">View</a>
                 {% if current_user.is_admin and not cert.is_revoked %}
