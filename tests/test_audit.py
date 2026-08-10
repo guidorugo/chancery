@@ -25,7 +25,7 @@ class TestAuditLogging:
         assert "non***" in entry.details
 
     def test_logout_logged(self, auth_admin, admin_user, db):
-        auth_admin.get("/auth/logout")
+        auth_admin.post("/auth/logout")
         entry = AuditLog.query.filter_by(action="logout").first()
         assert entry is not None
         assert entry.username == "testadmin"

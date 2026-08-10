@@ -67,12 +67,15 @@ def login():
 
         if result.reason == auth_service.REASON_DEACTIVATED:
             flash("Your account has been deactivated.", "danger")
-        elif result.reason == auth_service.REASON_LOCKED:
-            flash("Too many failed attempts — this account is temporarily locked. Try again later.", "danger")
         elif result.reason == auth_service.REASON_LDAP_UNREACHABLE:
             flash("Directory service is unavailable. Try again later or use a local account.", "danger")
         else:
-            flash("Invalid username or password.", "danger")
+            # AUTH-2: one generic message for both invalid credentials AND a
+            # lockout, so the login response can't be used to enumerate which
+            # local usernames exist or are locked. The specific reason
+            # (REASON_LOCKED / REASON_INVALID) is still recorded in the audit log.
+            flash("Invalid username or password. If you have made several failed "
+                  "attempts, please wait and try again later.", "danger")
 
     return render_template("auth/login.html")
 
@@ -114,7 +117,7 @@ def change_password():
     return render_template("auth/change_password.html", forced=forced, min_len=min_len)
 
 
-@auth_bp.route("/logout")
+@auth_bp.route("/logout", methods=["POST"])
 @login_required
 def logout():
     audit_service.log_action("logout", target_type="user", target_id=current_user.id)

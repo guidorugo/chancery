@@ -875,7 +875,7 @@ class TestAuthRoutes:
         assert b"Invalid username or password" in resp.data
 
     def test_logout(self, auth_admin):
-        resp = auth_admin.get("/auth/logout", follow_redirects=True)
+        resp = auth_admin.post("/auth/logout", follow_redirects=True)
         assert resp.status_code == 200
         assert b"logged out" in resp.data
 

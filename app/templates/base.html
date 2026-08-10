@@ -75,7 +75,12 @@
                     </li>
                     {% endif %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('auth.logout') }}">Logout</a>
+                        {# TMPL-3: logout is state-changing, so POST it with a CSRF token
+                           (a GET link is forgeable via <img src=.../auth/logout>). #}
+                        <form method="POST" action="{{ url_for('auth.logout') }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="nav-link btn btn-link p-0 border-0" style="text-decoration:none">Logout</button>
+                        </form>
                     </li>
                 </ul>
             </div>
