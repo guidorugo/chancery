@@ -121,6 +121,8 @@ The footer shows an **"Update available"** badge when a newer GitHub release exi
 docker compose exec app flask certs recompute-expiry
 ```
 
+Upgrading to **2.6.0** raises the auto-generated SoftHSM token PINs to 32 characters for *new* deployments; existing tokens keep their current PINs. To rotate an existing deployment to the stronger length, follow the **SoftHSM PIN migration** guide in the [v2.6.0 release notes](https://github.com/guidorugo/cert-manager/releases/tag/v2.6.0) — the user PIN rotates in place; the SO PIN needs a freshly-initialised token when it holds non-extractable keys.
+
 ## Running behind TLS (production)
 
 The app serves plain HTTP; **terminate TLS with a reverse proxy** (finding E1). A ready-to-use Caddy example is in `deploy/`:
