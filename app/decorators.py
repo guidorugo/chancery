@@ -1,7 +1,9 @@
 from functools import wraps
 
-from flask import flash, g, jsonify, redirect, url_for
+from flask import flash, jsonify, redirect, url_for
 from flask_login import current_user, login_required
+
+from .responses import wants_json
 
 
 def role_required(*roles):
@@ -11,7 +13,9 @@ def role_required(*roles):
         @login_required
         def decorated_function(*args, **kwargs):
             if current_user.role not in roles:
-                if getattr(g, "basic_auth_used", False):
+                # API-4: any JSON client (Basic Auth or Accept: application/json)
+                # gets a JSON 403; browsers get the flash + redirect.
+                if wants_json():
                     return jsonify({"error": "You do not have permission to access this resource."}), 403
                 flash("You do not have permission to access this page.", "danger")
                 return redirect(url_for("dashboard.index"))
@@ -26,7 +30,7 @@ def admin_required(f):
     @login_required
     def decorated_function(*args, **kwargs):
         if not current_user.is_admin:
-            if getattr(g, "basic_auth_used", False):
+            if wants_json():
                 return jsonify({"error": "You do not have permission to access this resource."}), 403
             flash("You do not have permission to access this page.", "danger")
             return redirect(url_for("dashboard.index"))
