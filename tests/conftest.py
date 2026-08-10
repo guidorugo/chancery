@@ -34,6 +34,10 @@ class TestConfig(Config):
     # The test client runs over HTTP; secure cookies would not persist, so
     # opt out (mirrors the plain-HTTP reference deployment).
     SESSION_COOKIE_SECURE = False
+    # UPDATE_CHECK_ENABLED ships on by default, but the suite must stay offline
+    # and deterministic — the footer context processor calls check() on every
+    # render. Tests that want it on use an explicit config (see test_update_check).
+    UPDATE_CHECK_ENABLED = False
 
 
 @pytest.fixture(scope="session")

@@ -55,10 +55,10 @@ services:
       - LDAP_GROUP_MEMBER_ATTR=${LDAP_GROUP_MEMBER_ATTR:-}
       - LDAP_TIMEOUT_SECONDS=${LDAP_TIMEOUT_SECONDS:-}
       - BASIC_AUTH_CACHE_TTL_SECONDS=${BASIC_AUTH_CACHE_TTL_SECONDS:-}
-      # Opt-in footer "Update available" badge — checks the latest GitHub
-      # release (off by default so the CA makes no outbound call). Enable in
-      # .env with UPDATE_CHECK_ENABLED=true.
-      - UPDATE_CHECK_ENABLED=${UPDATE_CHECK_ENABLED:-false}
+      # Footer "Update available" badge — checks the latest GitHub release.
+      # On by default; set UPDATE_CHECK_ENABLED=false in .env for an air-gapped
+      # CA that must make no outbound call.
+      - UPDATE_CHECK_ENABLED=${UPDATE_CHECK_ENABLED:-true}
       - UPDATE_CHECK_REPO=${UPDATE_CHECK_REPO:-}
     secrets:
       - master_passphrase
