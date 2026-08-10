@@ -165,6 +165,17 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
     subject = _build_subject(subject_attrs)
     parent_cert = x509.load_pem_x509_certificate(parent_ca.certificate_pem.encode())
 
+    # PKI-6: honour the parent's pathLenConstraint so the issued intermediate
+    # actually chain-validates. pathLen<=0 forbids any sub-CA; otherwise the
+    # child's budget is at most parent-1 (clamp a larger / unlimited request).
+    if parent_ca.path_length is not None:
+        if parent_ca.path_length <= 0:
+            raise ValueError(
+                "The parent CA's path length is 0 — it cannot issue a sub-CA.")
+        allowed = parent_ca.path_length - 1
+        if path_length is None or path_length > allowed:
+            path_length = allowed
+
     now = datetime.now(timezone.utc)
     # B4: bound to the CA maximum and never outlive the parent CA.
     not_after = bounded_not_after(now, validity_days, parent_ca.not_after, is_ca=True)

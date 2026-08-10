@@ -36,7 +36,7 @@ def test_guard_blocks_other_pages_until_changed(client, must_change_admin):
 
 def test_logout_still_allowed_while_must_change(client, must_change_admin):
     _login(client, "bootstrapadmin", "seedpass123456")
-    resp = client.get("/auth/logout", follow_redirects=False)
+    resp = client.post("/auth/logout", follow_redirects=False)
     assert resp.status_code == 302
     assert "/auth/login" in resp.headers["Location"]
 
