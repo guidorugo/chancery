@@ -369,3 +369,51 @@ def test_create_ca_route_selects_hsm_backend(client, admin_user, app, db, hsm_co
         ca = ca_service.CertificateAuthority.query.filter_by(name="UI HSM Root").first()
         assert ca is not None and ca.key_backend == "softhsm"
         assert ca.private_key_enc == b"" and ca.has_signing_key
+
+
+# --- HSM-3 / CORE-3 robustness ----------------------------------------------
+
+def test_core3_verify_signing_key_rsa_ok(app, db, hsm_config):
+    with app.app_context():
+        ca = ca_service.create_root_ca(
+            name="Verify RSA", subject_attrs={"CN": "Verify RSA"},
+            key_type="RSA", key_size=2048, validity_days=3650, passphrase=PASSPHRASE)
+        Pkcs11Backend().import_ca_key(
+            decrypt_private_key(ca.private_key_enc, PASSPHRASE), label="verify-rsa")
+        # CORE-3: a correctly-imported key signs-and-verifies (no exception).
+        Pkcs11Backend().verify_signing_key(_hsm_ca(ca, "verify-rsa"))
+
+
+def test_core3_verify_signing_key_ec_ok(app, db, hsm_config):
+    with app.app_context():
+        ca = ca_service.create_root_ca(
+            name="Verify EC", subject_attrs={"CN": "Verify EC"},
+            key_type="EC", key_size=256, validity_days=3650, passphrase=PASSPHRASE)
+        Pkcs11Backend().import_ca_key(
+            decrypt_private_key(ca.private_key_enc, PASSPHRASE), label="verify-ec")
+        Pkcs11Backend().verify_signing_key(_hsm_ca(ca, "verify-ec"))
+
+
+def test_core3_verify_signing_key_raises_when_token_key_missing(app, db, hsm_config):
+    with app.app_context():
+        ca = ca_service.create_root_ca(
+            name="Verify Missing", subject_attrs={"CN": "Verify Missing"},
+            key_type="RSA", key_size=2048, validity_days=3650, passphrase=PASSPHRASE)
+        # No key imported under this label -> verification must fail (so
+        # migrate-to-hsm would NOT scrub the software copy).
+        with pytest.raises(Exception):
+            Pkcs11Backend().verify_signing_key(_hsm_ca(ca, "no-such-label"))
+
+
+def test_hsm3_session_cleared_on_error_and_reopens(app, db, hsm_config):
+    with app.app_context():
+        # Force an error inside session_scope: the dead handle must be dropped.
+        with pytest.raises(RuntimeError):
+            with pkcs11_session.session_scope() as s:
+                assert s is not None and pkcs11_session._session is not None
+                raise RuntimeError("boom")
+        assert pkcs11_session._session is None          # HSM-3: cleared
+        # A subsequent scope re-opens cleanly instead of failing forever.
+        with pkcs11_session.session_scope() as s2:
+            assert s2 is not None
+        assert pkcs11_session._session is not None

@@ -216,6 +216,25 @@ class Pkcs11Backend(KeyBackend):
     def load_public_key(self, ca):
         return x509.load_pem_x509_certificate(ca.certificate_pem.encode()).public_key()
 
+    def verify_signing_key(self, ca):
+        """CORE-3: prove the token holds a usable signing key for this CA by
+        signing a random nonce and verifying it against the CA certificate's
+        public key. Raises on failure — `keys migrate-to-hsm` calls this BEFORE
+        scrubbing the software copy, so a silent/partial import can't brick the CA.
+        """
+        import os
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding, ec as _ec
+
+        key_type, _ = self._ca_key_info(ca)
+        public_key = self.load_public_key(ca)
+        nonce = os.urandom(32)
+        signature = self._hsm_sign(nonce, ca)  # signs SHA-256(nonce) in the token
+        if key_type == "RSA":
+            public_key.verify(signature, nonce, padding.PKCS1v15(), hashes.SHA256())
+        else:
+            public_key.verify(signature, nonce, _ec.ECDSA(hashes.SHA256()))
+
     # -- signing -------------------------------------------------------------
     def sign_certificate(self, builder, ca, *, secret=None) -> bytes:
         der = builder.sign(self._throwaway_key(ca), hashes.SHA256()).public_bytes(

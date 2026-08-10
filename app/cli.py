@@ -66,6 +66,9 @@ def migrate_to_hsm(ca_id, dry_run, yes):
         backend.import_ca_key(key, label=label, secret=secret)
         ca.key_backend = "softhsm"
         ca.key_label = label
+        # CORE-3: prove the token can actually sign for this CA BEFORE destroying
+        # the only software copy — a silent/partial import must not brick it.
+        backend.verify_signing_key(ca)
         ca.private_key_enc = b""
         db.session.add(ca)
         db.session.commit()
