@@ -57,7 +57,19 @@ def session_scope():
     with _session_lock:
         if _session is None:
             _session = _open_session()
-        yield _session
+        try:
+            yield _session
+        except Exception:
+            # HSM-3: a token/session error (e.g. CKR_SESSION_HANDLE_INVALID after
+            # the token was re-initialised or the store replaced) leaves the
+            # cached handle dead. Drop it so the next call re-opens a fresh
+            # session instead of failing for the rest of the worker's lifetime.
+            try:
+                _session.close()
+            except Exception:
+                pass
+            _session = None
+            raise
 
 
 def reset():
