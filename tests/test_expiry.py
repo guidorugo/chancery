@@ -150,3 +150,40 @@ def test_dashboard_recent_certs_show_expires_and_highlight_near_expiry(app, auth
     r = auth_admin.get("/")
     assert b"<th>Expires</th>" in r.data          # new expiration column
     assert b"table-warning" in r.data             # near-expiry row highlighted
+
+
+# ---- status badge reflects expiry, not just revocation --------------------
+
+def test_cert_list_status_shows_expired_not_active(app, auth_admin, db):
+    """Regression: an expired, non-revoked cert shows 'Expired', not green 'Active'."""
+    with app.app_context():
+        cert = _cert(_ca("ExpiredLeafCA"), cn="expired-status.example.com")
+        cert.not_after = _naive_utc(-3)               # already past notAfter
+        db.session.commit()
+    r = auth_admin.get("/certificates/")
+    assert r.status_code == 200
+    assert b"expired-status.example.com" in r.data
+    assert b'bg-success">Active' not in r.data        # the bug: expired shown as Active
+    assert b">Expired<" in r.data
+
+
+def test_ca_list_status_shows_expired_not_active(app, auth_admin, db):
+    """Regression: an expired, non-revoked CA shows 'Expired', not green 'Active'."""
+    with app.app_context():
+        ca = _ca("ExpiredRootCA", validity_days=3650)
+        ca.not_after = _naive_utc(-1)                 # force expiry
+        db.session.commit()
+    r = auth_admin.get("/ca/")
+    assert r.status_code == 200
+    assert b'bg-success">Active' not in r.data
+    assert b">Expired<" in r.data
+
+
+def test_valid_cert_still_shows_active(app, auth_admin, db):
+    """Control: a valid, non-revoked cert still shows the green 'Active' badge."""
+    with app.app_context():
+        _cert(_ca("ActiveLeafCA"), cn="active-status.example.com")   # ~365d -> valid
+        db.session.commit()
+    r = auth_admin.get("/certificates/")
+    assert r.status_code == 200
+    assert b'bg-success">Active' in r.data

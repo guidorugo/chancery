@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import status_badge %}
 {% block title %}Dashboard - Cert Manager{% endblock %}
 {% block content %}
 <h2>Dashboard</h2>
@@ -64,11 +65,7 @@
                         <td><a href="{{ url_for('ca.detail', ca_id=ca.id) }}">{{ ca.name }}</a></td>
                         <td>{{ "Root" if ca.is_root else "Intermediate" }}</td>
                         <td>
-                            {% if ca.is_revoked %}
-                            <span class="badge bg-danger">Revoked</span>
-                            {% else %}
-                            <span class="badge bg-success">Active</span>
-                            {% endif %}
+                            {{ status_badge(ca) }}
                         </td>
                         <td>{{ ca.created_at.strftime('%Y-%m-%d') }}</td>
                     </tr>
@@ -97,11 +94,7 @@
                     <tr{% if not cert.is_revoked and cert.days_until_expiry is not none and cert.days_until_expiry <= 15 %} class="table-warning"{% endif %}>
                         <td><a href="{{ url_for('certificates.detail', cert_id=cert.id) }}">{{ cert.common_name }}</a></td>
                         <td>
-                            {% if cert.is_revoked %}
-                            <span class="badge bg-danger">Revoked</span>
-                            {% else %}
-                            <span class="badge bg-success">Active</span>
-                            {% endif %}
+                            {{ status_badge(cert) }}
                         </td>
                         <td>{{ cert.created_at.strftime('%Y-%m-%d') }}</td>
                         <td>{{ cert.not_after.strftime('%Y-%m-%d') }}</td>

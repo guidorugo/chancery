@@ -8,3 +8,15 @@
     {%- endif -%}
   {%- endif -%}
 {%- endmacro %}
+
+{# Full status badge (Revoked > Expired > Active) for a Certificate or CA.
+   Use in a "Status" column; for the notAfter column use expiry_badge instead. #}
+{% macro status_badge(obj) -%}
+  {%- if obj.is_revoked -%}
+    <span class="badge bg-danger">Revoked</span>
+  {%- elif obj.expiry_status == 'expired' -%}
+    <span class="badge bg-secondary" title="Past its expiry date">Expired</span>
+  {%- else -%}
+    <span class="badge bg-success">Active</span>
+  {%- endif -%}
+{%- endmacro %}
