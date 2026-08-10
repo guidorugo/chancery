@@ -76,16 +76,16 @@ fi
 #    docker-compose.yml, so these are always generated. Never overwrite an
 #    existing PIN (it belongs to an already-initialised token).
 if [ ! -f secrets/pkcs11_user_pin ]; then
-  rand_pin 6 > secrets/pkcs11_user_pin
+  rand_alnum 20 > secrets/pkcs11_user_pin
   chmod 600 secrets/pkcs11_user_pin
-  note "created secrets/pkcs11_user_pin (random 6-digit)"
+  note "created secrets/pkcs11_user_pin (random 20-char alphanumeric)"
 else
   note "secrets/pkcs11_user_pin already exists — left unchanged"
 fi
 if [ ! -f secrets/pkcs11_so_pin ]; then
-  rand_pin 8 > secrets/pkcs11_so_pin
+  rand_alnum 20 > secrets/pkcs11_so_pin
   chmod 600 secrets/pkcs11_so_pin
-  note "created secrets/pkcs11_so_pin (random 8-digit)"
+  note "created secrets/pkcs11_so_pin (random 20-char alphanumeric)"
 else
   note "secrets/pkcs11_so_pin already exists — left unchanged"
 fi

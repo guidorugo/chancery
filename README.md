@@ -93,6 +93,34 @@ export MASTER_PASSPHRASE=dev-passphrase
 flask --app "app:create_app()" run --debug
 ```
 
+## Updating
+
+Your data (`./data` — SQLite DB, encrypted CA keys, SoftHSM token) and secrets (`./secrets/`) live in volumes and **survive an update**. **Schema changes apply automatically on startup** (idempotent `ALTER TABLE`), so upgrading is just: fetch the new version and restart. Back up first:
+
+```bash
+cp -a data data.bak && cp -a secrets secrets.bak
+```
+
+**Docker (built from source):**
+
+```bash
+git pull
+docker compose up -d --build      # rebuild; schema auto-migrates on boot
+```
+
+**Pre-built image (GHCR)** — if `docker-compose.yml` uses `image:` instead of `build:`:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+The footer shows an **"Update available"** badge when a newer GitHub release exists (on by default; set `UPDATE_CHECK_ENABLED=false` to disable the outbound check). Check the [release notes](https://github.com/guidorugo/cert-manager/releases) for any **one-time commands** a version needs — e.g. after upgrading to **2.5.0**, correct the stored expiry on certificates issued by older versions:
+
+```bash
+docker compose exec app flask certs recompute-expiry
+```
+
 ## Running behind TLS (production)
 
 The app serves plain HTTP; **terminate TLS with a reverse proxy** (finding E1). A ready-to-use Caddy example is in `deploy/`:
