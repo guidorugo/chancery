@@ -203,3 +203,72 @@ def crl_refresh(refresh_all):
             refreshed += 1
             click.echo(f"Refreshed CRL for [{ca.id}] {ca.name}")
     click.echo(f"Done. {refreshed} CRL(s) refreshed.")
+
+
+metrics_cli = AppGroup("metrics-token", help="Prometheus /metrics bearer-token management (2.7.0).")
+
+
+@metrics_cli.command("create")
+@click.option("--name", required=True, help="Unique, human-readable token name.")
+@click.option("--expires-in-days", type=int, required=True,
+              help="Days until the token expires (required, must be > 0).")
+def create_metrics_token(name, expires_in_days):
+    """Create a dedicated /metrics bearer token. The secret is printed ONCE.
+
+    The token is valid only for GET /metrics — it is not a user account and
+    grants no other access. Scrape with an `Authorization: Bearer <token>`
+    header (never Basic auth / `-u`).
+    """
+    from datetime import datetime, timedelta, timezone
+    from .services import metrics_token_service
+
+    if expires_in_days <= 0:
+        raise click.ClickException("--expires-in-days must be a positive integer.")
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_in_days)).replace(tzinfo=None)
+    try:
+        plaintext, row = metrics_token_service.create(name, expires_at)
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
+
+    click.echo(f"Created metrics token '{row.name}' (expires {row.expires_at.date()} UTC).")
+    click.echo("")
+    click.echo(f"    {plaintext}")
+    click.echo("")
+    click.echo("This secret is shown ONCE and cannot be recovered — store it now.")
+
+
+@metrics_cli.command("list")
+def list_metrics_tokens():
+    """List metrics tokens and their status (never shows the secret)."""
+    from .services import metrics_token_service
+
+    tokens = metrics_token_service.list_all()
+    if not tokens:
+        click.echo("No metrics tokens.")
+        return
+    click.echo(f"{'ID':>3}  {'NAME':<20} {'STATUS':<8} {'EXPIRES':<11} "
+               f"{'LAST USED':<17} TOKEN-ID")
+    for t in tokens:
+        last = t.last_used_at.strftime("%Y-%m-%d %H:%M") if t.last_used_at else "-"
+        exp = t.expires_at.strftime("%Y-%m-%d") if t.expires_at else "-"
+        click.echo(f"{t.id:>3}  {t.name[:20]:<20} {t.status:<8} {exp:<11} "
+                   f"{last:<17} {t.token_id}")
+
+
+@metrics_cli.command("revoke")
+@click.argument("name_or_id")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def revoke_metrics_token(name_or_id, yes):
+    """Revoke a metrics token by NAME_OR_ID (it stops working immediately)."""
+    from .services import metrics_token_service
+
+    row = metrics_token_service.get(name_or_id)
+    if row is None:
+        raise click.ClickException(f"No metrics token matching {name_or_id!r}.")
+    if row.revoked:
+        click.echo(f"Token '{row.name}' is already revoked.")
+        return
+    if not yes:
+        click.confirm(f"Revoke metrics token '{row.name}'?", abort=True)
+    metrics_token_service.revoke(row.id)
+    click.echo(f"Revoked metrics token '{row.name}'.")

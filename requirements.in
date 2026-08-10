@@ -16,3 +16,5 @@ python-pkcs11==0.9.5
 asn1crypto==1.5.1
 # DoS-1: rate limiting is enabled by default (RATE_LIMIT_ENABLED=true)
 Flask-Limiter==4.1.1
+# Prometheus /metrics endpoint (only imported when METRICS_ENABLED=true)
+prometheus-client==0.21.1

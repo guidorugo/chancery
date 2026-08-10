@@ -12,6 +12,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Revocation**: Revoke certificates with standard reasons, generate CRLs
 - **OCSP Responder**: Built-in OCSP endpoint for real-time certificate status checks
 - **Public Endpoints**: Unauthenticated access to CRL downloads and CA certificates
+- **Monitoring**: `/health` liveness probe and an opt-in Prometheus `/metrics` endpoint (dedicated bearer token, minimal exposure)
 - **Role-Based Access Control**: Admin and CSR User roles with enforced separation of duties
 - **Audit Logging**: Every sensitive action logged with user, timestamp, IP, and details
 - **User Management**: Admin UI for creating users, assigning roles, and managing accounts
@@ -375,6 +376,34 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
+## Monitoring & Metrics
+
+`GET /health` is an unauthenticated liveness probe (cheap `SELECT 1` → `200`/`503`, JSON only) wired to the Docker healthcheck.
+
+`GET /metrics` exposes Prometheus metrics. It is **off by default** (returns `404`); enable with `METRICS_ENABLED=true`. When enabled it requires a **dedicated bearer token** — distinct from any user account, valid only for `/metrics`, with a required name and expiry, individually revocable, and stored only as a hash:
+
+```bash
+# The secret is printed ONCE — store it now.
+docker compose exec app flask metrics-token create --name prometheus --expires-in-days 90
+docker compose exec app flask metrics-token list
+docker compose exec app flask metrics-token revoke prometheus
+```
+
+Prometheus scrape config:
+
+```yaml
+scrape_configs:
+  - job_name: cert-manager
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials: cmt_xxxxxxxx_your_token_here
+    static_configs:
+      - targets: ["cert-manager.example.com:5000"]
+```
+
+Exposure is **minimal by default**: certificate/CA counts by state, per-CA expiry and **CRL `nextUpdate`** timestamps (keyed by opaque `ca_id`), CSR/user/audit gauges, and `cert_manager_build_info`. CA names, subject CNs, and key details are **not** exposed unless you set `METRICS_INCLUDE_CA_DETAILS=true` (adds `cert_manager_ca_info`). For an isolated network, `METRICS_ALLOW_UNAUTHENTICATED=true` skips the token. Authenticate scrapes with the **bearer token**, never HTTP Basic auth (a Basic credential is rejected, and would otherwise cost a password hash per scrape).
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -401,6 +430,9 @@ python -m pytest tests/ -v
 | `MIN_RSA_KEY_SIZE` | `2048` | Minimum accepted RSA key size |
 | `OCSP_KEY_CACHE_TTL_SECONDS` | `300` | In-memory TTL for the decrypted CA key used by OCSP (`0` disables) |
 | `UPDATE_CHECK_ENABLED` | `false` | Show a footer "Update available" badge when a newer GitHub release exists (opt-in; makes an outbound call) |
+| `METRICS_ENABLED` | `false` | Expose the Prometheus `/metrics` endpoint (opt-in; returns 404 until enabled) |
+| `METRICS_ALLOW_UNAUTHENTICATED` | `false` | Serve `/metrics` without a bearer token (isolated networks only) |
+| `METRICS_INCLUDE_CA_DETAILS` | `false` | Add a `cert_manager_ca_info` metric with CA names/CNs/key details (default: opaque `ca_id` + counts only) |
 | `UPDATE_CHECK_REPO` | `guidorugo/cert-manager` | Repository to check for the latest release |
 | `UPDATE_CHECK_INTERVAL_SECONDS` | `21600` | Cache TTL for the update check (6h) |
 | `MASTER_PASSPHRASE_FILE` / `SECRET_KEY_FILE` / `ADMIN_PASSWORD_FILE` | – | Read the secret from a file (Docker/systemd secret) instead of the env var |

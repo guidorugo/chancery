@@ -67,6 +67,11 @@ services:
       # CA that must make no outbound call.
       - UPDATE_CHECK_ENABLED=${UPDATE_CHECK_ENABLED:-true}
       - UPDATE_CHECK_REPO=${UPDATE_CHECK_REPO:-}
+      # Prometheus /metrics endpoint (2.7.0; opt-in, off by default). Manage
+      # bearer tokens with `docker compose exec app flask metrics-token create`.
+      - METRICS_ENABLED=${METRICS_ENABLED:-false}
+      - METRICS_ALLOW_UNAUTHENTICATED=${METRICS_ALLOW_UNAUTHENTICATED:-false}
+      - METRICS_INCLUDE_CA_DETAILS=${METRICS_INCLUDE_CA_DETAILS:-false}
     secrets:
       - master_passphrase
       - pkcs11_user_pin

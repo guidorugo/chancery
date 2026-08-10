@@ -118,6 +118,16 @@ class Config:
     UPDATE_CHECK_INTERVAL_SECONDS = int(os.environ.get("UPDATE_CHECK_INTERVAL_SECONDS") or "21600")
     UPDATE_CHECK_TIMEOUT_SECONDS = int(os.environ.get("UPDATE_CHECK_TIMEOUT_SECONDS") or "4")
 
+    # Prometheus /metrics endpoint (2.7.0). Opt-in and OFF by default (404 until
+    # enabled). When enabled, a dedicated bearer token (see `flask metrics-token`)
+    # is REQUIRED unless METRICS_ALLOW_UNAUTHENTICATED is set for an isolated
+    # network. METRICS_INCLUDE_CA_DETAILS adds a `cert_manager_ca_info` metric
+    # exposing CA names / subject CNs / key details — off by default, so the
+    # default output is opaque ca_id + aggregate counts only.
+    METRICS_ENABLED = os.environ.get("METRICS_ENABLED", "false").lower() == "true"
+    METRICS_ALLOW_UNAUTHENTICATED = os.environ.get("METRICS_ALLOW_UNAUTHENTICATED", "false").lower() == "true"
+    METRICS_INCLUDE_CA_DETAILS = os.environ.get("METRICS_INCLUDE_CA_DETAILS", "false").lower() == "true"
+
     BASIC_AUTH_ENABLED = os.environ.get("BASIC_AUTH_ENABLED", "true").lower() == "true"
     BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "cert-manager")
     # Verified Basic Auth credentials are cached in memory for this many

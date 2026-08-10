@@ -405,6 +405,10 @@ packaging==26.3 \
     # via
     #   gunicorn
     #   limits
+prometheus-client==0.21.1 \
+    --hash=sha256:252505a722ac04b0456be05c05f75f45d760c2911ffc45f2a06bcaed9f3ae3fb \
+    --hash=sha256:594b45c410d6f4f8888940fe80b5cc2521b305a1fafe1c58609ef715a001f301
+    # via -r requirements.in
 pyasn1==0.6.4 \
     --hash=sha256:9c447d8431c947fe4c8febc4ed9e760bc29011a5b01e5c74b67025bd9fb8ce81 \
     --hash=sha256:deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b
