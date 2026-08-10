@@ -14,5 +14,5 @@ ldap3==2.9.1
 # A1 SoftHSM/PKCS#11 key backend (only used when KEY_BACKEND=softhsm)
 python-pkcs11==0.9.5
 asn1crypto==1.5.1
-# Optional: uncomment to enable rate limiting
-# Flask-Limiter==4.1.1
+# DoS-1: rate limiting is enabled by default (RATE_LIMIT_ENABLED=true)
+Flask-Limiter==4.1.1
