@@ -113,7 +113,15 @@ def test_footer_no_badge_when_up_to_date():
 
 def test_footer_no_badge_when_check_disabled():
     _seed("v99.0.0")
-    # default TestConfig has UPDATE_CHECK_ENABLED unset/false
+    # TestConfig pins UPDATE_CHECK_ENABLED=False (the ship default is now True).
     resp = create_app(TestConfig).test_client().get("/auth/login")
     assert resp.status_code == 200
     assert b"Update available" not in resp.data
+
+
+def test_update_check_on_by_default():
+    """The shipped Config default enables the check (unless the env overrides)."""
+    import os
+    from app.config import Config
+    if "UPDATE_CHECK_ENABLED" not in os.environ:
+        assert Config.UPDATE_CHECK_ENABLED is True
