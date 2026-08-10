@@ -4,44 +4,41 @@
 <h2>Dashboard</h2>
 
 {% if current_user.is_admin %}
-<div class="row mt-4 justify-content-center">
-    <div class="col-md-3">
-        <div class="card text-bg-primary mb-3">
+<div class="row row-cols-2 row-cols-lg-5 g-3 mt-1">
+    <div class="col">
+        <div class="card text-bg-primary h-100">
             <div class="card-body">
                 <h5 class="card-title">Active CAs</h5>
                 <p class="card-text display-6">{{ stats.ca_count }}</p>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card text-bg-success mb-3">
+    <div class="col">
+        <div class="card text-bg-success h-100">
             <div class="card-body">
                 <h5 class="card-title">Active Certificates</h5>
                 <p class="card-text display-6">{{ stats.cert_active }}</p>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card text-bg-warning mb-3">
+    <div class="col">
+        <div class="card text-bg-warning h-100">
             <div class="card-body">
                 <h5 class="card-title">Expiring Soon</h5>
                 <p class="card-text display-6">{{ stats.cert_expiring_soon }}</p>
-                {% if stats.cert_expired %}
-                <p class="card-text small mb-0">{{ stats.cert_expired }} already expired</p>
-                {% endif %}
             </div>
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card text-bg-danger mb-3">
+    <div class="col">
+        <div class="card text-bg-danger h-100">
             <div class="card-body">
                 <h5 class="card-title">Revoked Certificates</h5>
                 <p class="card-text display-6">{{ stats.cert_revoked }}</p>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card text-bg-warning mb-3">
+    <div class="col">
+        <div class="card text-bg-warning h-100">
             <div class="card-body">
                 <h5 class="card-title">Pending CSRs</h5>
                 <p class="card-text display-6">{{ stats.csr_pending }}</p>
@@ -93,10 +90,11 @@
             <div class="card-body">
                 {% if recent_certs %}
                 <table class="table table-sm">
-                    <thead><tr><th>CN</th><th>Status</th><th>Created</th></tr></thead>
+                    <thead><tr><th>CN</th><th>Status</th><th>Created</th><th>Expires</th></tr></thead>
                     <tbody>
                     {% for cert in recent_certs %}
-                    <tr>
+                    {# highlight rows for certs expiring within 15 days (or already past) #}
+                    <tr{% if not cert.is_revoked and cert.days_until_expiry is not none and cert.days_until_expiry <= 15 %} class="table-warning"{% endif %}>
                         <td><a href="{{ url_for('certificates.detail', cert_id=cert.id) }}">{{ cert.common_name }}</a></td>
                         <td>
                             {% if cert.is_revoked %}
@@ -106,6 +104,7 @@
                             {% endif %}
                         </td>
                         <td>{{ cert.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td>{{ cert.not_after.strftime('%Y-%m-%d') }}</td>
                     </tr>
                     {% endfor %}
                     </tbody>
