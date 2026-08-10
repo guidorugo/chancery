@@ -24,6 +24,9 @@ instance/
 .vscode/
 .idea/
 
+# Local Claude Code settings (per-developer; not shared config)
+.claude/
+
 # pytest
 .pytest_cache/
 

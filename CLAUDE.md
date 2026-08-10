@@ -50,7 +50,7 @@ python -m pytest tests/ -v
 - **Triggers**: PRs → tests only. Push to `master` → tests + image build for validation (**not published**). `v*` tags → tests + build + **publish** (semver tags + `latest`). Publishing is gated to release tags so a merge never auto-pushes an image.
 - **Registry**: `ghcr.io/guidorugo/cert-manager` — uses `GITHUB_TOKEN`, no extra secrets needed.
 - **`.dockerignore`**: Excludes `venv/`, `tests/`, `.env`, `.git/`, etc. from the Docker build context.
-- **Supply-chain hardening** (findings H2/I1/I2/J1/J2): Actions are **SHA-pinned** (comment = version); base image is **digest-pinned** in the Dockerfile; deps are **hash-locked** (`--require-hashes`); CI runs **pip-audit** (weekly cron too) and **Trivy** (fs + image scan); release images are **cosign-signed** (keyless OIDC) with **SLSA provenance + SBOM**. Pins are bumped by **Dependabot** (`.github/dependabot.yml`).
+- **Supply-chain hardening** (findings H2/I1/I2/J1/J2): Actions are **SHA-pinned** (comment = version); base image is **digest-pinned** in the Dockerfile; deps are **hash-locked** (`--require-hashes`); CI runs **pip-audit** (weekly cron too, blocking) and a **Trivy image scan** (report-only, on release tags); release images are **cosign-signed** (keyless OIDC) with **SLSA provenance + SBOM**. Pins are bumped by **Dependabot** (`.github/dependabot.yml`).
 - **Dependencies**: `requirements.in` is the human-edited source; `requirements.txt` is the generated hash-locked lockfile. After editing `requirements.in`, regenerate: `docker run --rm -v "$PWD:/w" -w /w python:3.13-slim sh -c "pip install pip-tools && pip-compile --generate-hashes --output-file=requirements.txt requirements.in"`.
 
 ## Key Design Decisions
