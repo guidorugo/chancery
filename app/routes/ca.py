@@ -195,6 +195,10 @@ def create():
                     return jsonify(ca.to_dict(detail=True)), 201
                 flash(f"CA '{ca.name}' created successfully.", "success")
                 return redirect(url_for("ca.detail", ca_id=ca.id))
+            except ValueError as e:
+                # Invalid input (e.g. a bad subject field or out-of-range
+                # validity) — surface the reason as a 400, not a generic 500.
+                return _err(str(e))
             except Exception:
                 logger.exception("Error creating CA")
                 return _err("An unexpected error occurred while creating the CA.", 500)

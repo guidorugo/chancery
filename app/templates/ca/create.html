@@ -136,7 +136,7 @@
                                 <label for="country" class="form-label">Country (C)
                                     <span class="field-info" data-bs-toggle="tooltip" title="Two-letter ISO 3166-1 country code (e.g. US, DE, GB).">!</span>
                                 </label>
-                                <input type="text" class="form-control" id="country" name="country" maxlength="2" placeholder="US">
+                                <input type="text" class="form-control" id="country" name="country" maxlength="2" pattern="[A-Za-z]{2}" title="Two-letter ISO 3166 country code, e.g. US" placeholder="US">
                             </div>
                             <div class="mb-3">
                                 <label for="state" class="form-label">State (ST)

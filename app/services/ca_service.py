@@ -5,12 +5,13 @@ from datetime import datetime, timedelta, timezone
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
-from cryptography.x509.oid import NameOID, ExtensionOID
+from cryptography.x509.oid import ExtensionOID
 
 from ..extensions import db
 from ..models.ca import CertificateAuthority
 from .crypto_utils import encrypt_private_key, decrypt_private_key
-from .policy import enforce_key_strength, enforce_public_key_strength, bounded_not_after
+from .policy import (enforce_key_strength, enforce_public_key_strength,
+                     bounded_not_after, build_subject)
 from .keybackend import get_backend, backend_for_ca, default_backend_name
 
 
@@ -48,22 +49,6 @@ def _generate_key(key_type: str, key_size: int):
     raise ValueError(f"Unsupported key type: {key_type}")
 
 
-def _build_subject(attrs: dict) -> x509.Name:
-    name_attrs = []
-    mapping = {
-        "CN": NameOID.COMMON_NAME,
-        "O": NameOID.ORGANIZATION_NAME,
-        "OU": NameOID.ORGANIZATIONAL_UNIT_NAME,
-        "C": NameOID.COUNTRY_NAME,
-        "ST": NameOID.STATE_OR_PROVINCE_NAME,
-        "L": NameOID.LOCALITY_NAME,
-    }
-    for key, oid in mapping.items():
-        if attrs.get(key):
-            name_attrs.append(x509.NameAttribute(oid, attrs[key]))
-    return x509.Name(name_attrs)
-
-
 def _get_hash_algorithm(key):
     if isinstance(key, ec.EllipticCurvePrivateKey):
         return hashes.SHA256()
@@ -79,7 +64,7 @@ def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passp
     public_key, key_ref = kb.generate_ca_key(
         key_type, key_size, label=label, secret=passphrase)
 
-    subject = _build_subject(subject_attrs)
+    subject = build_subject(subject_attrs)
     now = datetime.now(timezone.utc)
     not_after = bounded_not_after(now, validity_days, is_ca=True)  # B4
     serial = x509.random_serial_number()
@@ -162,7 +147,7 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
     public_key, key_ref = child_kb.generate_ca_key(
         key_type, key_size, label=label, secret=passphrase)
 
-    subject = _build_subject(subject_attrs)
+    subject = build_subject(subject_attrs)
     parent_cert = x509.load_pem_x509_certificate(parent_ca.certificate_pem.encode())
 
     # PKI-6: honour the parent's pathLenConstraint so the issued intermediate

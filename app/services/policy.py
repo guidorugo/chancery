@@ -7,7 +7,9 @@ not a security boundary.
 from datetime import timedelta, timezone
 
 from flask import current_app
+from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from cryptography.x509.oid import NameOID
 
 
 def _cfg(key, default):
@@ -64,3 +66,48 @@ def bounded_not_after(now, validity_days, ca_not_after=None, is_ca=False):
         if not_after > ca_na:
             not_after = ca_na
     return not_after
+
+
+# Subject attributes we accept, in canonical order, each with its OID and a
+# human label. cryptography enforces X.520 length limits on some of these
+# (COUNTRY_NAME must be exactly 2, COMMON_NAME 1..64) and raises a terse,
+# field-less ValueError — e.g. "Attribute's length must be >= 2 and <= 2, but
+# it was 1" for a one-letter country. We validate here, in the service layer,
+# so every caller (web form, Basic-Auth/JSON API, CLI, or a direct service
+# call) gets a message that names the offending field.
+_SUBJECT_ATTRS = (
+    ("CN", "Common Name", NameOID.COMMON_NAME),
+    ("O", "Organization", NameOID.ORGANIZATION_NAME),
+    ("OU", "Organizational Unit", NameOID.ORGANIZATIONAL_UNIT_NAME),
+    ("C", "Country", NameOID.COUNTRY_NAME),
+    ("ST", "State/Province", NameOID.STATE_OR_PROVINCE_NAME),
+    ("L", "Locality", NameOID.LOCALITY_NAME),
+)
+
+
+def build_subject(attrs):
+    """Validate subject attributes and build an ``x509.Name``.
+
+    Raises ``ValueError`` with a field-named message (the create routes surface
+    it as a 400) instead of letting cryptography's terse length error bubble up
+    as an opaque 500. Empty/omitted fields are skipped; values are stripped.
+    """
+    name_attrs = []
+    for key, label, oid in _SUBJECT_ATTRS:
+        raw = attrs.get(key)
+        value = raw.strip() if isinstance(raw, str) else raw
+        if not value:
+            continue
+        if key == "C" and len(value) != 2:
+            raise ValueError(
+                f"{label} (C) must be the two-letter ISO 3166 country code, "
+                f"e.g. US, DE, GB (got '{value}')."
+            )
+        try:
+            name_attrs.append(x509.NameAttribute(oid, value))
+        except ValueError as exc:
+            # Safety net for any other constraint cryptography enforces (e.g. a
+            # Common Name over 64 chars, or a value it cannot encode): name the
+            # field so the caller knows which one to fix.
+            raise ValueError(f"{label} ({key}) is invalid: {exc}") from exc
+    return x509.Name(name_attrs)

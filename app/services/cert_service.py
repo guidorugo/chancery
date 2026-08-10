@@ -5,12 +5,13 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from cryptography.hazmat.primitives.serialization import pkcs12, BestAvailableEncryption
-from cryptography.x509.oid import NameOID, ExtensionOID, ExtendedKeyUsageOID
+from cryptography.x509.oid import ExtensionOID, ExtendedKeyUsageOID
 
 from ..extensions import db
 from ..models.certificate import Certificate
 from .crypto_utils import encrypt_private_key, decrypt_private_key
-from .policy import enforce_key_strength, enforce_public_key_strength, bounded_not_after
+from .policy import (enforce_key_strength, enforce_public_key_strength,
+                     bounded_not_after, build_subject)
 from .keybackend import backend_for_ca
 
 
@@ -22,22 +23,6 @@ def _generate_key(key_type: str, key_size: int):
         curves = {256: ec.SECP256R1(), 384: ec.SECP384R1(), 521: ec.SECP521R1()}
         return ec.generate_private_key(curves[key_size])
     raise ValueError(f"Unsupported key type: {key_type}")
-
-
-def _build_subject(attrs: dict) -> x509.Name:
-    name_attrs = []
-    mapping = {
-        "CN": NameOID.COMMON_NAME,
-        "O": NameOID.ORGANIZATION_NAME,
-        "OU": NameOID.ORGANIZATIONAL_UNIT_NAME,
-        "C": NameOID.COUNTRY_NAME,
-        "ST": NameOID.STATE_OR_PROVINCE_NAME,
-        "L": NameOID.LOCALITY_NAME,
-    }
-    for key, oid in mapping.items():
-        if attrs.get(key):
-            name_attrs.append(x509.NameAttribute(oid, attrs[key]))
-    return x509.Name(name_attrs)
 
 
 def _build_san(san_list: list) -> x509.SubjectAlternativeName:
@@ -262,7 +247,7 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
     ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
 
     key = _generate_key(key_type, key_size)
-    subject = _build_subject(subject_attrs)
+    subject = build_subject(subject_attrs)
 
     now = datetime.now(timezone.utc)
     # PKI-4: refuse issuance from an expired (but not-yet-revoked) CA with a

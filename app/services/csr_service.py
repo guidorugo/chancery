@@ -3,11 +3,11 @@ import json
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
-from cryptography.x509.oid import NameOID
 
 from ..extensions import db
 from ..models.csr import CertificateSigningRequest
 from .crypto_utils import encrypt_private_key
+from .policy import build_subject
 
 
 def _generate_key(key_type: str, key_size: int):
@@ -17,22 +17,6 @@ def _generate_key(key_type: str, key_size: int):
         curves = {256: ec.SECP256R1(), 384: ec.SECP384R1(), 521: ec.SECP521R1()}
         return ec.generate_private_key(curves[key_size])
     raise ValueError(f"Unsupported key type: {key_type}")
-
-
-def _build_subject(attrs: dict) -> x509.Name:
-    name_attrs = []
-    mapping = {
-        "CN": NameOID.COMMON_NAME,
-        "O": NameOID.ORGANIZATION_NAME,
-        "OU": NameOID.ORGANIZATIONAL_UNIT_NAME,
-        "C": NameOID.COUNTRY_NAME,
-        "ST": NameOID.STATE_OR_PROVINCE_NAME,
-        "L": NameOID.LOCALITY_NAME,
-    }
-    for key, oid in mapping.items():
-        if attrs.get(key):
-            name_attrs.append(x509.NameAttribute(oid, attrs[key]))
-    return x509.Name(name_attrs)
 
 
 def _build_san_extensions(san_list):
@@ -55,7 +39,7 @@ def _build_san_extensions(san_list):
 
 def create_csr(subject_attrs, san_list=None, key_type="RSA", key_size=2048, passphrase=None, created_by=None):
     key = _generate_key(key_type, key_size)
-    subject = _build_subject(subject_attrs)
+    subject = build_subject(subject_attrs)
 
     builder = x509.CertificateSigningRequestBuilder().subject_name(subject)
 

@@ -108,6 +108,10 @@ def create():
                     "csr/detail.html", csr=csr_model,
                     key_pem=key_pem.decode() if key_pem else None,
                 )
+            except ValueError as e:
+                # Invalid input (e.g. a bad subject field) — surface the
+                # specific reason as a 400 rather than a generic 500.
+                return _err(str(e))
             except Exception:
                 logger.exception("Error creating CSR")
                 return _err("An unexpected error occurred while creating the CSR.", 500)
