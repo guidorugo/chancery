@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import expiry_badge %}
+{% from "_macros.html" import expiry_badge, status_badge %}
 {% block title %}Certificate Authorities - Cert Manager{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center">
@@ -27,11 +27,7 @@
             <td>{{ ca.common_name }}</td>
             <td>{{ "Root" if ca.is_root else "Intermediate" }}</td>
             <td>
-                {% if ca.is_revoked %}
-                <span class="badge bg-danger">Revoked</span>
-                {% else %}
-                <span class="badge bg-success">Active</span>
-                {% endif %}
+                {{ status_badge(ca) }}
             </td>
             <td>{{ ca.key_type }} {{ ca.key_size }}</td>
             <td>{{ ca.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(ca) }}</td>

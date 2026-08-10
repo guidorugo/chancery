@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import expiry_badge %}
+{% from "_macros.html" import expiry_badge, status_badge %}
 {% block title %}{{ cert.common_name }} - Cert Manager{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center">
@@ -50,12 +50,8 @@
                     <tr>
                         <th>Status</th>
                         <td>
-                            {% if cert.is_revoked %}
-                            <span class="badge bg-danger">Revoked</span>
-                            ({{ cert.revocation_reason }}, {{ cert.revoked_at.strftime('%Y-%m-%d %H:%M UTC') }})
-                            {% else %}
-                            <span class="badge bg-success">Active</span>
-                            {% endif %}
+                            {{ status_badge(cert) }}
+                            {% if cert.is_revoked %} ({{ cert.revocation_reason }}, {{ cert.revoked_at.strftime('%Y-%m-%d %H:%M UTC') }}){% endif %}
                         </td>
                     </tr>
                     <tr><th>Private Key</th><td>{{ "Available" if cert.private_key_enc else "Not stored" }}</td></tr>

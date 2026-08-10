@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import expiry_badge %}
+{% from "_macros.html" import expiry_badge, status_badge %}
 {% block title %}{{ ca.name }} - Cert Manager{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center">
@@ -7,6 +7,8 @@
         {{ ca.name }}
         {% if ca.is_revoked %}
         <span class="badge bg-danger">Revoked</span>
+        {% elif ca.expiry_status == 'expired' %}
+        <span class="badge bg-secondary">Expired</span>
         {% endif %}
         {% if not ca.has_signing_key %}
         <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Imported without a private key: cannot issue certificates, sign CRLs, or answer OCSP.">Cert-only</span>
@@ -145,11 +147,7 @@
                 <td><a href="{{ url_for('certificates.detail', cert_id=cert.id) }}">{{ cert.common_name }}</a></td>
                 <td><code>{{ cert.serial_number[:16] }}...</code></td>
                 <td>
-                    {% if cert.is_revoked %}
-                    <span class="badge bg-danger">Revoked</span>
-                    {% else %}
-                    <span class="badge bg-success">Active</span>
-                    {% endif %}
+                    {{ status_badge(cert) }}
                 </td>
                 <td>{{ cert.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(cert) }}</td>
                 <td>
