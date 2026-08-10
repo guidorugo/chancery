@@ -141,3 +141,25 @@ def recompute_expiry(dry_run):
     else:
         db.session.commit()
         click.echo(f"Updated {changed} row(s).")
+
+
+users_cli = AppGroup("users", help="User account utilities.")
+
+
+@users_cli.command("unlock")
+@click.argument("username")
+def unlock_user(username):
+    """Clear a brute-force lockout / failed-attempt counter for USERNAME (AUTH-4).
+
+    Recovery path when an account (including the last admin) is locked out and
+    no second admin is available to use the UI.
+    """
+    from .models.user import User
+    from .services import auth_service
+
+    user = User.query.filter_by(username=username).first()
+    if user is None:
+        raise click.ClickException(f"No user named {username!r}.")
+    auth_service.clear_lockout(user)
+    db.session.commit()
+    click.echo(f"Cleared lockout for {username!r}.")

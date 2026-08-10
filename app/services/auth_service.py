@@ -125,11 +125,26 @@ def _register_failed_attempt(user):
         return
     user.failed_login_count = (user.failed_login_count or 0) + 1
     if user.failed_login_count >= threshold:
-        minutes = current_app.config.get("LOGIN_LOCKOUT_MINUTES", 15)
-        user.locked_until = _now() + timedelta(minutes=minutes)
-        user.failed_login_count = 0
+        if _is_last_active_admin(user):
+            # DoS-2: never hard-lock the sole administrator — otherwise an
+            # unauthenticated attacker could lock the only admin out of the whole
+            # app (a self-DoS). Reset the window and keep serving; the
+            # per-attempt hash cost + a strong password remain the throttle.
+            user.failed_login_count = 0
+        else:
+            minutes = current_app.config.get("LOGIN_LOCKOUT_MINUTES", 15)
+            user.locked_until = _now() + timedelta(minutes=minutes)
+            user.failed_login_count = 0
     db.session.add(user)
     db.session.commit()
+
+
+def _is_last_active_admin(user):
+    """True if `user` is the only remaining active admin (mirrors the deactivate
+    / demote guards in the users routes)."""
+    if user.role != "admin":
+        return False
+    return User.query.filter_by(role="admin", is_active_user=True).count() <= 1
 
 
 def _reset_lockout(user):
@@ -139,6 +154,15 @@ def _reset_lockout(user):
         user.locked_until = None
         db.session.add(user)
         db.session.commit()
+
+
+def clear_lockout(user):
+    """Clear the failure counter and any active lock (AUTH-4: admin unlock,
+    password reset, reactivation). Does NOT commit — the caller commits as part
+    of its own transaction."""
+    user.failed_login_count = 0
+    user.locked_until = None
+    db.session.add(user)
 
 
 def _map_role(groups):
