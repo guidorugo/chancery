@@ -10,7 +10,7 @@ from cryptography.x509.oid import NameOID, ExtensionOID
 from ..extensions import db
 from ..models.ca import CertificateAuthority
 from .crypto_utils import encrypt_private_key, decrypt_private_key
-from .policy import enforce_key_strength, bounded_not_after
+from .policy import enforce_key_strength, enforce_public_key_strength, bounded_not_after
 from .keybackend import get_backend, backend_for_ca, default_backend_name
 
 
@@ -326,6 +326,11 @@ def _import_ca_object(name, cert, private_key, passphrase, parent_id=None):
         path_length = bc.value.path_length
     except x509.ExtensionNotFound:
         raise ValueError("Certificate is missing the BasicConstraints extension. Only CA certificates can be imported.")
+
+    # PKI-7: enforce the key-strength floor on import too (generation and CSR
+    # signing already do), so a weak CA (e.g. RSA-1024 or an off-list curve)
+    # cannot enter the trust hierarchy via the import path.
+    enforce_public_key_strength(cert.public_key())
 
     # Key-cert match (validate the material before database constraints)
     if private_key is not None:

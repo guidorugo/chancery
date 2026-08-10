@@ -58,7 +58,8 @@ def _fetch_latest_tag(repo, timeout):
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 (https)
         data = json.load(resp)
-    return data.get("tag_name")
+    # CORE-4: a non-object body (array/string) would make `.get` raise; guard it.
+    return data.get("tag_name") if isinstance(data, dict) else None
 
 
 def _refresh(repo, timeout):
@@ -66,13 +67,17 @@ def _refresh(repo, timeout):
     latest = None
     try:
         latest = _fetch_latest_tag(repo, timeout)
-    except (URLError, TimeoutError, ValueError, OSError, json.JSONDecodeError):
+    except Exception:
+        # CORE-4: swallow ANY error and always fall through to the finally —
+        # the refresh must never leave `refreshing` stuck True, or this worker
+        # would stop checking for updates for the rest of its lifetime.
         latest = None
-    with _LOCK:
-        if latest:
-            _STATE["latest"] = latest
-        _STATE["checked_at"] = time.time()
-        _STATE["refreshing"] = False
+    finally:
+        with _LOCK:
+            if latest:
+                _STATE["latest"] = latest
+            _STATE["checked_at"] = time.time()
+            _STATE["refreshing"] = False
 
 
 def check(config):

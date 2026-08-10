@@ -74,7 +74,9 @@ class Config:
 
     OCSP_URL_SCHEME = os.environ.get("OCSP_URL_SCHEME", "http")
     PERMANENT_SESSION_LIFETIME = timedelta(
-        minutes=int(os.environ.get("SESSION_LIFETIME_MINUTES", "30"))
+        # CORE-5: `or` fallback so a set-but-empty value (compose passes unset
+        # vars as "") doesn't crash startup with int("").
+        minutes=int(os.environ.get("SESSION_LIFETIME_MINUTES") or "30")
     )
 
     RATE_LIMIT_ENABLED = os.environ.get("RATE_LIMIT_ENABLED", "false").lower() == "true"
