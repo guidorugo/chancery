@@ -140,3 +140,13 @@ def test_cli_recompute_expiry_fixes_wrong_row(app, db):
     assert result.exit_code == 0
     with app.app_context():
         assert db.session.get(Certificate, cid).not_after == real
+
+
+def test_dashboard_recent_certs_show_expires_and_highlight_near_expiry(app, auth_admin, db):
+    with app.app_context():
+        cert = _cert(_ca("DashRowCA"), cn="soon-row.example.com")
+        cert.not_after = _naive_utc(10)          # within 15 days
+        db.session.commit()
+    r = auth_admin.get("/")
+    assert b"<th>Expires</th>" in r.data          # new expiration column
+    assert b"table-warning" in r.data             # near-expiry row highlighted
