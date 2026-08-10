@@ -23,6 +23,9 @@ services:
       # runs behind a reverse proxy, set TRUSTED_PROXY_COUNT to the hop count.
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false}
       - TRUSTED_PROXY_COUNT=${TRUSTED_PROXY_COUNT:-}
+      # DoS-1: per-IP rate limiting (on by default; needs the bundled
+      # Flask-Limiter). Set false to disable, or RATE_LIMIT_DEFAULT to tune.
+      - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
       # --- SoftHSM key backend (finding A1) — enabled by default ----------------
       # CA signing keys can live in a PKCS#11 token (non-exportable, never in app
       # memory). The image bundles softhsm2 (BSD-licensed); the entrypoint

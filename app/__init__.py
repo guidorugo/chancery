@@ -23,6 +23,10 @@ def create_app(config_class=Config):
 
     db.init_app(app)
     login_manager.init_app(app)
+    # DoS-1: set up rate limiting BEFORE Basic Auth so the limiter's
+    # before_request runs first — a flooding IP is rejected with 429 before the
+    # expensive password-hash / audit write inside check_basic_auth.
+    _setup_rate_limiting(app)
     _setup_basic_auth(app)
     csrf.init_app(app)
 
@@ -31,7 +35,6 @@ def create_app(config_class=Config):
     _validate_key_backend_config(app)
     _configure_session(app)
     _setup_security_headers(app)
-    _setup_rate_limiting(app)
     _register_template_context(app)
     _setup_password_change_guard(app)
 

@@ -79,8 +79,11 @@ class Config:
         minutes=int(os.environ.get("SESSION_LIFETIME_MINUTES") or "30")
     )
 
-    RATE_LIMIT_ENABLED = os.environ.get("RATE_LIMIT_ENABLED", "false").lower() == "true"
-    RATE_LIMIT_DEFAULT = os.environ.get("RATE_LIMIT_DEFAULT", "60/minute")
+    # DoS-1: per-IP rate limiting is ON by default (requires Flask-Limiter, now a
+    # pinned dependency). Bounds the unauthenticated Basic-Auth / OCSP flood.
+    # Set false to disable.
+    RATE_LIMIT_ENABLED = (os.environ.get("RATE_LIMIT_ENABLED") or "true").lower() == "true"
+    RATE_LIMIT_DEFAULT = os.environ.get("RATE_LIMIT_DEFAULT") or "60/minute"
     # D1: lock a local account after this many consecutive failed logins, for
     # this many minutes (applies to session login and Basic Auth). 0 disables.
     LOGIN_LOCKOUT_THRESHOLD = int(os.environ.get("LOGIN_LOCKOUT_THRESHOLD") or "5")

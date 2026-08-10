@@ -38,6 +38,10 @@ class TestConfig(Config):
     # and deterministic — the footer context processor calls check() on every
     # render. Tests that want it on use an explicit config (see test_update_check).
     UPDATE_CHECK_ENABLED = False
+    # RATE_LIMIT_ENABLED ships on by default too, but shared per-IP counters
+    # across the session would make unrelated tests flaky — pin it off here and
+    # test it with an explicit config (see test_rate_limiting).
+    RATE_LIMIT_ENABLED = False
 
 
 @pytest.fixture(scope="session")
