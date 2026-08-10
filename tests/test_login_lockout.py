@@ -16,7 +16,10 @@ def _restore_lockout_cfg(app):
 
 
 def _mk_user(db, username, password="rightpass"):
-    u = User(username=username, role="admin", auth_source="local")
+    # csr_requester, not admin: DoS-2 exempts the *last active admin* from hard
+    # lockout, so these lockout-mechanics tests use a non-admin to exercise the
+    # lock path itself (locking is role-agnostic).
+    u = User(username=username, role="csr_requester", auth_source="local")
     u.set_password(password)
     db.session.add(u)
     db.session.commit()

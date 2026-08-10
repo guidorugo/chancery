@@ -6,7 +6,7 @@ from ..extensions import db
 from ..models.user import User
 from ..models.audit_log import AuditLog
 from ..responses import wants_json
-from ..services import audit_service
+from ..services import audit_service, auth_service
 
 users_bp = Blueprint("users", __name__, url_prefix="/users")
 
@@ -104,6 +104,9 @@ def toggle_active(user_id):
             return redirect(url_for("users.list_users"))
 
     user.is_active_user = not user.is_active_user
+    if user.is_active_user:
+        # AUTH-4: reactivating an account also clears any residual lockout.
+        auth_service.clear_lockout(user)
     action = "activate_user" if user.is_active_user else "deactivate_user"
     audit_service.log_action(action, target_type="user", target_id=user.id)
     db.session.commit()
@@ -132,6 +135,9 @@ def reset_password(user_id):
             return render_template("users/reset_password.html", user=user)
 
         user.set_password(new_password)
+        # AUTH-4: a password reset should also lift any brute-force lockout so
+        # the account is immediately usable again.
+        auth_service.clear_lockout(user)
         audit_service.log_action("reset_user_password", target_type="user", target_id=user.id)
         db.session.commit()
         flash(f"Password for '{user.username}' has been reset.", "success")

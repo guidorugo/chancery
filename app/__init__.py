@@ -57,9 +57,10 @@ def create_app(config_class=Config):
     if getattr(app, "limiter", None) is not None:
         app.limiter.exempt(health_bp)
 
-    from .cli import keys_cli, certs_cli
+    from .cli import keys_cli, certs_cli, users_cli
     app.cli.add_command(keys_cli)
     app.cli.add_command(certs_cli)
+    app.cli.add_command(users_cli)
 
     with app.app_context():
         from . import models  # noqa: F401
