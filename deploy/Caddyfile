@@ -3,9 +3,13 @@
 # Set PUBLIC_HOSTNAME in your .env to the name clients use, e.g. ca.example.com.
 # - A public DNS name → Caddy auto-provisions a Let's Encrypt certificate.
 # - A LAN-only name/IP → uncomment `tls internal` for Caddy's self-signed CA.
+# - Your own certificate → uncomment the `tls <cert> <key>` line below and mount
+#   the files (see deploy/docker-compose.tls.yml). Caddy then serves it and does
+#   no ACME; you own renewals.
 {$PUBLIC_HOSTNAME} {
     encode gzip
     # tls internal        # <- uncomment for a LAN-only hostname (self-signed)
+    # tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem   # <- or bring your own (cert.pem = full chain; key.pem unencrypted)
 
     reverse_proxy app:5000 {
         # cert-manager reads the real client IP / host from these when

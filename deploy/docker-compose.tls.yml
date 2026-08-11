@@ -30,6 +30,10 @@ services:
       - PUBLIC_HOSTNAME=${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME to your TLS hostname}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Bring-your-own TLS cert: put cert.pem (full chain) + key.pem (unencrypted)
+      # in deploy/tls/ (gitignored), point the Caddyfile `tls` line at them, and
+      # uncomment this mount:
+      # - ./deploy/tls:/etc/caddy/tls:ro
       - caddy_data:/data
       - caddy_config:/config
     restart: unless-stopped

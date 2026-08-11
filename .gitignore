@@ -12,6 +12,9 @@ venv/
 # Docker secrets (e.g. the master passphrase file)
 secrets/
 
+# Bring-your-own TLS cert/key mounted into Caddy (see deploy/Caddyfile)
+deploy/tls/
+
 # Local compose overrides (site-specific tweaks). SoftHSM is enabled by default
 # in docker-compose.yml, so no override is needed just to turn it on.
 docker-compose.override.yml

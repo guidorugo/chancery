@@ -136,7 +136,12 @@ echo "PUBLIC_HOSTNAME=ca.example.com" >> .env
 docker compose -f docker-compose.yml -f deploy/docker-compose.tls.yml up -d --build
 ```
 
-The overlay enables `SESSION_COOKIE_SECURE=true`, `OCSP_URL_SCHEME=https`, `TRUSTED_PROXY_COUNT=1`, and pins `SERVER_NAME_FOR_OCSP` to your hostname (so issued certs' OCSP/CRL URLs are correct — see C4). For a public DNS name Caddy provisions a Let's Encrypt certificate automatically; for a LAN-only name, uncomment `tls internal` in `deploy/Caddyfile` for Caddy's self-signed CA.
+The overlay enables `SESSION_COOKIE_SECURE=true`, `OCSP_URL_SCHEME=https`, `TRUSTED_PROXY_COUNT=1`, and pins `SERVER_NAME_FOR_OCSP` to your hostname (so issued certs' OCSP/CRL URLs are correct — see C4).
+
+**TLS certificate — three options in `deploy/Caddyfile`:**
+- **Public DNS name** (default): Caddy auto-provisions a Let's Encrypt certificate.
+- **LAN-only name**: uncomment `tls internal` for Caddy's self-signed CA.
+- **Bring your own**: put `cert.pem` (full chain, leaf first) + `key.pem` (unencrypted) in `deploy/tls/` (gitignored), uncomment the `tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem` line in `deploy/Caddyfile` and the matching `./deploy/tls` volume in `deploy/docker-compose.tls.yml`, then recreate. You own renewals — replace the files and `docker compose -f docker-compose.yml -f deploy/docker-compose.tls.yml restart caddy`.
 
 ## Usage
 
