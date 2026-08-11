@@ -41,3 +41,29 @@ pre {
 [data-bs-theme="dark"] .theme-toggle .theme-icon-moon {
     display: none;
 }
+
+/* Dashboard: stretch the "Recent" panels down to the footer so tall screens
+   don't leave a big empty gap below them. Only applies md+ (where the two
+   panels sit side by side); mobile keeps its natural stacked flow. Scoped via
+   :has() so only the dashboard's content column becomes a flex container. A
+   Bootstrap .card is already a flex column with a flex-grow .card-body, so the
+   table simply scrolls inside the panel when the list is long. */
+@media (min-width: 768px) {
+    .container.flex-grow-1:has(#dashboard-recent) {
+        display: flex;
+        flex-direction: column;
+    }
+    #dashboard-recent {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+    #dashboard-recent > [class*="col-"] {
+        display: flex;
+    }
+    #dashboard-recent .card {
+        width: 100%;
+    }
+    #dashboard-recent .card-body {
+        overflow-y: auto;
+    }
+}
