@@ -31,8 +31,8 @@ def index():
             "csr_pending": CertificateSigningRequest.query.filter_by(status="pending").count(),
             "csr_total": CertificateSigningRequest.query.count(),
         }
-        recent_certs = Certificate.query.order_by(Certificate.created_at.desc()).limit(5).all()
-        recent_cas = CertificateAuthority.query.order_by(CertificateAuthority.created_at.desc()).limit(5).all()
+        recent_certs = Certificate.query.order_by(Certificate.created_at.desc()).limit(10).all()
+        recent_cas = CertificateAuthority.query.order_by(CertificateAuthority.created_at.desc()).limit(10).all()
         if wants_json():
             return jsonify({
                 "stats": stats,
@@ -54,7 +54,7 @@ def index():
         }
         recent_csrs = CertificateSigningRequest.query.filter_by(
             created_by=current_user.id
-        ).order_by(CertificateSigningRequest.created_at.desc()).limit(5).all()
+        ).order_by(CertificateSigningRequest.created_at.desc()).limit(10).all()
         if wants_json():
             return jsonify({
                 "stats": stats,
