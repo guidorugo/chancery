@@ -10,6 +10,12 @@ from ..responses import wants_json
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
+# The dashboard "Recent" panels stretch to the footer and trim client-side to
+# however many rows fit the window (see static/js/dashboard.js). Fetch a
+# generous pool so a tall screen has rows to fill with; the JSON API stays at a
+# stable 10.
+_RECENT_POOL = 50
+
 
 @dashboard_bp.route("/")
 @login_required
@@ -31,13 +37,13 @@ def index():
             "csr_pending": CertificateSigningRequest.query.filter_by(status="pending").count(),
             "csr_total": CertificateSigningRequest.query.count(),
         }
-        recent_certs = Certificate.query.order_by(Certificate.created_at.desc()).limit(10).all()
-        recent_cas = CertificateAuthority.query.order_by(CertificateAuthority.created_at.desc()).limit(10).all()
+        recent_certs = Certificate.query.order_by(Certificate.created_at.desc()).limit(_RECENT_POOL).all()
+        recent_cas = CertificateAuthority.query.order_by(CertificateAuthority.created_at.desc()).limit(_RECENT_POOL).all()
         if wants_json():
             return jsonify({
                 "stats": stats,
-                "recent_cas": [ca.to_dict() for ca in recent_cas],
-                "recent_certs": [c.to_dict() for c in recent_certs],
+                "recent_cas": [ca.to_dict() for ca in recent_cas[:10]],
+                "recent_certs": [c.to_dict() for c in recent_certs[:10]],
             })
         return render_template("dashboard.html", stats=stats, recent_certs=recent_certs, recent_cas=recent_cas)
     else:
@@ -54,10 +60,10 @@ def index():
         }
         recent_csrs = CertificateSigningRequest.query.filter_by(
             created_by=current_user.id
-        ).order_by(CertificateSigningRequest.created_at.desc()).limit(10).all()
+        ).order_by(CertificateSigningRequest.created_at.desc()).limit(_RECENT_POOL).all()
         if wants_json():
             return jsonify({
                 "stats": stats,
-                "recent_csrs": [c.to_dict() for c in recent_csrs],
+                "recent_csrs": [c.to_dict() for c in recent_csrs[:10]],
             })
         return render_template("dashboard.html", stats=stats, recent_csrs=recent_csrs)
