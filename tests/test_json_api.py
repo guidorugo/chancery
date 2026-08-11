@@ -62,6 +62,33 @@ def test_dashboard_json(auth_admin):
     assert "stats" in r.get_json()
 
 
+def test_dashboard_recent_certs_capped_at_10_in_json(app, auth_admin, db):
+    # The route fetches a larger pool so the client-side fit script can fill a
+    # tall panel, but the JSON API stays capped at 10 recent.
+    from app.services import ca_service, cert_service
+    with app.app_context():
+        ca = ca_service.create_root_ca(
+            name="RecentCap CA", subject_attrs={"CN": "RecentCap CA"},
+            key_type="RSA", key_size=2048, validity_days=3650,
+            passphrase="test-passphrase")
+        for i in range(12):
+            cert_service.create_certificate(
+                ca=ca, subject_attrs={"CN": f"r{i}.example"}, san_list=[],
+                validity_days=365, passphrase="test-passphrase")
+    body = auth_admin.get("/", headers=JSON).get_json()
+    assert len(body["recent_certs"]) == 10
+
+
+def test_dashboard_html_includes_fit_script(auth_admin):
+    r = auth_admin.get("/", headers=HTML)
+    assert r.status_code == 200 and b"js/dashboard.js" in r.data
+
+
+def test_dashboard_fit_script_served(client):
+    r = client.get("/static/js/dashboard.js")
+    assert r.status_code == 200 and b"fitTable" in r.data
+
+
 def test_missing_resource_json_404(auth_admin):
     r = auth_admin.get("/ca/9999", headers=JSON)
     assert r.status_code == 404
