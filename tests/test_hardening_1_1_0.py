@@ -242,8 +242,43 @@ class TestHeadersAndConfig:
         resp = client.get("/auth/login")
         assert "Content-Security-Policy" in resp.headers
         assert "frame-ancestors 'none'" in resp.headers["Content-Security-Policy"]
-        assert resp.headers.get("Referrer-Policy") == "no-referrer"
+        assert resp.headers.get("Referrer-Policy") == "same-origin"
         assert "max-age=" in resp.headers.get("Strict-Transport-Security", "")
+
+    def _login_token(self, client):
+        import re
+        page = client.get("/auth/login", base_url="https://localhost")
+        m = re.search(rb'name="csrf_token"[^>]*value="([^"]+)"', page.data)
+        assert m, "login form is missing a csrf_token field"
+        return m.group(1).decode()
+
+    def test_https_form_post_with_same_origin_referer_ok(self, app, db, admin_user, monkeypatch):
+        # Referrer-Policy: same-origin makes browsers send a same-origin Referer on
+        # form POSTs, so Flask-WTF's HTTPS referer check passes -> login works behind
+        # a TLS proxy (regression for the "referrer header is missing" 400).
+        monkeypatch.setitem(app.config, "WTF_CSRF_ENABLED", True)
+        client = app.test_client()
+        token = self._login_token(client)
+        resp = client.post(
+            "/auth/login",
+            data={"csrf_token": token, "username": "testadmin", "password": "adminpass"},
+            base_url="https://localhost",                                  # is_secure -> True
+            headers={"Referer": "https://localhost/auth/login"},           # same-origin Referer
+            follow_redirects=False)
+        assert resp.status_code in (302, 303), resp.data[:200]
+
+    def test_https_form_post_missing_referer_still_rejected(self, app, db, admin_user, monkeypatch):
+        # same-origin keeps the referer check ACTIVE (defense-in-depth, not disabled):
+        # a token-valid POST over HTTPS with NO Referer is still refused.
+        monkeypatch.setitem(app.config, "WTF_CSRF_ENABLED", True)
+        client = app.test_client()
+        token = self._login_token(client)
+        resp = client.post(
+            "/auth/login",
+            data={"csrf_token": token, "username": "testadmin", "password": "adminpass"},
+            base_url="https://localhost")                                  # no Referer header
+        assert resp.status_code == 400
+        assert b"referrer" in resp.data.lower()
 
     def test_max_content_length_configured(self, app):
         assert app.config["MAX_CONTENT_LENGTH"] == 1024 * 1024

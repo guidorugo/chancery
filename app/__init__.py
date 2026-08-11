@@ -365,7 +365,12 @@ def _setup_security_headers(app):
             "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; "
             "form-action 'self'",
         )
-        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        # `same-origin` (not `no-referrer`): still never leaks the Referer to
+        # third parties, but DOES send it on same-origin requests — so Flask-WTF's
+        # HTTPS CSRF referer check works behind a TLS proxy. `no-referrer` made the
+        # browser send no Referer at all, which that check rejects, 400'ing every
+        # form POST (login included) over TLS.
+        response.headers.setdefault("Referrer-Policy", "same-origin")
         # HSTS is ignored by browsers over plain HTTP, so it's safe to always
         # send; it takes effect once the app is served over TLS.
         response.headers.setdefault(
