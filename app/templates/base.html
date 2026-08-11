@@ -79,7 +79,7 @@
                            (a GET link is forgeable via <img src=.../auth/logout>). #}
                         <form method="POST" action="{{ url_for('auth.logout') }}" class="d-inline">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="nav-link btn btn-link p-0 border-0" style="text-decoration:none">Logout</button>
+                            <button type="submit" class="nav-link border-0 bg-transparent">Logout</button>
                         </form>
                     </li>
                 </ul>
