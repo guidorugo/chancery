@@ -146,3 +146,20 @@ Changes (branch `refactor/alpine-image`):
 - No app-code, config, or lockfile changes: Alpine's `softhsm` package uses the identical `/usr/lib/softhsm/libsofthsm2.so` path, and every locked dependency resolved as a musllinux wheel or built from its hash-pinned sdist (`--require-hashes` kept).
 
 Verified: image builds; container healthy under compose-equivalent hardening (cap_drop ALL, no-new-privileges, non-root uid 1000); SoftHSM token init works; **full 532-test suite passes inside the Alpine image** (incl. SoftHSM byte-parity differential tests on musl).
+
+### Post-release scans of the published image (`ghcr.io/guidorugo/cert-manager:2.8.0`)
+
+**Trivy: 0 findings** (OS packages and Python packages) — the HIGH/CRITICAL gate passes with no ignores.
+
+**Grype: 6 rows / 4 unique CVEs** (was ~190 rows). Grype additionally fingerprints the Python interpreter binary and busybox, which Trivy does not flag:
+
+| CVE | Severity | Component | Fix status | EPSS |
+|---|---|---|---|---|
+| CVE-2026-15308 | High | Python 3.13.15 (binary) | fixed in 3.15.0; no 3.13.x backport yet | 0.6% (47th) |
+| CVE-2025-15367 | Medium | Python 3.13.15 (binary) | fixed in 3.15.0a6; no backport yet | 0.3% (23rd) |
+| CVE-2026-4360 | Medium | Python 3.13.15 (binary) | no fix released | 0.3% (19th) |
+| CVE-2025-60876 | Medium | busybox 1.37.0-r31 (`busybox`, `busybox-binsh`, `ssl_client`) | no Alpine patch yet | 0.3% (21st) |
+
+The Alpine image's newer Python (3.13.15 vs the Debian image's 3.13.14) already cleared 6 of the 9 interpreter CVEs from the original scan, including 2 of the 3 Highs (CVE-2026-11940, CVE-2026-11972).
+
+**Remaining posture**: unlike the Debian `won't fix` backlog, every residual finding has the same passive remediation path — a future CPython 3.13.x security release / Alpine busybox patch, picked up automatically by Dependabot's base-image digest bump on the next rebuild. No action required; re-scan on each release.
