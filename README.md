@@ -19,10 +19,11 @@ A web-based X.509 Certificate Authority management application built with Python
 - **HTTP Basic Auth**: Stateless API access via `curl -u user:pass` for scripts and automation, alongside session-based browser auth
 - **Dark Theme**: Light/dark mode toggle with OS-preference default and per-browser persistence
 - **Security**: Private keys encrypted at rest with Fernet (PBKDF2-derived key, 600k iterations), session hardening, insecure-default rejection
+- **Minimal hardened image**: Alpine-based (~123 MB), digest-pinned, runs as non-root with all capabilities dropped; no `pip`, `bash`, or package manager extras in the runtime — scanned clean (0 known CVEs) at the v2.8.0 release
 - **Forced first-login password change**: The bootstrap admin seeded from `ADMIN_PASSWORD` must set a new password before using the app, so the seed credential can't become permanent; self-service change-password for any local user
 - **Hardware-backed keys (SoftHSM/PKCS#11)**: Enabled by default — CA signing keys can be held in a PKCS#11 token so they never enter application memory and cannot be exported; selectable per-CA (software stays the default backend), with a one-way migration for existing CAs and a drop-in path to a real hardware HSM
 - **LDAP Login**: Optional LDAP/Active Directory authentication with group-to-role mapping and automatic user provisioning
-- **Version & update awareness**: The footer shows the running version; an opt-in, cached check flags in the footer when a newer GitHub release is available
+- **Version & update awareness**: The footer shows the running version; a cached, server-side check (on by default, disable for air-gapped deployments) flags in the footer when a newer GitHub release is available
 
 ## Quick Start
 
@@ -76,13 +77,13 @@ You can also use the pre-built image with docker compose by commenting out the `
 ```bash
 # Verify the keyless cosign signature (signed by the release workflow).
 # Signatures are stored in the legacy tag format, so any cosign version works.
-cosign verify ghcr.io/guidorugo/cert-manager:2.1.1 \
+cosign verify ghcr.io/guidorugo/cert-manager:2.8.0 \
   --certificate-identity-regexp 'https://github.com/guidorugo/cert-manager/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # Inspect the SLSA provenance / SBOM (BuildKit in-toto attestations in the index)
-docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.1.1 --format '{{ json .Provenance }}'
-docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.1.1 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.8.0 --format '{{ json .Provenance }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.8.0 --format '{{ json .SBOM }}'
 ```
 
 ### Local Development
@@ -188,7 +189,7 @@ where they **never enter application memory** and are **non-exportable** — the
 strongest protection for a trust anchor, and the same code path works with a
 real hardware HSM later.
 
-The Docker image bundles `softhsm2` (BSD-licensed), `docker-compose.yml` wires
+The Docker image bundles SoftHSM 2 (BSD-licensed), `docker-compose.yml` wires
 up the PKCS#11 settings, and `scripts/init-secrets.sh` generates the two token
 PINs (`secrets/pkcs11_user_pin`, `secrets/pkcs11_so_pin`); the entrypoint
 initialises the token on first boot. So after the standard bootstrap step
@@ -434,7 +435,7 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `MAX_CA_VALIDITY_DAYS` | `7305` | Cap on issued CA validity |
 | `MIN_RSA_KEY_SIZE` | `2048` | Minimum accepted RSA key size |
 | `OCSP_KEY_CACHE_TTL_SECONDS` | `300` | In-memory TTL for the decrypted CA key used by OCSP (`0` disables) |
-| `UPDATE_CHECK_ENABLED` | `false` | Show a footer "Update available" badge when a newer GitHub release exists (opt-in; makes an outbound call) |
+| `UPDATE_CHECK_ENABLED` | `true` | Show a footer "Update available" badge when a newer GitHub release exists (makes an outbound call; set `false` for an air-gapped CA) |
 | `METRICS_ENABLED` | `false` | Expose the Prometheus `/metrics` endpoint (opt-in; returns 404 until enabled) |
 | `METRICS_ALLOW_UNAUTHENTICATED` | `false` | Serve `/metrics` without a bearer token (isolated networks only) |
 | `METRICS_INCLUDE_CA_DETAILS` | `false` | Add a `cert_manager_ca_info` metric with CA names/CNs/key details (default: opaque `ca_id` + counts only) |
