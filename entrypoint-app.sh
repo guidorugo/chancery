@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # App phase (H1): runs as the non-root 'app' user. It reads the 1000-owned Docker
 # secrets, writes the app-owned data volume, and runs gunicorn — so the
 # long-running, network-facing process never has root.

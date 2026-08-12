@@ -83,7 +83,7 @@ services:
     pids_limit: 256
     cpus: 2
     # Liveness/DB probe via the unauthenticated /health endpoint (curl is not in
-    # the slim image, so use python). urlopen exits non-zero on 503/refused.
+    # the Alpine image, so use python). urlopen exits non-zero on 503/refused.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"]
       interval: 30s

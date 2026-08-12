@@ -51,7 +51,8 @@ python -m pytest tests/ -v
 - **Registry**: `ghcr.io/guidorugo/cert-manager` — uses `GITHUB_TOKEN`, no extra secrets needed.
 - **`.dockerignore`**: Excludes `venv/`, `tests/`, `.env`, `.git/`, etc. from the Docker build context.
 - **Supply-chain hardening** (findings H2/I1/I2/J1/J2): Actions are **SHA-pinned** (comment = version); base image is **digest-pinned** in the Dockerfile; deps are **hash-locked** (`--require-hashes`); CI runs **pip-audit** (weekly cron too, blocking) and a **Trivy image scan** (report-only, on release tags); release images are **cosign-signed** (keyless OIDC) with **SLSA provenance + SBOM**. Pins are bumped by **Dependabot** (`.github/dependabot.yml`).
-- **Dependencies**: `requirements.in` is the human-edited source; `requirements.txt` is the generated hash-locked lockfile. After editing `requirements.in`, regenerate: `docker run --rm -v "$PWD:/w" -w /w python:3.13-slim sh -c "pip install pip-tools && pip-compile --generate-hashes --output-file=requirements.txt requirements.in"`.
+- **Dependencies**: `requirements.in` is the human-edited source; `requirements.txt` is the generated hash-locked lockfile. After editing `requirements.in`, regenerate: `docker run --rm -v "$PWD:/w" -w /w python:3.13-alpine sh -c "pip install pip-tools && pip-compile --generate-hashes --output-file=requirements.txt requirements.in"` (the hash lockfile covers all platforms' wheels, so the regen container's OS doesn't matter).
+- **Base image (2.8.0)**: `python:3.13-alpine` (digest-pinned). Moved off debian-slim because trixie carried ~200 unfixable "won't fix" CVEs in Essential packages the app never runs (perl, util-linux, glib2, ncurses — see `IMAGE_VULN_SCAN_12-08-26.md`); the Alpine image scans clean. `pip` is uninstalled from the final image (runtime never installs packages; also clears findings against pip's vendored setuptools/msgpack). Entry scripts are POSIX sh (no bash on Alpine); privilege drop uses `su-exec` (busybox `setpriv` lacks `--reuid`); `softhsm` apk package provides the same `/usr/lib/softhsm/libsofthsm2.so` path; opensc is no longer installed (was diagnostics-only, unused).
 
 ## Key Design Decisions
 - **Private key encryption**: Fernet + PBKDF2-HMAC-SHA256 (600k iterations). Salt stored with ciphertext.
@@ -102,7 +103,7 @@ python -m pytest tests/ -v
 - **OCSP URL scheme**: Configurable via `OCSP_URL_SCHEME` (default: `http`, set to `https` in production).
 - **Schema migration**: `_migrate_schema()` in `app/__init__.py` handles adding new columns to existing SQLite tables via ALTER TABLE.
 - **Last-admin guards**: Cannot deactivate or demote the last active admin user.
-- **Non-root container (H1)**: `entrypoint.sh` starts as root only to `chown` the bind-mounted `/app/data`, then `setpriv`-drops to the `app` user (**uid 1000**) which runs `entrypoint-app.sh` (token init, migration, gunicorn). Compose adds `no-new-privileges` + `cap_drop: [ALL]` (only `CHOWN`/`SETUID`/`SETGID` added back). uid 1000 must be able to read the Docker secret files (bind-mounted with host ownership).
+- **Non-root container (H1)**: `entrypoint.sh` starts as root only to `chown` the bind-mounted `/app/data`, then drops via `su-exec` to the `app` user (**uid 1000**) which runs `entrypoint-app.sh` (token init, migration, gunicorn). Compose adds `no-new-privileges` + `cap_drop: [ALL]` (only `CHOWN`/`SETUID`/`SETGID` added back). uid 1000 must be able to read the Docker secret files (bind-mounted with host ownership).
 
 ## HTTP Basic Auth
 - **Alternative to session auth**: Enables programmatic access via `curl -u user:pass`, scripts, and automation.
