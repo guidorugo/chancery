@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Root phase (H1): the ONLY thing done as root is claiming ownership of the
 # bind-mounted data volume for the non-root 'app' user (uid 1000). Everything
 # else — token init, DB migration, gunicorn — runs unprivileged via entrypoint-app.sh.
@@ -16,5 +16,6 @@ chown -R "${APP_UID}:${APP_UID}" /app/data 2>/dev/null || true
 export HOME=/home/app
 
 # Drop to the non-root user (needs CAP_SETUID/SETGID) and run the app.
-exec setpriv --reuid="${APP_UID}" --regid="${APP_UID}" --clear-groups \
-    /app/entrypoint-app.sh
+# su-exec (Alpine) replaces util-linux setpriv: it setgroups/setgid/setuid's to
+# the target user then execs, leaving no privileged parent process.
+exec su-exec "${APP_UID}:${APP_UID}" /app/entrypoint-app.sh
