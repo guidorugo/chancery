@@ -163,3 +163,62 @@ Verified: image builds; container healthy under compose-equivalent hardening (ca
 The Alpine image's newer Python (3.13.15 vs the Debian image's 3.13.14) already cleared 6 of the 9 interpreter CVEs from the original scan, including 2 of the 3 Highs (CVE-2026-11940, CVE-2026-11972).
 
 **Remaining posture**: unlike the Debian `won't fix` backlog, every residual finding has the same passive remediation path — a future CPython 3.13.x security release / Alpine busybox patch, picked up automatically by Dependabot's base-image digest bump on the next rebuild. No action required; re-scan on each release.
+
+---
+
+## Update — 2026-08-13: CVE-2026-15308 is fixed in 3.13.15 (grype finding suppressed)
+
+The 2026-08-12 tables above recorded **CVE-2026-15308** (CPU DoS in CPython's
+incremental `html.parser.HTMLParser` via repeated unterminated markup
+declarations; CWE-400 / CWE-835) as *"fixed in 3.15.0; no 3.13.x backport yet."*
+**That is now out of date.** CPython backported the fix to every maintained
+branch, and it shipped in **3.13.15** — the exact interpreter this image runs.
+Assessment: **not affected**, on two independent grounds either of which is
+sufficient.
+
+### 1. The fixed interpreter is installed (primary)
+
+- **Upstream fix:** gh-135462, backported to 3.13 as PR #135482. The CPython
+  **3.13.15 "Security" changelog** reads: *"Fixed quadratic complexity in
+  incremental parsing of long unterminated constructs (such as tags or comments)
+  in `html.parser.HTMLParser`, which could be exploited for a denial of service."*
+  (EOF now auto-closes unterminated comments/declarations per the HTML5 spec
+  instead of re-scanning the retained buffer on every `feed()`.)
+- **Verified on the running artifact — not just the version string:**
+  - `cert-manager-app-1` and the digest-pinned base image both report **Python
+    3.13.15 (Alpine 3.24.1)**.
+  - The running stdlib `html/parser.py` contains the HTML5 EOF-close fix.
+  - A faithful incremental-feed PoC (repeated unterminated `<!…` markup
+    declarations) scales **linearly** on the running binary — 2 000 / 8 000 /
+    20 000 feeds → **0.9 / 3.5 / 8.8 ms**. A vulnerable build is quadratic (10×
+    the input ≈ 100× the time). 20 MB of the payload in a single `feed()`+`close()`
+    completes in **22 ms**.
+
+### 2. The vulnerable code is not reachable (defence in depth)
+
+cert-manager never feeds untrusted input to `html.parser`. No application module
+imports it, and neither does any runtime dependency — checked `werkzeug`,
+`jinja2`, `flask`, `wtforms`, `markupsafe`, `ldap3`, `cryptography`,
+`sqlalchemy`. The app *emits* HTML through Jinja2 (its own lexer) and escapes via
+MarkupSafe (pure escaping, no parsing); it never *parses* HTML input. The only
+`HTMLParser` user anywhere in the environment is **pip** (its PyPI-index
+parser), which is **uninstalled from the production image** and is never invoked
+at runtime. So even on an unpatched interpreter there is no request path, form
+field, upload, CSR/certificate field, or LDAP attribute that reaches an HTML
+parser.
+
+### Why grype still reports it
+
+Grype does version-inventory matching with no reachability analysis, and its
+vuln DB still records the fix as first landing in **3.15.0**, so it treats the
+installed **3.13.15** as `< fixed`. This is a **DB-lag false positive**. Trivy
+does not flag it (it neither fingerprints the interpreter binary nor carries a
+matching apk advisory — the Alpine `python3` package already ships the fix).
+
+### Action
+
+Suppressed in **`.grype.yaml`** at the repo root (ignore rule for
+CVE-2026-15308 carrying the justification above). The finding still appears in
+grype's *ignored matches* section for auditability. **Re-evaluate and drop the
+ignore** once the grype DB records the 3.13.15 backport (Dependabot base-image
+bumps will keep the installed interpreter at or above the fixed patch level).

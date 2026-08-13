@@ -1,0 +1,42 @@
+# Grype vulnerability match policy.
+# Docs: https://github.com/anchore/grype#specifying-matches-to-ignore
+#
+# Every ignore rule below is reviewed and justified. Keep the rationale in sync
+# with the full write-up in IMAGE_VULN_SCAN_12-08-26.md.
+#
+# Note: this file is read when grype runs from the repo root (or via `grype -c
+# .grype.yaml <target>`). The suppressed findings still appear under grype's
+# "ignored matches" section with the reason — they are hidden from the result
+# set / exit gate, not deleted.
+
+ignore:
+  # CVE-2026-15308 — CPU denial-of-service in CPython's incremental HTML parser
+  # (html.parser.HTMLParser) via repeated unterminated markup declarations
+  # (CWE-400 / CWE-835). NOT AFFECTED — two independent reasons, either alone
+  # sufficient:
+  #
+  #   1. Fixed version is installed. The image ships CPython 3.13.15 (Alpine
+  #      3.24.1), which contains the gh-135462 backport (PR #135482); the 3.13.15
+  #      "Security" changelog lists exactly this fix. Verified on the running
+  #      binary — the html.parser EOF-close fix is present in the stdlib source,
+  #      and a faithful incremental-feed PoC scales LINEARLY (2k/8k/20k
+  #      unterminated `<!…` feeds -> 0.9/3.5/8.8 ms), not quadratically.
+  #      Grype fires only because its DB still records the fix as first landing
+  #      in 3.15.0, so it treats 3.13.15 as "< fixed" — a DB-lag false positive.
+  #
+  #   2. Not reachable. cert-manager never feeds untrusted input to html.parser:
+  #      no application module imports it, and neither does any runtime
+  #      dependency (checked werkzeug, jinja2, flask, wtforms, markupsafe, ldap3,
+  #      cryptography, sqlalchemy). The only HTMLParser user in the environment
+  #      is pip, which is uninstalled from the production image.
+  #
+  # Reviewed 2026-08-13. Re-evaluate (and drop this rule) once the grype DB
+  # records the 3.13.15 backport.
+  - vulnerability: CVE-2026-15308
+    reason: >-
+      Not affected. Image ships the fixed CPython 3.13.15 (gh-135462 backport,
+      PR #135482 / 3.13.15 Security changelog), verified patched on the running
+      binary via source inspection and a linear-scaling incremental-feed PoC. The
+      app also never routes untrusted input to html.parser (no app or dependency
+      import; pip is removed from the image). Grype DB still lists the fix at
+      3.15.0 only -> false positive. Full analysis: IMAGE_VULN_SCAN_12-08-26.md.
