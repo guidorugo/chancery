@@ -44,3 +44,17 @@ def decrypt_private_key(encrypted_data: bytes, passphrase: str):
     f = Fernet(fernet_key)
     key_pem = f.decrypt(token)
     return serialization.load_pem_private_key(key_pem, password=None)
+
+
+def encrypt_secret(plaintext: str, passphrase: str) -> bytes:
+    """Encrypt an arbitrary secret string (same salt+Fernet format as keys)."""
+    salt = os.urandom(SALT_SIZE)
+    f = Fernet(_derive_key(passphrase, salt))
+    return salt + f.encrypt(plaintext.encode("utf-8"))
+
+
+def decrypt_secret(encrypted_data: bytes, passphrase: str) -> str:
+    salt = encrypted_data[:SALT_SIZE]
+    token = encrypted_data[SALT_SIZE:]
+    f = Fernet(_derive_key(passphrase, salt))
+    return f.decrypt(token).decode("utf-8")

@@ -22,7 +22,7 @@ from werkzeug.security import generate_password_hash
 
 from ..extensions import db
 from ..models.user import User
-from . import audit_service, ldap_service
+from . import audit_service, ldap_service, ldap_settings_service
 from .ldap_service import LdapUnavailableError
 
 # Failure reasons returned in AuthResult.reason
@@ -65,7 +65,7 @@ def authenticate(username, password):
         _reset_lockout(user)
         return AuthResult(user, None, "local")
 
-    if not current_app.config.get("LDAP_ENABLED"):
+    if not ldap_settings_service.effective_config()["LDAP_ENABLED"]:
         # Unknown user, or an LDAP-provisioned user with LDAP now disabled.
         _burn_hash()
         return AuthResult(None, REASON_INVALID, "local")
@@ -165,6 +165,11 @@ def clear_lockout(user):
     db.session.add(user)
 
 
+def map_ldap_role(groups):
+    """Role the current LDAP group mapping would assign (settings test UI)."""
+    return _map_role(groups)
+
+
 def _map_role(groups):
     """Map LDAP group DNs to an application role.
 
@@ -176,8 +181,9 @@ def _map_role(groups):
     - No group gate configured at all -> csr_requester (open to any directory
       user who can bind).
     """
-    admin_group = (current_app.config.get("LDAP_ADMIN_GROUP_DN") or "").strip().lower()
-    requester_group = (current_app.config.get("LDAP_REQUESTER_GROUP_DN") or "").strip().lower()
+    ldap_cfg = ldap_settings_service.effective_config()
+    admin_group = (ldap_cfg["LDAP_ADMIN_GROUP_DN"] or "").strip().lower()
+    requester_group = (ldap_cfg["LDAP_REQUESTER_GROUP_DN"] or "").strip().lower()
 
     if admin_group and admin_group in groups:
         return "admin"
