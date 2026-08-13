@@ -69,7 +69,11 @@ def test_metrics_valid_token_ok(app, client, db, monkeypatch):
         pt, _ = _token()
     r = client.get("/metrics", headers={"Authorization": f"Bearer {pt}"})
     assert r.status_code == 200
-    assert "text/plain; version=0.0.4" in r.content_type
+    # The exposition-format version tracks the installed prometheus_client
+    # (0.0.4 pre-0.22, 1.0.0 after), so compare against the library constant.
+    from prometheus_client import CONTENT_TYPE_LATEST
+
+    assert r.content_type == CONTENT_TYPE_LATEST
     assert b"cert_manager_build_info" in r.data
 
 
