@@ -6,7 +6,7 @@ from ..extensions import db
 from ..models.user import User
 from ..models.audit_log import AuditLog
 from ..responses import wants_json
-from ..services import audit_service, auth_service
+from ..services import audit_service, auth_service, ldap_service, ldap_settings_service
 
 users_bp = Blueprint("users", __name__, url_prefix="/users")
 
@@ -144,6 +144,107 @@ def reset_password(user_id):
         return redirect(url_for("users.list_users"))
 
     return render_template("users/reset_password.html", user=user)
+
+
+def _ldap_form_to_cfg(form):
+    """Translate the settings form into a config dict (same keys as env)."""
+    def text(name):
+        return (form.get(name) or "").strip()
+
+    def flag(name):
+        return form.get(name) == "on"
+
+    try:
+        timeout = int(text("timeout_seconds") or "5")
+    except ValueError:
+        timeout = 0  # validate() reports it
+    return {
+        "LDAP_ENABLED": flag("enabled"),
+        "LDAP_SERVER_URI": text("server_uri"),
+        "LDAP_USE_STARTTLS": flag("use_starttls"),
+        "LDAP_TLS_VERIFY": flag("tls_verify"),
+        "LDAP_ALLOW_PLAINTEXT": flag("allow_plaintext"),
+        "LDAP_CA_CERT_FILE": "",
+        "LDAP_CA_CERT_PEM": text("ca_cert_pem"),
+        "LDAP_USER_DN_TEMPLATE": text("user_dn_template"),
+        "LDAP_BIND_DN": text("bind_dn"),
+        "LDAP_BIND_PASSWORD": form.get("bind_password") or "",
+        "LDAP_USER_SEARCH_BASE": text("user_search_base"),
+        "LDAP_USER_FILTER": text("user_filter") or "(uid={username})",
+        "LDAP_ADMIN_GROUP_DN": text("admin_group_dn"),
+        "LDAP_REQUESTER_GROUP_DN": text("requester_group_dn"),
+        "LDAP_GROUP_MEMBER_ATTR": text("group_member_attr") or "memberOf",
+        "LDAP_TIMEOUT_SECONDS": timeout,
+    }
+
+
+def _render_ldap_page(cfg, test_result=None):
+    return render_template(
+        "users/ldap.html",
+        cfg=cfg,
+        source=ldap_settings_service.config_source(),
+        has_stored_password=bool(ldap_settings_service.stored_bind_password()),
+        test_result=test_result,
+    )
+
+
+@users_bp.route("/ldap", methods=["GET", "POST"])
+@admin_required
+def ldap_settings():
+    if request.method == "GET":
+        return _render_ldap_page(ldap_settings_service.effective_config())
+
+    cfg = _ldap_form_to_cfg(request.form)
+
+    if request.form.get("action") == "test":
+        # A blank write-only password field means "use the stored one".
+        candidate = dict(cfg)
+        if not candidate["LDAP_BIND_PASSWORD"]:
+            candidate["LDAP_BIND_PASSWORD"] = ldap_settings_service.stored_bind_password()
+        errors = ldap_settings_service.validate(dict(candidate, LDAP_ENABLED=True))
+        if errors:
+            for e in errors:
+                flash(e, "danger")
+            return _render_ldap_page(cfg)
+        result = ldap_service.test_config(
+            candidate,
+            test_username=(request.form.get("test_username") or "").strip(),
+            test_password=request.form.get("test_password") or "",
+            role_mapper=auth_service.map_ldap_role,
+        )
+        audit_service.log_action("test_ldap_settings", target_type="config",
+                                 details={"ok": result["ok"]})
+        db.session.commit()
+        return _render_ldap_page(cfg, test_result=result)
+
+    errors = ldap_settings_service.validate(cfg)
+    if errors:
+        for e in errors:
+            flash(e, "danger")
+        return _render_ldap_page(cfg)
+
+    ldap_settings_service.save(cfg, updated_by=current_user.id)
+    audit_service.log_action(
+        "update_ldap_settings", target_type="config",
+        details={"enabled": cfg["LDAP_ENABLED"], "server_uri": cfg["LDAP_SERVER_URI"],
+                 "mode": "direct_bind" if cfg["LDAP_USER_DN_TEMPLATE"] else "search_bind",
+                 "bind_password_changed": bool(cfg["LDAP_BIND_PASSWORD"])},
+    )
+    db.session.commit()
+    flash("LDAP settings saved. They take effect immediately and override the "
+          "LDAP_* environment variables.", "success")
+    return redirect(url_for("users.ldap_settings"))
+
+
+@users_bp.route("/ldap/reset", methods=["POST"])
+@admin_required
+def ldap_settings_reset():
+    ldap_settings_service.reset()
+    audit_service.log_action("reset_ldap_settings", target_type="config")
+    db.session.commit()
+    flash("Saved LDAP settings removed — the environment configuration "
+          "(LDAP_* variables) is in effect again.", "success")
+    return redirect(url_for("users.ldap_settings"))
 
 
 @users_bp.route("/audit-log")

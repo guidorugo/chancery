@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}LDAP Settings - Cert Manager{% endblock %}
+{% block content %}
+{% set active_tab = 'ldap' %}
+{% include "users/_tabs.html" %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">LDAP Authentication</h2>
+    {% if source == 'db' %}
+    <span class="badge bg-primary">Managed here</span>
+    {% else %}
+    <span class="badge bg-secondary" title="No settings saved from this page yet — the LDAP_* environment variables apply.">Using environment config</span>
+    {% endif %}
+</div>
+
+<p class="text-body-secondary">
+    Settings saved here are stored in the database (bind password encrypted with the
+    master passphrase) and take effect immediately, overriding any <code>LDAP_*</code>
+    environment variables. Local accounts always authenticate first, so the built-in
+    admin keeps working even if the directory is down or misconfigured.
+</p>
+
+{% if test_result %}
+<div class="alert {% if test_result.ok %}alert-success{% else %}alert-danger{% endif %}">
+    <strong>{% if test_result.ok %}Test succeeded:{% else %}Test failed:{% endif %}</strong>
+    {{ test_result.message }}
+    {% if test_result.detail.dn %}
+    <hr class="my-2">
+    <div><strong>DN:</strong> <code>{{ test_result.detail.dn }}</code></div>
+    <div><strong>Mapped role:</strong> {{ test_result.detail.role }}</div>
+    <div><strong>Groups:</strong>
+        {% if test_result.detail.groups %}
+        <ul class="mb-0">{% for grp in test_result.detail.groups %}<li><code>{{ grp }}</code></li>{% endfor %}</ul>
+        {% else %}<em>none readable</em>{% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('users.ldap_settings') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="card mb-3">
+        <div class="card-header">Connection</div>
+        <div class="card-body">
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="enabled" name="enabled"
+                       {% if cfg.LDAP_ENABLED %}checked{% endif %}>
+                <label class="form-check-label" for="enabled">Enable LDAP authentication</label>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="server_uri">Server URI(s)</label>
+                <input class="form-control" id="server_uri" name="server_uri"
+                       value="{{ cfg.LDAP_SERVER_URI }}"
+                       placeholder="ldaps://dc01.example.com:636, ldaps://dc02.example.com:636">
+                <div class="form-text">Comma-separated for failover; tried in order.</div>
+            </div>
+            <div class="row">
+                <div class="col-md-3 form-check form-switch ms-3 mb-2">
+                    <input class="form-check-input" type="checkbox" id="use_starttls" name="use_starttls"
+                           {% if cfg.LDAP_USE_STARTTLS %}checked{% endif %}>
+                    <label class="form-check-label" for="use_starttls">StartTLS (ldap:// port 389)</label>
+                </div>
+                <div class="col-md-3 form-check form-switch ms-3 mb-2">
+                    <input class="form-check-input" type="checkbox" id="tls_verify" name="tls_verify"
+                           {% if cfg.LDAP_TLS_VERIFY %}checked{% endif %}>
+                    <label class="form-check-label" for="tls_verify">Verify TLS certificate</label>
+                </div>
+                <div class="col-md-3 form-check form-switch ms-3 mb-2">
+                    <input class="form-check-input" type="checkbox" id="allow_plaintext" name="allow_plaintext"
+                           {% if cfg.LDAP_ALLOW_PLAINTEXT %}checked{% endif %}>
+                    <label class="form-check-label" for="allow_plaintext">Allow cleartext ldap:// <span class="text-danger">(not recommended)</span></label>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="ca_cert_pem">CA certificate (PEM, optional)</label>
+                <textarea class="form-control font-monospace" id="ca_cert_pem" name="ca_cert_pem"
+                          rows="4" placeholder="-----BEGIN CERTIFICATE-----">{{ cfg.LDAP_CA_CERT_PEM }}</textarea>
+                <div class="form-text">Paste the directory's CA certificate if it isn't in the system trust store.</div>
+            </div>
+            <div class="mb-1" style="max-width: 12rem">
+                <label class="form-label" for="timeout_seconds">Timeout (seconds)</label>
+                <input class="form-control" id="timeout_seconds" name="timeout_seconds"
+                       type="number" min="1" value="{{ cfg.LDAP_TIMEOUT_SECONDS }}">
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">Bind mode <span class="text-body-secondary small">— fill exactly one section</span></div>
+        <div class="card-body">
+            <h6>Direct bind</h6>
+            <div class="mb-3">
+                <label class="form-label" for="user_dn_template">User DN template</label>
+                <input class="form-control" id="user_dn_template" name="user_dn_template"
+                       value="{{ cfg.LDAP_USER_DN_TEMPLATE }}"
+                       placeholder="uid={username},ou=people,dc=example,dc=com">
+                <div class="form-text">Must contain <code>{username}</code>. No service account needed.</div>
+            </div>
+            <hr>
+            <h6>Search + bind</h6>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label" for="bind_dn">Service account bind DN</label>
+                    <input class="form-control" id="bind_dn" name="bind_dn" value="{{ cfg.LDAP_BIND_DN }}"
+                           placeholder="cn=svc-certmgr,ou=services,dc=example,dc=com">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label" for="bind_password">Service account password</label>
+                    <input class="form-control" id="bind_password" name="bind_password" type="password"
+                           autocomplete="new-password"
+                           placeholder="{% if has_stored_password %}(unchanged — leave blank to keep){% endif %}">
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="user_search_base">User search base</label>
+                <input class="form-control" id="user_search_base" name="user_search_base"
+                       value="{{ cfg.LDAP_USER_SEARCH_BASE }}" placeholder="ou=people,dc=example,dc=com">
+            </div>
+            <div class="mb-1">
+                <label class="form-label" for="user_filter">User filter</label>
+                <input class="form-control font-monospace" id="user_filter" name="user_filter"
+                       value="{{ cfg.LDAP_USER_FILTER }}">
+                <div class="form-text">Must contain <code>{username}</code>. Extra clauses (e.g. a
+                    <code>memberOf=…</code> requirement) act as a login gate.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">Group → role mapping</div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label" for="admin_group_dn">Admin group DN</label>
+                <input class="form-control" id="admin_group_dn" name="admin_group_dn"
+                       value="{{ cfg.LDAP_ADMIN_GROUP_DN }}"
+                       placeholder="cn=certmgr-admins,ou=groups,dc=example,dc=com">
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="requester_group_dn">CSR requester group DN</label>
+                <input class="form-control" id="requester_group_dn" name="requester_group_dn"
+                       value="{{ cfg.LDAP_REQUESTER_GROUP_DN }}"
+                       placeholder="cn=certmgr-users,ou=groups,dc=example,dc=com">
+                <div class="form-text">If either group is set, membership becomes required — users in
+                    neither mapped group are rejected. With no groups configured, any directory user
+                    who can bind becomes a CSR requester.</div>
+            </div>
+            <div class="mb-1" style="max-width: 16rem">
+                <label class="form-label" for="group_member_attr">Group membership attribute</label>
+                <input class="form-control" id="group_member_attr" name="group_member_attr"
+                       value="{{ cfg.LDAP_GROUP_MEMBER_ATTR }}">
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">Test connection</div>
+        <div class="card-body">
+            <p class="text-body-secondary mb-2">Tests run with the values currently in this form —
+                nothing is saved. Without test credentials, only the transport (and service bind,
+                in search+bind mode) is checked.</p>
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <input class="form-control" name="test_username" placeholder="Test username (optional)"
+                           autocomplete="off">
+                </div>
+                <div class="col-md-4 mb-2">
+                    <input class="form-control" name="test_password" type="password"
+                           placeholder="Test password" autocomplete="new-password">
+                </div>
+                <div class="col-md-4 mb-2">
+                    <button type="submit" name="action" value="test" class="btn btn-outline-secondary">Test connection</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button type="submit" name="action" value="save" class="btn btn-primary">Save settings</button>
+</form>
+
+{% if source == 'db' %}
+<form method="POST" action="{{ url_for('users.ldap_settings_reset') }}" class="mt-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline-danger btn-sm">
+        Remove saved settings (revert to environment config)
+    </button>
+</form>
+{% endif %}
+{% endblock %}

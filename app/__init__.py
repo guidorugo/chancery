@@ -266,7 +266,12 @@ def _check_security(app):
 
 
 def _validate_ldap_config(app):
-    """Fail fast on an unusable LDAP configuration (runs in every mode)."""
+    """Fail fast on an unusable LDAP configuration (runs in every mode).
+
+    This guards the environment-variable config only. Settings saved from the
+    admin UI (ldap_settings row, which takes precedence at runtime) are
+    validated by ldap_settings_service.validate() before they can be stored.
+    """
     if not app.config.get("LDAP_ENABLED"):
         return
 
