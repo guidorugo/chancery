@@ -77,13 +77,13 @@ You can also use the pre-built image with docker compose by commenting out the `
 ```bash
 # Verify the keyless cosign signature (signed by the release workflow).
 # Signatures are stored in the legacy tag format, so any cosign version works.
-cosign verify ghcr.io/guidorugo/cert-manager:2.8.0 \
+cosign verify ghcr.io/guidorugo/cert-manager:2.8.1 \
   --certificate-identity-regexp 'https://github.com/guidorugo/cert-manager/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # Inspect the SLSA provenance / SBOM (BuildKit in-toto attestations in the index)
-docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.8.0 --format '{{ json .Provenance }}'
-docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.8.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.8.1 --format '{{ json .Provenance }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.8.1 --format '{{ json .SBOM }}'
 ```
 
 ### Local Development

@@ -5,7 +5,7 @@ Python/Flask web application for managing an X.509 Certificate Authority (CA).
 Handles CA creation, certificate signing/revocation, CSR management, CRL generation, and OCSP responses.
 
 ## Tech Stack
-- Python 3.13, Flask 3.1.3, SQLAlchemy 2.0.51, cryptography 50.0.0
+- Python 3.13, Flask 3.1.3, SQLAlchemy 2.0.52, cryptography 50.0.0
 - Bootstrap 5 (CDN), Gunicorn, SQLite
 
 ## Project Structure
