@@ -127,8 +127,11 @@ class TestBasicAuthCSRF:
                     "/ca/create",
                     headers=_basic_auth_headers("testadmin", "wrongpass"),
                 )
-                # Either CSRF error (400) or unauthorized (401) — but NOT 200/302 success
-                assert resp.status_code in (400, 401)
+                # CSRF must fire: a JSON 400, a 401, or the CSRFError handler's
+                # bounce to login — but NEVER the create succeeding.
+                assert resp.status_code in (400, 401, 302)
+                if resp.status_code == 302:
+                    assert "/auth/login" in resp.headers["Location"]
         finally:
             app.config["WTF_CSRF_ENABLED"] = False
 

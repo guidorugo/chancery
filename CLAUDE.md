@@ -98,6 +98,7 @@ python -m pytest tests/ -v
 - **Session timeout**: Configurable via `SESSION_LIFETIME_MINUTES` (default 30).
 - **Security headers**: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, a **nonce-based `Content-Security-Policy`** (`script-src` has no `'unsafe-inline'` — see the CSP nonce note above), `Referrer-Policy: no-referrer`, and `Strict-Transport-Security` on all responses.
 - **Open redirect protection**: Login `next` parameter validated to reject absolute/external URLs.
+- **CSRF error handling (2.9.3)**: a `CSRFError` handler in `_setup_error_handlers` replaces Flask-WTF's raw 400. Anonymous (expired session — e.g. clicking Logout after `SESSION_LIFETIME_MINUTES` idle) → flash + redirect to login; authenticated with a stale token → flash + redirect back (same-host referrer only, else dashboard), the action does NOT execute; JSON/Basic-Auth clients still get a JSON 400. Tests in `tests/test_csrf_error.py` (module builds its own CSRF-enabled app; shared fixtures keep `WTF_CSRF_ENABLED=False`).
 - **Timing attack mitigation**: Dummy hash computation on failed login for nonexistent users.
 - **SRI**: Bootstrap CDN resources include `integrity` and `crossorigin` attributes.
 - **Content-Disposition sanitization**: Filenames in download headers are sanitized to prevent header injection.

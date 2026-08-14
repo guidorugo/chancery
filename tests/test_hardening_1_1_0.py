@@ -277,8 +277,13 @@ class TestHeadersAndConfig:
             "/auth/login",
             data={"csrf_token": token, "username": "testadmin", "password": "adminpass"},
             base_url="https://localhost")                                  # no Referer header
-        assert resp.status_code == 400
-        assert b"referrer" in resp.data.lower()
+        # The CSRFError handler turns the refusal into a bounce back to login;
+        # the login must NOT have gone through (still anonymous afterwards).
+        assert resp.status_code == 302
+        assert "/auth/login" in resp.headers["Location"]
+        protected = client.get("/", base_url="https://localhost")
+        assert protected.status_code == 302
+        assert "/auth/login" in protected.headers["Location"]
 
     def test_max_content_length_configured(self, app):
         assert app.config["MAX_CONTENT_LENGTH"] == 1024 * 1024

@@ -1,7 +1,7 @@
 import os
 import sys
 
-from flask import Flask, current_app, g, jsonify, request, session
+from flask import Flask, current_app, flash, g, jsonify, redirect, request, session, url_for
 
 from .config import Config
 from .extensions import db, login_manager, csrf
@@ -387,6 +387,11 @@ def _setup_security_headers(app):
 def _setup_error_handlers(app):
     """API-4/CORE-6: return JSON on common error statuses for API clients
     (Basic Auth / Accept: application/json), the default HTML otherwise."""
+    from urllib.parse import urlsplit
+
+    from flask_login import current_user
+    from flask_wtf.csrf import CSRFError
+
     from .responses import wants_json
 
     @app.errorhandler(404)
@@ -406,6 +411,32 @@ def _setup_error_handlers(app):
         if wants_json():
             return jsonify({"error": "Internal server error."}), 500
         return "Internal Server Error", 500
+
+    @app.errorhandler(CSRFError)
+    def _handle_csrf_error(e):
+        if wants_json():
+            return jsonify({"error": e.description}), 400
+        if not current_user.is_authenticated:
+            # An idle session outlived PERMANENT_SESSION_LIFETIME, taking the
+            # server-side CSRF token with it, so a form submitted from a stale
+            # page (most visibly Logout) died on a raw 400. The user is
+            # effectively logged out already — treat it as a session expiry.
+            flash("Your session has expired. Please log in again.", "warning")
+            return redirect(url_for("auth.login"))
+        # Logged in but the submitted token is stale/invalid (e.g. a form
+        # rendered before an app restart rotated SECRET_KEY): let the user
+        # retry from a fresh page. Referrer is only honoured same-host —
+        # Referrer-Policy: same-origin doesn't bind an attacker's own page.
+        flash(
+            "The form's security token was missing or expired — please try again.",
+            "warning",
+        )
+        ref = request.referrer
+        if ref:
+            parts = urlsplit(ref)
+            if not parts.netloc or parts.netloc == request.host:
+                return redirect(ref)
+        return redirect(url_for("dashboard.index"))
 
 
 def _configure_session(app):
