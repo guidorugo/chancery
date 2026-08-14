@@ -6,9 +6,9 @@ A web-based X.509 Certificate Authority management application built with Python
 
 - **CA Management**: Create root and intermediate Certificate Authorities with RSA or EC keys, or import existing ones — PEM (single certificate or full chain), PKCS#12 bundles, encrypted private keys, and certificate-only imports for offline roots — and export them back out (chain bundle, private key, password-protected PKCS#12)
 - **Certificate Issuance**: Generate certificates with SANs, key usage, extended key usage, and CRL Distribution Points
-- **Certificate Detail View**: Full certificate details including Key Usage, Extended Key Usage, subject DN fields, requester, and SANs
+- **Certificate Detail View**: Full certificate details including Key Usage, Extended Key Usage, subject DN fields, requester, issuer (who signed/created it), and SANs
 - **Advanced Certificate Settings**: Collapsible UI with certificate profile presets (Web Server, Client Auth, Email/S-MIME, Code Signing), Key Usage and Extended Key Usage checkboxes, and editable CRL Distribution Points (auto-populated from hostname, user-overridable)
-- **CSR Management**: Create or import Certificate Signing Requests, sign or reject them
+- **CSR Management**: Create or import Certificate Signing Requests, sign or reject them — the signing user is recorded and shown on the CSR and certificate
 - **Revocation**: Revoke certificates with standard reasons, generate CRLs
 - **OCSP Responder**: Built-in OCSP endpoint for real-time certificate status checks
 - **Public Endpoints**: Unauthenticated access to CRL downloads and CA certificates
@@ -98,13 +98,13 @@ You can also use the pre-built image with docker compose by commenting out the `
 ```bash
 # Verify the keyless cosign signature (signed by the release workflow).
 # Signatures are stored in the legacy tag format, so any cosign version works.
-cosign verify ghcr.io/guidorugo/cert-manager:2.9.1 \
+cosign verify ghcr.io/guidorugo/cert-manager:2.11.0 \
   --certificate-identity-regexp 'https://github.com/guidorugo/cert-manager/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # Inspect the SLSA provenance / SBOM (BuildKit in-toto attestations in the index)
-docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.9.1 --format '{{ json .Provenance }}'
-docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.9.1 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.11.0 --format '{{ json .Provenance }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.11.0 --format '{{ json .SBOM }}'
 ```
 
 ### Local Development
@@ -142,6 +142,14 @@ The footer shows an **"Update available"** badge when a newer GitHub release exi
 
 ```bash
 docker compose exec app flask certs recompute-expiry
+```
+
+Similarly, after upgrading to **2.11.0**, populate the new signer/issuer fields on
+pre-existing CSRs and certificates from the audit log (idempotent, optional):
+
+```bash
+docker compose exec app flask certs backfill-issuers --dry-run   # preview
+docker compose exec app flask certs backfill-issuers
 ```
 
 Upgrading to **2.6.0** raises the auto-generated SoftHSM token PINs to 32 characters for *new* deployments; existing tokens keep their current PINs. To rotate an existing deployment to the stronger length, follow the **SoftHSM PIN migration** guide in the [v2.6.0 release notes](https://github.com/guidorugo/cert-manager/releases/tag/v2.6.0) — the user PIN rotates in place; the SO PIN needs a freshly-initialised token when it holds non-extractable keys.
@@ -398,7 +406,7 @@ curl -b cookies.txt -O http://localhost:5000/certificates/1/download-key
 |--------|----------|------|-------------|
 | GET | `/` | Any | Dashboard (role-conditional stats) |
 | GET, POST | `/auth/login` | None | Login page |
-| GET | `/auth/logout` | Any | Logout |
+| POST | `/auth/logout` | Any | Logout (POST-only, CSRF-protected) |
 
 ## Running Tests
 
