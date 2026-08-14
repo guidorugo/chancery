@@ -11,8 +11,8 @@ Handles CA creation, certificate signing/revocation, CSR management, CRL generat
 ## Project Structure
 - `.github/workflows/` - GitHub Actions CI (Docker build & push to GHCR)
 - `app/` - Flask application (factory pattern in `__init__.py`)
-- `app/models/` - SQLAlchemy models (User, CA, Certificate, CSR, AuditLog)
-- `app/services/` - Business logic (crypto_utils, ca_service, cert_service, csr_service, crl_service, ocsp_service, audit_service)
+- `app/models/` - SQLAlchemy models (User, CA, Certificate, CSR, AuditLog, MetricsToken, LdapSettings, WebhookSettings)
+- `app/services/` - Business logic (crypto_utils, ca_service, cert_service, csr_service, crl_service, ocsp_service, audit_service, auth_service, ldap_service, ldap_settings_service, dual_control_service, webhook_service, metrics_service, metrics_token_service, update_service, keybackend/)
 - `app/routes/` - Flask blueprints (auth, dashboard, ca, certificates, csr, users, public, health, metrics)
 - `app/decorators.py` - `role_required()`, `admin_required` access control decorators
 - `app/templates/` - Jinja2 templates with Bootstrap 5
