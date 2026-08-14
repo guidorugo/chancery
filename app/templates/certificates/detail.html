@@ -1,9 +1,9 @@
 {% extends "base.html" %}
 {% from "_macros.html" import expiry_badge, status_badge %}
-{% block title %}{{ cert.common_name }} - Cert Manager{% endblock %}
+{% block title %}{{ cert.common_name }} #{{ cert.id }} - Cert Manager{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center">
-    <h2>{{ cert.common_name }}</h2>
+    <h2>{{ cert.common_name }} <span class="text-body-secondary">#{{ cert.id }}</span></h2>
     <div>
         <div class="btn-group">
             <a href="{{ url_for('certificates.download', cert_id=cert.id, format='pem') }}" class="btn btn-sm btn-outline-primary">PEM</a>

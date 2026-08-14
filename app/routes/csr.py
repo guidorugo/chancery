@@ -225,7 +225,7 @@ def sign(csr_id):
             certificate = cert_service.sign_csr(
                 csr_model, ca, validity_days, passphrase, ocsp_url=ocsp_url,
                 key_usage=key_usage, extended_key_usage=extended_key_usage,
-                crl_dp_url=crl_dp_url,
+                crl_dp_url=crl_dp_url, signed_by=current_user.id,
             )
             audit_service.log_action("sign_csr", target_type="csr", target_id=csr_id,
                                      details={"certificate_id": certificate.id})

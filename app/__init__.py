@@ -554,6 +554,10 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificate_signing_requests ADD COLUMN created_by INTEGER REFERENCES users(id)"
             ))
+        if "signed_by" not in columns:
+            db.session.execute(text(
+                "ALTER TABLE certificate_signing_requests ADD COLUMN signed_by INTEGER REFERENCES users(id)"
+            ))
 
     # Migrate csr_user role to csr_requester
     if "users" in inspector.get_table_names():
