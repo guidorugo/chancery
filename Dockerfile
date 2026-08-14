@@ -1,4 +1,4 @@
-# Base image pinned by digest (H2). python:3.13.15-alpine3.24.
+# Base image pinned by digest (H2). python:3.14.7-alpine3.24.
 # Alpine base (musl) replaces debian-slim: the Debian image carried ~200
 # unfixable ("won't fix" in stable) CVEs in Essential packages the app never
 # executes (perl, util-linux, glib2, ncurses, ...) — see IMAGE_VULN_SCAN_12-08-26.md.
@@ -36,7 +36,7 @@ COPY --from=builder /install /usr/local
 # wheel) from the final image. Clears the scanner findings against pip's
 # vendored setuptools/msgpack and denies an attacker in the container the
 # easiest tool-install path.
-RUN pip uninstall -y pip && rm -rf /usr/local/lib/python3.13/ensurepip
+RUN pip uninstall -y pip && rm -rf /usr/local/lib/python3.*/ensurepip
 
 COPY app/ app/
 COPY entrypoint.sh entrypoint-app.sh ./
