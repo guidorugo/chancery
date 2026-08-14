@@ -11,4 +11,8 @@
         <a class="nav-link {% if active_tab == 'ldap' %}active{% endif %}"
            href="{{ url_for('users.ldap_settings') }}">LDAP</a>
     </li>
+    <li class="nav-item">
+        <a class="nav-link {% if active_tab == 'webhooks' %}active{% endif %}"
+           href="{{ url_for('users.webhook_settings') }}">Webhooks</a>
+    </li>
 </ul>

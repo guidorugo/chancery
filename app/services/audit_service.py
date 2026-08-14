@@ -52,3 +52,17 @@ def log_action(action, target_type=None, target_id=None, details=None):
         ip_address=ip_address,
     )
     db.session.add(entry)
+
+    # Webhook notifications (2.10.0) piggyback on the audit stream — one choke
+    # point covers every action. notify() is fire-and-forget and never raises,
+    # but a notification must never break the audited request either.
+    # Note this runs before the caller's commit: if that commit later rolls
+    # back, a spurious notification may already be out (accepted trade-off —
+    # receivers should treat events as hints, not transactional truth).
+    try:
+        from . import webhook_service
+        webhook_service.notify(action, target_type=target_type,
+                               target_id=target_id, details=details,
+                               actor_username=username)
+    except Exception:
+        pass

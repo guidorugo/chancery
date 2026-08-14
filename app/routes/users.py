@@ -6,7 +6,8 @@ from ..extensions import db
 from ..models.user import User
 from ..models.audit_log import AuditLog
 from ..responses import wants_json
-from ..services import audit_service, auth_service, ldap_service, ldap_settings_service
+from ..services import (audit_service, auth_service, ldap_service,
+                        ldap_settings_service, webhook_service)
 
 users_bp = Blueprint("users", __name__, url_prefix="/users")
 
@@ -245,6 +246,93 @@ def ldap_settings_reset():
     flash("Saved LDAP settings removed — the environment configuration "
           "(LDAP_* variables) is in effect again.", "success")
     return redirect(url_for("users.ldap_settings"))
+
+
+def _webhook_form_to_cfg(form):
+    """Translate the webhook settings form into a config dict (env keys)."""
+    def text(name):
+        return (form.get(name) or "").strip()
+
+    try:
+        timeout = int(text("timeout_seconds") or "5")
+    except ValueError:
+        timeout = 0  # validate() reports it
+    if form.get("all_events") == "on":
+        events = "all"
+    else:
+        selected = [action for action in webhook_service.catalog_actions()
+                    if form.get(f"event_{action}") == "on"]
+        events = ",".join(selected)
+    return {
+        "WEBHOOK_ENABLED": form.get("enabled") == "on",
+        "WEBHOOK_URL": text("url"),
+        "WEBHOOK_SECRET": form.get("secret") or "",
+        "WEBHOOK_EVENTS": events,
+        "WEBHOOK_TIMEOUT_SECONDS": timeout,
+    }
+
+
+def _render_webhook_page(cfg, test_result=None):
+    selected = webhook_service.selected_events(cfg)
+    return render_template(
+        "users/webhooks.html",
+        cfg=cfg,
+        catalog=webhook_service.EVENT_CATALOG,
+        all_events=(selected is None),
+        selected_events=(selected or set()),
+        source=webhook_service.config_source(),
+        has_stored_secret=bool(webhook_service.stored_secret()),
+        test_result=test_result,
+    )
+
+
+@users_bp.route("/webhooks", methods=["GET", "POST"])
+@admin_required
+def webhook_settings():
+    if request.method == "GET":
+        return _render_webhook_page(webhook_service.effective_config())
+
+    cfg = _webhook_form_to_cfg(request.form)
+
+    if request.form.get("action") == "test":
+        # A blank write-only secret field means "use the stored one".
+        candidate = dict(cfg, WEBHOOK_ENABLED=True)
+        if not candidate["WEBHOOK_SECRET"]:
+            candidate["WEBHOOK_SECRET"] = webhook_service.stored_secret()
+        result = webhook_service.send_test(candidate)
+        audit_service.log_action("test_webhook", target_type="config",
+                                 details={"ok": result["ok"]})
+        db.session.commit()
+        return _render_webhook_page(cfg, test_result=result)
+
+    errors = webhook_service.validate(cfg)
+    if errors:
+        for e in errors:
+            flash(e, "danger")
+        return _render_webhook_page(cfg)
+
+    webhook_service.save(cfg, updated_by=current_user.id)
+    audit_service.log_action(
+        "update_webhook_settings", target_type="config",
+        details={"enabled": cfg["WEBHOOK_ENABLED"], "url": cfg["WEBHOOK_URL"],
+                 "events": cfg["WEBHOOK_EVENTS"],
+                 "secret_changed": bool(cfg["WEBHOOK_SECRET"])},
+    )
+    db.session.commit()
+    flash("Webhook settings saved. They take effect immediately and override "
+          "the WEBHOOK_* environment variables.", "success")
+    return redirect(url_for("users.webhook_settings"))
+
+
+@users_bp.route("/webhooks/reset", methods=["POST"])
+@admin_required
+def webhook_settings_reset():
+    webhook_service.reset()
+    audit_service.log_action("reset_webhook_settings", target_type="config")
+    db.session.commit()
+    flash("Saved webhook settings removed — the environment configuration "
+          "(WEBHOOK_* variables) is in effect again.", "success")
+    return redirect(url_for("users.webhook_settings"))
 
 
 @users_bp.route("/audit-log")

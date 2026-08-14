@@ -163,6 +163,18 @@ class Config:
     # account is exempt (break-glass). See app/services/dual_control_service.py.
     DUAL_CONTROL_ENABLED = os.environ.get("DUAL_CONTROL_ENABLED", "false").lower() == "true"
 
+    # Webhook notifications (2.10.0). Selected audit actions are POSTed as
+    # JSON to WEBHOOK_URL (fire-and-forget background thread, fail-silent).
+    # Settings saved in the admin UI (Preferences → Webhooks) override all of
+    # these. WEBHOOK_EVENTS is a CSV of audit action names; "" = none,
+    # "all"/"*" = every action. WEBHOOK_SECRET signs the body (HMAC-SHA256,
+    # X-CertManager-Signature header).
+    WEBHOOK_ENABLED = os.environ.get("WEBHOOK_ENABLED", "false").lower() == "true"
+    WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+    WEBHOOK_SECRET = _read_secret("WEBHOOK_SECRET", "")
+    WEBHOOK_EVENTS = os.environ.get("WEBHOOK_EVENTS", "")
+    WEBHOOK_TIMEOUT_SECONDS = int(os.environ.get("WEBHOOK_TIMEOUT_SECONDS") or "5")
+
     _INSECURE_SECRET_KEY = "dev-secret-key"
     _INSECURE_PASSPHRASE = "dev-passphrase"
     _INSECURE_ADMIN_PASSWORD = "admin"

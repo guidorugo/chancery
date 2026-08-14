@@ -75,6 +75,12 @@ services:
       # Dual control (2.10.0; opt-in): four-eyes issuance once the instance is
       # multi-user — see README "Dual control".
       - DUAL_CONTROL_ENABLED=${DUAL_CONTROL_ENABLED:-false}
+      # Webhook notifications (2.10.0; opt-in). Also configurable in the UI
+      # (Preferences → Webhooks), which overrides these when saved.
+      - WEBHOOK_ENABLED=${WEBHOOK_ENABLED:-false}
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - WEBHOOK_EVENTS=${WEBHOOK_EVENTS:-}
     secrets:
       - master_passphrase
       - pkcs11_user_pin
