@@ -245,7 +245,7 @@ def _base_form(**overrides):
     form = {
         "action": "save",
         "enabled": "on",
-        "url": "http://10.0.0.82:5680/webhook/cert-manager",
+        "url": "http://receiver.example/hook",
         "secret": "hunter2hunter2",
         "timeout_seconds": "5",
         "event_sign_csr": "on",
