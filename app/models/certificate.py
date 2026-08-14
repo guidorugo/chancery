@@ -25,9 +25,13 @@ class Certificate(db.Model):
     revoked_at = db.Column(db.DateTime, nullable=True)
     revocation_reason = db.Column(db.String(50), nullable=True)
     requested_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    # Who actually issued it: the CSR's signer, or the admin who created it
+    # directly. NULL on legacy rows until `flask certs backfill-issuers`.
+    issued_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     requester = db.relationship("User", backref="certificates", foreign_keys=[requested_by])
+    issuer_user = db.relationship("User", foreign_keys=[issued_by])
 
     @property
     def days_until_expiry(self):
@@ -59,6 +63,7 @@ class Certificate(db.Model):
             "expiry_status": self.expiry_status,
             "is_revoked": self.is_revoked,
             "requested_by": self.requested_by,
+            "issued_by": self.issued_by,
             "created_at": iso(self.created_at),
         }
         if detail:

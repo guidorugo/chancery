@@ -228,6 +228,7 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
         key_usage_json=json.dumps(key_usage) if key_usage else None,
         extended_key_usage_json=json.dumps(extended_key_usage) if extended_key_usage else None,
         requested_by=csr_model.created_by,
+        issued_by=signed_by,
     )
     db.session.add(certificate)
     db.session.flush()
@@ -244,7 +245,7 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
 def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
                        key_type="RSA", key_size=2048, key_usage=None,
                        extended_key_usage=None, ocsp_url=None,
-                       crl_dp_url=None):
+                       crl_dp_url=None, issued_by=None):
     if not ca.has_signing_key:
         raise ValueError("This CA was imported without its private key and cannot issue certificates.")
     if ca.approval_status == "pending":
@@ -390,6 +391,7 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
         san_json=json.dumps(san_list) if san_list else None,
         key_usage_json=json.dumps(key_usage) if key_usage else None,
         extended_key_usage_json=json.dumps(extended_key_usage) if extended_key_usage else None,
+        issued_by=issued_by,
     )
     db.session.add(certificate)
     db.session.commit()

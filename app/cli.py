@@ -146,6 +146,69 @@ def recompute_expiry(dry_run):
         click.echo(f"Updated {changed} row(s).")
 
 
+@certs_cli.command("backfill-issuers")
+@click.option("--dry-run", is_flag=True, help="Show changes without writing.")
+def backfill_issuers(dry_run):
+    """Backfill CSR signed_by / certificate issued_by from the audit log.
+
+    Rows issued before 2.10.0/2.11.0 predate the columns, but every signing
+    was audit-logged (sign_csr / create_certificate) with the acting user —
+    recover the identity from there. Idempotent: only NULL fields are filled,
+    existing values are never overwritten.
+    """
+    import json
+    from .models.audit_log import AuditLog
+    from .models.certificate import Certificate
+    from .models.csr import CertificateSigningRequest
+
+    csrs_filled = certs_filled = 0
+
+    for entry in AuditLog.query.filter_by(action="sign_csr").all():
+        if not entry.user_id:
+            continue
+        csr = (db.session.get(CertificateSigningRequest, entry.target_id)
+               if entry.target_id else None)
+        if csr is not None and csr.signed_by is None and csr.status == "approved":
+            click.echo(f"csr [{csr.id}] {csr.common_name}: signed_by <- "
+                       f"{entry.username} ({entry.user_id})")
+            if not dry_run:
+                csr.signed_by = entry.user_id
+            csrs_filled += 1
+        cert_id = None
+        if entry.details:
+            try:
+                cert_id = json.loads(entry.details).get("certificate_id")
+            except (ValueError, TypeError):
+                pass
+        if cert_id is None and csr is not None:
+            cert_id = csr.certificate_id
+        cert = db.session.get(Certificate, cert_id) if cert_id else None
+        if cert is not None and cert.issued_by is None:
+            click.echo(f"certificate [{cert.id}] {cert.common_name}: issued_by <- "
+                       f"{entry.username} ({entry.user_id})")
+            if not dry_run:
+                cert.issued_by = entry.user_id
+            certs_filled += 1
+
+    for entry in AuditLog.query.filter_by(action="create_certificate").all():
+        if not entry.user_id or not entry.target_id:
+            continue
+        cert = db.session.get(Certificate, entry.target_id)
+        if cert is not None and cert.issued_by is None:
+            click.echo(f"certificate [{cert.id}] {cert.common_name}: issued_by <- "
+                       f"{entry.username} ({entry.user_id})")
+            if not dry_run:
+                cert.issued_by = entry.user_id
+            certs_filled += 1
+
+    if dry_run:
+        click.echo(f"--dry-run: {csrs_filled} CSR(s), {certs_filled} "
+                   "certificate(s) would be filled.")
+    else:
+        db.session.commit()
+        click.echo(f"Filled {csrs_filled} CSR(s), {certs_filled} certificate(s).")
+
+
 users_cli = AppGroup("users", help="User account utilities.")
 
 

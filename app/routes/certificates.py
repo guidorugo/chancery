@@ -138,7 +138,7 @@ def create():
                 ca, subject_attrs, san_list, validity_days, passphrase,
                 key_type=key_type, key_size=key_size, ocsp_url=ocsp_url,
                 key_usage=key_usage, extended_key_usage=extended_key_usage,
-                crl_dp_url=crl_dp_url,
+                crl_dp_url=crl_dp_url, issued_by=current_user.id,
             )
             audit_service.log_action("create_certificate", target_type="certificate", target_id=certificate.id)
             db.session.commit()
