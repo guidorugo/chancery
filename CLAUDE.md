@@ -5,7 +5,7 @@ Python/Flask web application for managing an X.509 Certificate Authority (CA).
 Handles CA creation, certificate signing/revocation, CSR management, CRL generation, and OCSP responses.
 
 ## Tech Stack
-- Python 3.13, Flask 3.1.3, SQLAlchemy 2.0.52, cryptography 50.0.0
+- Python 3.14, Flask 3.1.3, SQLAlchemy 2.0.52, cryptography 50.0.0
 - Bootstrap 5 (CDN), Gunicorn, SQLite
 
 ## Project Structure
@@ -51,8 +51,8 @@ python -m pytest tests/ -v
 - **Registry**: `ghcr.io/guidorugo/cert-manager` — uses `GITHUB_TOKEN`, no extra secrets needed.
 - **`.dockerignore`**: Excludes `venv/`, `tests/`, `.env`, `.git/`, etc. from the Docker build context.
 - **Supply-chain hardening** (findings H2/I1/I2/J1/J2): Actions are **SHA-pinned** (comment = version); base image is **digest-pinned** in the Dockerfile; deps are **hash-locked** (`--require-hashes`); CI runs **pip-audit** (weekly cron too, blocking) and a **Trivy image scan** (report-only, on release tags); release images are **cosign-signed** (keyless OIDC) with **SLSA provenance + SBOM**. Pins are bumped by **Dependabot** (`.github/dependabot.yml`).
-- **Dependencies**: `requirements.in` is the human-edited source; `requirements.txt` is the generated hash-locked lockfile. After editing `requirements.in`, regenerate: `docker run --rm -v "$PWD:/w" -w /w python:3.13-alpine sh -c "pip install pip-tools && pip-compile --generate-hashes --output-file=requirements.txt requirements.in"` (the hash lockfile covers all platforms' wheels, so the regen container's OS doesn't matter).
-- **Base image (2.8.0)**: `python:3.13-alpine` (digest-pinned). Moved off debian-slim because trixie carried ~200 unfixable "won't fix" CVEs in Essential packages the app never runs (perl, util-linux, glib2, ncurses — see `IMAGE_VULN_SCAN_12-08-26.md`); the Alpine image scans clean. `pip` is uninstalled from the final image (runtime never installs packages; also clears findings against pip's vendored setuptools/msgpack). Entry scripts are POSIX sh (no bash on Alpine); privilege drop uses `su-exec` (busybox `setpriv` lacks `--reuid`); `softhsm` apk package provides the same `/usr/lib/softhsm/libsofthsm2.so` path; opensc is no longer installed (was diagnostics-only, unused).
+- **Dependencies**: `requirements.in` is the human-edited source; `requirements.txt` is the generated hash-locked lockfile. After editing `requirements.in`, regenerate: `docker run --rm -v "$PWD:/w" -w /w python:3.14-alpine sh -c "pip install pip-tools && pip-compile --generate-hashes --output-file=requirements.txt requirements.in"` (the hash lockfile covers all platforms' wheels, so the regen container's OS doesn't matter).
+- **Base image**: `python:3.14-alpine` (digest-pinned; 3.13→3.14 in 2.9.2). Moved off debian-slim in 2.8.0 because trixie carried ~200 unfixable "won't fix" CVEs in Essential packages the app never runs (perl, util-linux, glib2, ncurses — see `IMAGE_VULN_SCAN_12-08-26.md`); the Alpine image scans clean. `pip` is uninstalled from the final image (runtime never installs packages; also clears findings against pip's vendored setuptools/msgpack). Entry scripts are POSIX sh (no bash on Alpine); privilege drop uses `su-exec` (busybox `setpriv` lacks `--reuid`); `softhsm` apk package provides the same `/usr/lib/softhsm/libsofthsm2.so` path; opensc is no longer installed (was diagnostics-only, unused).
 
 ## Key Design Decisions
 - **Private key encryption**: Fernet + PBKDF2-HMAC-SHA256 (600k iterations). Salt stored with ciphertext.
