@@ -16,10 +16,12 @@ class CertificateSigningRequest(db.Model):
     certificate_id = db.Column(db.Integer, db.ForeignKey("certificates.id"), nullable=True)
     san_json = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    signed_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     certificate = db.relationship("Certificate", backref="csr")
     creator = db.relationship("User", backref="csrs", foreign_keys=[created_by])
+    signer = db.relationship("User", foreign_keys=[signed_by])
 
     def to_dict(self, detail=False):
         d = {
@@ -29,6 +31,7 @@ class CertificateSigningRequest(db.Model):
             "ca_id": self.ca_id,
             "certificate_id": self.certificate_id,
             "created_by": self.created_by,
+            "signed_by": self.signed_by,
             "created_at": iso(self.created_at),
         }
         if detail:

@@ -60,7 +60,7 @@ EKU_MAP = {
 
 def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
              key_usage=None, extended_key_usage=None, ocsp_url=None,
-             crl_dp_url=None):
+             crl_dp_url=None, signed_by=None):
     if not ca.has_signing_key:
         raise ValueError("This CA was imported without its private key and cannot issue certificates.")
     ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
@@ -233,6 +233,7 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
     csr_model.status = "approved"
     csr_model.certificate_id = certificate.id
     csr_model.ca_id = ca.id
+    csr_model.signed_by = signed_by
 
     db.session.commit()
     return certificate

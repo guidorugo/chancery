@@ -34,7 +34,10 @@
                         </td>
                     </tr>
                     {% if csr.ca %}
-                    <tr><th>Signed By</th><td><a href="{{ url_for('ca.detail', ca_id=csr.ca.id) }}">{{ csr.ca.name }}</a></td></tr>
+                    <tr><th>Issuing CA</th><td><a href="{{ url_for('ca.detail', ca_id=csr.ca.id) }}">{{ csr.ca.name }}</a></td></tr>
+                    {% endif %}
+                    {% if csr.signer %}
+                    <tr><th>Signed By</th><td>{{ csr.signer.username }}</td></tr>
                     {% endif %}
                     {% if csr.certificate %}
                     <tr><th>Certificate</th><td><a href="{{ url_for('certificates.detail', cert_id=csr.certificate.id) }}">View</a></td></tr>
