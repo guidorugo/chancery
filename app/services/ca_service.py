@@ -22,13 +22,16 @@ def _key_label():
 MAX_PEM_SIZE = 64 * 1024  # 64KB
 
 
-def _publish_initial_crl(ca, passphrase):
+def publish_initial_crl(ca, passphrase):
     """Publish an initial CRL for a newly created/imported keyed CA so the
     read-only public CRL endpoint (C1) always has something to serve.
     Best-effort — the CA already exists; a failure just defers the CRL to the
     admin 'Generate CRL' action or the first revocation.
+
+    Skipped for dual-control pending CAs (they cannot sign yet); the approve
+    route publishes their first CRL instead.
     """
-    if not ca or not ca.has_signing_key:
+    if not ca or not ca.has_signing_key or ca.approval_status == "pending":
         return
     from . import crl_service
     import logging
@@ -56,7 +59,8 @@ def _get_hash_algorithm(key):
 
 
 def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passphrase,
-                   path_length=None, backend=None):
+                   path_length=None, backend=None, created_by=None,
+                   approval_status="approved"):
     enforce_key_strength(key_type, key_size)  # B5
     backend_name = backend or default_backend_name()
     kb = get_backend(backend_name)
@@ -123,20 +127,27 @@ def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passp
         not_before=now,
         not_after=not_after,
         path_length=path_length,
+        created_by=created_by,
+        approval_status=approval_status,
+        approved_by=(created_by if approval_status == "approved" else None),
+        approved_at=(now if approval_status == "approved" else None),
     )
     cert_der = kb.sign_certificate(builder, ca, secret=passphrase)
     ca.certificate_pem = x509.load_der_x509_certificate(cert_der).public_bytes(
         serialization.Encoding.PEM).decode()
     db.session.add(ca)
     db.session.commit()
-    _publish_initial_crl(ca, passphrase)
+    publish_initial_crl(ca, passphrase)
     return ca
 
 
 def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
-                           validity_days, passphrase, path_length=None, backend=None):
+                           validity_days, passphrase, path_length=None, backend=None,
+                           created_by=None, approval_status="approved"):
     if not parent_ca.has_signing_key:
         raise ValueError("Parent CA was imported without its private key and cannot sign a new intermediate CA.")
+    if parent_ca.approval_status == "pending":
+        raise ValueError("The parent CA is awaiting dual-control approval and cannot sign a new intermediate CA yet.")
     enforce_key_strength(key_type, key_size)  # B5
 
     # The child key lives in the child's chosen backend; the parent's backend
@@ -220,6 +231,10 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
         not_before=now,
         not_after=not_after,
         path_length=path_length,
+        created_by=created_by,
+        approval_status=approval_status,
+        approved_by=(created_by if approval_status == "approved" else None),
+        approved_at=(now if approval_status == "approved" else None),
     )
     cert_der = backend_for_ca(parent_ca).sign_certificate(
         builder, parent_ca, secret=passphrase)
@@ -227,7 +242,7 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
         serialization.Encoding.PEM).decode()
     db.session.add(ca)
     db.session.commit()
-    _publish_initial_crl(ca, passphrase)
+    publish_initial_crl(ca, passphrase)
     return ca
 
 
@@ -464,7 +479,27 @@ def _import_chain(name, ordered, private_key, passphrase, parent_id=None):
     return leaf
 
 
-def import_ca(name, cert_pem, key_pem, passphrase, parent_id=None, key_passphrase=None):
+def _apply_import_approval(ca, created_by, approval_status):
+    """Stamp dual-control fields on an imported leaf CA and commit.
+
+    Pending only makes sense for a CA that can sign; certificate-only imports
+    auto-approve (they cannot issue anything anyway). Chain-imported parents
+    are always certificate-only, so they keep the approved default.
+    """
+    ca.created_by = created_by
+    if approval_status == "pending" and ca.has_signing_key:
+        ca.approval_status = "pending"
+        ca.approved_by = None
+        ca.approved_at = None
+    else:
+        ca.approval_status = "approved"
+        ca.approved_by = created_by
+        ca.approved_at = datetime.now(timezone.utc)
+    db.session.commit()
+
+
+def import_ca(name, cert_pem, key_pem, passphrase, parent_id=None, key_passphrase=None,
+              created_by=None, approval_status="approved"):
     """Import an existing CA from PEM material.
 
     cert_pem may contain a single CA certificate or a full chain bundle; with
@@ -496,7 +531,8 @@ def import_ca(name, cert_pem, key_pem, passphrase, parent_id=None, key_passphras
         ca._imported_parents = []
     else:
         ca = _import_chain(name, ordered, private_key, passphrase, parent_id=parent_id)
-    _publish_initial_crl(ca, passphrase)
+    _apply_import_approval(ca, created_by, approval_status)
+    publish_initial_crl(ca, passphrase)
     return ca
 
 
@@ -553,7 +589,8 @@ def export_ca_pkcs12(ca, passphrase, export_password):
     )
 
 
-def import_pkcs12(name, p12_bytes, p12_password, passphrase, parent_id=None):
+def import_pkcs12(name, p12_bytes, p12_password, passphrase, parent_id=None,
+                  created_by=None, approval_status="approved"):
     """Import a CA from a PKCS#12 (.p12/.pfx) bundle.
 
     The bundle's main certificate becomes the named CA (with its key when
@@ -591,5 +628,6 @@ def import_pkcs12(name, p12_bytes, p12_password, passphrase, parent_id=None):
         ca._imported_parents = []
     else:
         ca = _import_chain(name, ordered, key, passphrase, parent_id=parent_id)
-    _publish_initial_crl(ca, passphrase)
+    _apply_import_approval(ca, created_by, approval_status)
+    publish_initial_crl(ca, passphrase)
     return ca

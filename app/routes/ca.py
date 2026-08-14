@@ -1,13 +1,15 @@
 import logging
 import re
+from datetime import datetime, timezone
 
 from flask import Blueprint, Response, render_template, redirect, url_for, flash, request, current_app, jsonify
+from flask_login import current_user
 
 from ..decorators import admin_required
 from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..responses import api_error, wants_json
-from ..services import ca_service, crl_service, audit_service
+from ..services import ca_service, crl_service, audit_service, dual_control_service
 from ..services.keybackend import hsm_available
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,9 @@ def create():
 
     if request.method == "POST":
         mode = request.form.get("mode", "generate")
+        # Dual control: a CA created while the mode is active starts pending
+        # and must be approved by a different admin before it can sign.
+        approval_status = "pending" if dual_control_service.is_active() else "approved"
 
         if mode == "upload":
             name = request.form.get("name", "").strip()
@@ -90,7 +95,9 @@ def create():
                         raise ValueError("Uploaded file exceeds 64KB size limit.")
                     p12_password = request.form.get("p12_password", "")
                     ca = ca_service.import_pkcs12(name, p12_bytes, p12_password or None,
-                                                  passphrase, parent_id=parent_id)
+                                                  passphrase, parent_id=parent_id,
+                                                  created_by=current_user.id,
+                                                  approval_status=approval_status)
                 else:
                     cert_pem = _get_pem_input(request, "cert_pem", "cert_file")
                     key_pem = _get_pem_input(request, "key_pem", "key_file")
@@ -108,13 +115,16 @@ def create():
 
                     ca = ca_service.import_ca(name, cert_pem, key_pem or None, passphrase,
                                               parent_id=parent_id,
-                                              key_passphrase=key_passphrase or None)
+                                              key_passphrase=key_passphrase or None,
+                                              created_by=current_user.id,
+                                              approval_status=approval_status)
 
                 imported_parents = getattr(ca, "_imported_parents", [])
                 audit_service.log_action(
                     "import_ca", target_type="ca", target_id=ca.id,
                     details={"format": import_format, "has_key": ca.has_private_key,
-                             "imported_parents": imported_parents},
+                             "imported_parents": imported_parents,
+                             "approval_status": ca.approval_status},
                 )
                 db.session.commit()
                 msg = f"CA '{ca.name}' imported successfully."
@@ -124,9 +134,12 @@ def create():
                 if not ca.has_private_key:
                     msg += (" Imported without a private key: this CA cannot issue "
                             "certificates, sign CRLs, or answer OCSP.")
+                if ca.approval_status == "pending":
+                    msg += (" Dual control: it awaits approval by another admin "
+                            "before it can sign anything.")
                 if wants_json():
                     return jsonify(ca.to_dict(detail=True)), 201
-                flash(msg, "success" if ca.has_private_key else "warning")
+                flash(msg, "success" if ca.has_private_key and ca.approval_status != "pending" else "warning")
                 return redirect(url_for("ca.detail", ca_id=ca.id))
             except ValueError as e:
                 return _err(str(e))
@@ -181,19 +194,26 @@ def create():
                     ca = ca_service.create_intermediate_ca(
                         name, parent_ca, subject_attrs, key_type, key_size,
                         validity_days, passphrase, path_length=path_length,
-                        backend=key_backend,
+                        backend=key_backend, created_by=current_user.id,
+                        approval_status=approval_status,
                     )
                 else:
                     ca = ca_service.create_root_ca(
                         name, subject_attrs, key_type, key_size,
                         validity_days, passphrase, path_length=path_length,
-                        backend=key_backend,
+                        backend=key_backend, created_by=current_user.id,
+                        approval_status=approval_status,
                     )
-                audit_service.log_action("create_ca", target_type="ca", target_id=ca.id)
+                audit_service.log_action("create_ca", target_type="ca", target_id=ca.id,
+                                         details={"approval_status": ca.approval_status})
                 db.session.commit()
                 if wants_json():
                     return jsonify(ca.to_dict(detail=True)), 201
-                flash(f"CA '{ca.name}' created successfully.", "success")
+                if ca.approval_status == "pending":
+                    flash(f"CA '{ca.name}' created and awaiting approval by another "
+                          "admin before it can issue anything.", "warning")
+                else:
+                    flash(f"CA '{ca.name}' created successfully.", "success")
                 return redirect(url_for("ca.detail", ca_id=ca.id))
             except ValueError as e:
                 # Invalid input (e.g. a bad subject field or out-of-range
@@ -230,6 +250,52 @@ def detail(ca_id):
         return jsonify(ca.to_dict(detail=True))
     chain = ca_service.get_ca_chain(ca)
     return render_template("ca/detail.html", ca=ca, chain=chain)
+
+
+@ca_bp.route("/<int:ca_id>/approve", methods=["POST"])
+@admin_required
+def approve(ca_id):
+    """Dual-control approval of a pending CA by a different admin.
+
+    While dual control is active the creator cannot approve their own CA
+    (the literal bootstrap admin account excepted). Once the mode is
+    inactive, any admin — including the creator — may approve a leftover
+    pending CA.
+    """
+    ca = db.session.get(CertificateAuthority, ca_id)
+    if not ca:
+        if wants_json():
+            return api_error("CA not found.", 404)
+        flash("CA not found.", "danger")
+        return redirect(url_for("ca.list_cas"))
+
+    if ca.approval_status != "pending":
+        if wants_json():
+            return api_error("This CA is not awaiting approval.", 409)
+        flash("This CA is not awaiting approval.", "warning")
+        return redirect(url_for("ca.detail", ca_id=ca_id))
+
+    if (dual_control_service.is_active()
+            and ca.created_by == current_user.id
+            and not dual_control_service.is_exempt(current_user)):
+        msg = "Dual-control mode: a CA must be approved by a different admin than its creator."
+        if wants_json():
+            return api_error(msg, 403)
+        flash(msg, "warning")
+        return redirect(url_for("ca.detail", ca_id=ca_id))
+
+    ca.approval_status = "approved"
+    ca.approved_by = current_user.id
+    ca.approved_at = datetime.now(timezone.utc)
+    audit_service.log_action("approve_ca", target_type="ca", target_id=ca.id,
+                             details={"created_by": ca.created_by})
+    db.session.commit()
+    # The initial CRL was deferred while the CA was pending — publish it now.
+    ca_service.publish_initial_crl(ca, current_app.config["MASTER_PASSPHRASE"])
+    if wants_json():
+        return jsonify(ca.to_dict(detail=True))
+    flash(f"CA '{ca.name}' approved. It can now issue certificates.", "success")
+    return redirect(url_for("ca.detail", ca_id=ca_id))
 
 
 @ca_bp.route("/<int:ca_id>/download", methods=["GET", "POST"])

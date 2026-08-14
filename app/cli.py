@@ -189,7 +189,7 @@ def crl_refresh(refresh_all):
     now = datetime.now(timezone.utc)
     refreshed = 0
     for ca in CertificateAuthority.query.filter_by(is_revoked=False).all():
-        if not ca.has_signing_key:
+        if not ca.has_signing_key or ca.approval_status == "pending":
             continue
         stale = True
         if not refresh_all and ca.crl_pem:

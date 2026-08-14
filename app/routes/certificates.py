@@ -13,7 +13,7 @@ from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..models.certificate import Certificate
 from ..responses import api_error, wants_json
-from ..services import cert_service, crl_service, audit_service
+from ..services import cert_service, crl_service, audit_service, dual_control_service
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,14 @@ def list_certs():
 @certificates_bp.route("/create", methods=["GET", "POST"])
 @admin_required
 def create():
+    if dual_control_service.is_active():
+        msg = ("Dual-control mode: direct certificate creation is disabled. "
+               "Create a CSR and have another admin sign it.")
+        if wants_json():
+            return api_error(msg, 403)
+        flash(msg, "warning")
+        return redirect(url_for("csr.create"))
+
     if request.method == "POST":
         cn = request.form.get("cn", "").strip()
         org = request.form.get("org", "").strip()

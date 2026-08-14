@@ -82,7 +82,9 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Recent Certificates</h5>
+                {% if not dual_control_active() %}
                 <a href="{{ url_for('certificates.create') }}" class="btn btn-sm btn-primary">Create Cert</a>
+                {% endif %}
             </div>
             <div class="card-body">
                 {% if recent_certs %}

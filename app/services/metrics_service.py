@@ -162,7 +162,7 @@ class CertManagerCollector:
             ca_states[_ca_state(ca, now, soon)] += 1
             ca_backend[ca.key_backend] = ca_backend.get(ca.key_backend, 0) + 1
             ca_type["root" if ca.is_root else "intermediate"] += 1
-            if not ca.is_revoked and ca.has_signing_key:
+            if not ca.is_revoked and ca.has_signing_key and ca.approval_status == "approved":
                 signing_capable += 1
 
             exp = _unix(ca.not_after)

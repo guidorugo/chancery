@@ -23,6 +23,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Forced first-login password change**: The bootstrap admin seeded from `ADMIN_PASSWORD` must set a new password before using the app, so the seed credential can't become permanent; self-service change-password for any local user
 - **Hardware-backed keys (SoftHSM/PKCS#11)**: Enabled by default — CA signing keys can be held in a PKCS#11 token so they never enter application memory and cannot be exported; selectable per-CA (software stays the default backend), with a one-way migration for existing CAs and a drop-in path to a real hardware HSM
 - **LDAP Login**: Optional LDAP/Active Directory authentication with group-to-role mapping and automatic user provisioning — configurable from the admin UI (Preferences → LDAP, with a live connection test) or via environment variables
+- **Dual control (four-eyes)**: Opt-in mode (`DUAL_CONTROL_ENABLED`) where no single admin can both request and approve issuance — direct certificate creation is disabled in favour of the CSR flow, a CSR's creator cannot sign it, and a new CA must be approved by a different admin before it can issue anything; kicks in automatically once the instance is genuinely multi-user (or LDAP is enabled), with the bootstrap `admin` account exempt as break-glass
 - **Version & update awareness**: The footer shows the running version; a cached, server-side check (on by default, disable for air-gapped deployments) flags in the footer when a newer GitHub release is available
 
 ## PKCS Standards
@@ -263,7 +264,7 @@ Basic Auth works for local and LDAP accounts alike. To keep the per-request cost
 Data endpoints return **JSON** when the caller is an API client — it authenticated with **Basic Auth**, or sent **`Accept: application/json`** — and HTML otherwise, so the same URLs back the web UI and a JSON API.
 
 - **Reads** — `GET /ca/`, `/ca/<id>`, `/certificates/`, `/certificates/<id>`, `/csr/`, `/csr/<id>`, `/users/`, `/users/audit-log`, `/` — return the resource(s) as JSON.
-- **Writes** — `POST /ca/create`, `/ca/<id>/revoke`, `/ca/<id>/crl`, `/certificates/create`, `/certificates/<id>/revoke`, `/csr/create`, `/csr/<id>/sign`, `/csr/<id>/reject` — take the same form fields and return the created/updated resource (`201`/`200`); validation and not-found errors return `{"error": "..."}` with a `4xx` status.
+- **Writes** — `POST /ca/create`, `/ca/<id>/approve`, `/ca/<id>/revoke`, `/ca/<id>/crl`, `/certificates/create`, `/certificates/<id>/revoke`, `/csr/create`, `/csr/<id>/sign`, `/csr/<id>/reject` — take the same form fields and return the created/updated resource (`201`/`200`); validation and not-found errors return `{"error": "..."}` with a `4xx` status.
 
 ```bash
 # Basic Auth implies JSON
@@ -463,6 +464,7 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `UPDATE_CHECK_REPO` | `guidorugo/cert-manager` | Repository to check for the latest release |
 | `UPDATE_CHECK_INTERVAL_SECONDS` | `21600` | Cache TTL for the update check (6h) |
 | `MASTER_PASSPHRASE_FILE` / `SECRET_KEY_FILE` / `ADMIN_PASSWORD_FILE` | – | Read the secret from a file (Docker/systemd secret) instead of the env var |
+| `DUAL_CONTROL_ENABLED` | `false` | Four-eyes issuance: once another active user besides `ADMIN_USERNAME` exists (or LDAP is enabled), direct cert creation is disabled, CSR creators cannot sign their own CSRs, and new CAs need approval by a different admin (`POST /ca/<id>/approve`). The bootstrap admin account is exempt |
 | `LDAP_ENABLED` | `false` | Enable LDAP authentication for the web login. Alternatively configure LDAP in the admin UI (Preferences → LDAP) — settings saved there override all `LDAP_*` variables until removed |
 | `LDAP_SERVER_URI` | – | LDAP server URI(s), e.g. `ldaps://dc01:636` (comma-separated for failover) |
 | `LDAP_USE_STARTTLS` | `false` | Upgrade `ldap://` connections with StartTLS |

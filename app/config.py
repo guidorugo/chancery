@@ -155,6 +155,14 @@ class Config:
     LDAP_GROUP_MEMBER_ATTR = os.environ.get("LDAP_GROUP_MEMBER_ATTR") or "memberOf"
     LDAP_TIMEOUT_SECONDS = int(os.environ.get("LDAP_TIMEOUT_SECONDS") or "5")
 
+    # Dual control (2.10.0). When the flag is on AND the instance is genuinely
+    # multi-user (another active account besides ADMIN_USERNAME, or LDAP in
+    # effect), no single admin can both request and approve issuance: direct
+    # certificate creation is disabled, a CSR's creator cannot sign it, and a
+    # new CA needs approval by a different admin. The literal ADMIN_USERNAME
+    # account is exempt (break-glass). See app/services/dual_control_service.py.
+    DUAL_CONTROL_ENABLED = os.environ.get("DUAL_CONTROL_ENABLED", "false").lower() == "true"
+
     _INSECURE_SECRET_KEY = "dev-secret-key"
     _INSECURE_PASSPHRASE = "dev-passphrase"
     _INSECURE_ADMIN_PASSWORD = "admin"

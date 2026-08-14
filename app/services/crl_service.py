@@ -26,9 +26,10 @@ REVOCATION_REASONS = {
 def refresh_crl(ca, passphrase):
     """Regenerate and cache the CRL for a CA that holds a signing key.
 
-    No-op (returns None) for certificate-only CAs, which cannot sign a CRL.
+    No-op (returns None) for certificate-only CAs, which cannot sign a CRL,
+    and for dual-control pending CAs (revoking one must not 500).
     """
-    if not ca or not ca.has_signing_key:
+    if not ca or not ca.has_signing_key or ca.approval_status == "pending":
         return None
     return generate_crl(ca, passphrase)
 
@@ -101,6 +102,8 @@ def revoke_ca(ca_id, reason="unspecified", passphrase=None):
 def generate_crl(ca, passphrase, validity_days=None):
     if not ca.has_signing_key:
         raise ValueError("This CA was imported without its private key and cannot sign CRLs.")
+    if ca.approval_status == "pending":
+        raise ValueError("This CA is awaiting dual-control approval and cannot sign CRLs yet.")
     if validity_days is None:
         # PKI-1: configurable CRL validity window (default 7 days).
         try:

@@ -39,9 +39,14 @@ def default_backend_name() -> str:
 
 
 def backend_for_ca(ca) -> KeyBackend:
-    """Backend holding this CA's signing key. Raises for keyless CAs."""
+    """Backend holding this CA's signing key. Raises for keyless CAs and for
+    dual-control pending CAs (defense-in-depth: every issuing path resolves
+    the ISSUING CA through here; a pending root still self-signs at creation
+    because that path uses get_backend directly)."""
     if not getattr(ca, "has_signing_key", False):
         raise ValueError("This CA has no signing key (imported certificate-only).")
+    if getattr(ca, "approval_status", "approved") == "pending":
+        raise ValueError("This CA is awaiting dual-control approval and cannot sign yet.")
     return get_backend(getattr(ca, "key_backend", None) or "software")
 
 

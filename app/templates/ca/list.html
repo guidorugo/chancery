@@ -23,7 +23,7 @@
     <tbody>
     {% for ca in cas %}
         <tr>
-            <td><a href="{{ url_for('ca.detail', ca_id=ca.id) }}">{{ ca.name }}</a>{% if not ca.has_signing_key %} <span class="badge bg-secondary">Cert-only</span>{% endif %}{% if ca.key_backend == 'softhsm' %} <span class="badge bg-info text-dark">HSM</span>{% endif %}</td>
+            <td><a href="{{ url_for('ca.detail', ca_id=ca.id) }}">{{ ca.name }}</a>{% if not ca.has_signing_key %} <span class="badge bg-secondary">Cert-only</span>{% endif %}{% if ca.key_backend == 'softhsm' %} <span class="badge bg-info text-dark">HSM</span>{% endif %}{% if ca.approval_status == 'pending' %} <span class="badge bg-warning text-dark">Pending approval</span>{% endif %}</td>
             <td>{{ ca.common_name }}</td>
             <td>{{ "Root" if ca.is_root else "Intermediate" }}</td>
             <td>
