@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Webhook Settings - Cert Manager{% endblock %}
+{% block content %}
+{% set active_tab = 'webhooks' %}
+{% include "users/_tabs.html" %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Webhook Notifications</h2>
+    {% if source == 'db' %}
+    <span class="badge bg-primary">Managed here</span>
+    {% else %}
+    <span class="badge bg-secondary" title="No settings saved from this page yet — the WEBHOOK_* environment variables apply.">Using environment config</span>
+    {% endif %}
+</div>
+
+<p class="text-body-secondary">
+    Selected events are POSTed as JSON to the webhook URL (fire-and-forget; a
+    dead receiver never slows the app). Settings saved here are stored in the
+    database (secret encrypted with the master passphrase) and take effect
+    immediately, overriding any <code>WEBHOOK_*</code> environment variables.
+    When a secret is set, each request carries an
+    <code>X-CertManager-Signature: sha256=&lt;HMAC-SHA256 of the body&gt;</code> header.
+</p>
+
+{% if test_result %}
+<div class="alert {% if test_result.ok %}alert-success{% else %}alert-danger{% endif %}">
+    <strong>{% if test_result.ok %}Test succeeded:{% else %}Test failed:{% endif %}</strong>
+    {{ test_result.message }}
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('users.webhook_settings') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="card mb-3">
+        <div class="card-header">Delivery</div>
+        <div class="card-body">
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="enabled" name="enabled"
+                       {% if cfg.WEBHOOK_ENABLED %}checked{% endif %}>
+                <label class="form-check-label" for="enabled">Enable webhook notifications</label>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="url">Webhook URL</label>
+                <input class="form-control" id="url" name="url"
+                       value="{{ cfg.WEBHOOK_URL }}"
+                       placeholder="http://10.0.0.82:5680/webhook/cert-manager">
+                <div class="form-text">POST target, e.g. an n8n webhook trigger.</div>
+            </div>
+            <div class="row">
+                <div class="col-md-8 mb-3">
+                    <label class="form-label" for="secret">Signing secret</label>
+                    <input class="form-control" type="password" id="secret" name="secret"
+                           autocomplete="new-password"
+                           placeholder="{% if has_stored_secret %}(unchanged — leave blank to keep){% else %}(optional){% endif %}">
+                    <div class="form-text">Write-only. Leave blank to keep the stored secret; used for the HMAC signature header.</div>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label" for="timeout_seconds">Timeout (seconds)</label>
+                    <input class="form-control" id="timeout_seconds" name="timeout_seconds"
+                           value="{{ cfg.WEBHOOK_TIMEOUT_SECONDS }}">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">Events</div>
+        <div class="card-body">
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="all_events" name="all_events"
+                       {% if all_events %}checked{% endif %}>
+                <label class="form-check-label" for="all_events">All events (including future ones)</label>
+            </div>
+            <div class="row" id="event-groups">
+                {% for group, actions in catalog.items() %}
+                <div class="col-md-4 mb-3">
+                    <h6 class="text-body-secondary">{{ group }}</h6>
+                    {% for action, label in actions %}
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox"
+                               id="event_{{ action }}" name="event_{{ action }}"
+                               {% if action in selected_events %}checked{% endif %}>
+                        <label class="form-check-label" for="event_{{ action }}">
+                            {{ label }} <code class="small">{{ action }}</code>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+            <div class="form-text">
+                With "All events" on, the individual checkboxes are ignored.
+                Authentication events (failed logins, Basic Auth failures) fire
+                per attempt and can be noisy.
+            </div>
+        </div>
+    </div>
+
+    <div class="mb-4">
+        <button type="submit" name="action" value="test" class="btn btn-outline-secondary">Send test event</button>
+        <button type="submit" name="action" value="save" class="btn btn-primary">Save settings</button>
+    </div>
+</form>
+
+{% if source == 'db' %}
+<form method="POST" action="{{ url_for('users.webhook_settings_reset') }}" class="mb-4">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline-danger btn-sm">
+        Remove saved settings (revert to environment config)
+    </button>
+</form>
+{% endif %}
+{% endblock %}

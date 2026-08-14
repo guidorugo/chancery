@@ -49,6 +49,9 @@ class TestConfig(Config):
     # Dual control off regardless of the developer's environment; the mode is
     # exercised with an explicit config in test_dual_control.
     DUAL_CONTROL_ENABLED = False
+    # Webhooks off too — the suite must never make outbound calls; exercised
+    # with explicit configs/overrides in test_webhooks.
+    WEBHOOK_ENABLED = False
 
 
 @pytest.fixture(scope="session")

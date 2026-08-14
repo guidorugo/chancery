@@ -24,6 +24,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Hardware-backed keys (SoftHSM/PKCS#11)**: Enabled by default — CA signing keys can be held in a PKCS#11 token so they never enter application memory and cannot be exported; selectable per-CA (software stays the default backend), with a one-way migration for existing CAs and a drop-in path to a real hardware HSM
 - **LDAP Login**: Optional LDAP/Active Directory authentication with group-to-role mapping and automatic user provisioning — configurable from the admin UI (Preferences → LDAP, with a live connection test) or via environment variables
 - **Dual control (four-eyes)**: Opt-in mode (`DUAL_CONTROL_ENABLED`) where no single admin can both request and approve issuance — direct certificate creation is disabled in favour of the CSR flow, a CSR's creator cannot sign it, and a new CA must be approved by a different admin before it can issue anything; kicks in automatically once the instance is genuinely multi-user (or LDAP is enabled), with the bootstrap `admin` account exempt as break-glass
+- **Webhook notifications**: POST selected audit events (certificate issued/revoked, CSR signed, CA created/approved, logins, …) as JSON to any HTTP endpoint (e.g. an n8n workflow) — configurable from the admin UI (Preferences → Webhooks, with a test button) or via `WEBHOOK_*` environment variables; optional HMAC-SHA256 body signature, fire-and-forget delivery that never blocks a request
 - **Version & update awareness**: The footer shows the running version; a cached, server-side check (on by default, disable for air-gapped deployments) flags in the footer when a newer GitHub release is available
 
 ## PKCS Standards
@@ -388,6 +389,8 @@ curl -b cookies.txt -O http://localhost:5000/certificates/1/download-key
 | GET | `/users/audit-log` | View audit log (paginated, `?page=N`) |
 | GET, POST | `/users/ldap` | View/save LDAP settings (POST `action=test` runs a live connection test) |
 | POST | `/users/ldap/reset` | Remove saved LDAP settings (revert to env config) |
+| GET, POST | `/users/webhooks` | View/save webhook notification settings (POST `action=test` sends a test event) |
+| POST | `/users/webhooks/reset` | Remove saved webhook settings (revert to env config) |
 
 #### Dashboard & Auth
 
@@ -465,6 +468,11 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `UPDATE_CHECK_INTERVAL_SECONDS` | `21600` | Cache TTL for the update check (6h) |
 | `MASTER_PASSPHRASE_FILE` / `SECRET_KEY_FILE` / `ADMIN_PASSWORD_FILE` | – | Read the secret from a file (Docker/systemd secret) instead of the env var |
 | `DUAL_CONTROL_ENABLED` | `false` | Four-eyes issuance: once another active user besides `ADMIN_USERNAME` exists (or LDAP is enabled), direct cert creation is disabled, CSR creators cannot sign their own CSRs, and new CAs need approval by a different admin (`POST /ca/<id>/approve`). The bootstrap admin account is exempt |
+| `WEBHOOK_ENABLED` | `false` | POST selected audit events as JSON to `WEBHOOK_URL`. Also configurable in the admin UI (Preferences → Webhooks) — settings saved there override all `WEBHOOK_*` variables until removed |
+| `WEBHOOK_URL` | – | Webhook POST target (e.g. an n8n webhook trigger) |
+| `WEBHOOK_SECRET` | – | Optional signing secret: requests carry `X-CertManager-Signature: sha256=<HMAC-SHA256 of the body>` (`_FILE` convention supported) |
+| `WEBHOOK_EVENTS` | – | CSV of audit action names to notify on (e.g. `sign_csr,create_ca`); empty = none, `all` = every action |
+| `WEBHOOK_TIMEOUT_SECONDS` | `5` | Delivery timeout for the background POST |
 | `LDAP_ENABLED` | `false` | Enable LDAP authentication for the web login. Alternatively configure LDAP in the admin UI (Preferences → LDAP) — settings saved there override all `LDAP_*` variables until removed |
 | `LDAP_SERVER_URI` | – | LDAP server URI(s), e.g. `ldaps://dc01:636` (comma-separated for failover) |
 | `LDAP_USE_STARTTLS` | `false` | Upgrade `ldap://` connections with StartTLS |
