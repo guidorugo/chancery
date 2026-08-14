@@ -31,10 +31,18 @@ class CertificateAuthority(db.Model):
     # (private_key_enc is the empty-bytes sentinel, key material never in memory).
     key_backend = db.Column(db.String(20), nullable=False, default="software")
     key_label = db.Column(db.String(200), nullable=True)
+    # Dual control (2.10.0): a CA created while the mode is active starts
+    # "pending" and cannot sign anything until a different admin approves it.
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    approval_status = db.Column(db.String(20), nullable=False, default="approved")  # approved/pending
+    approved_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
 
     parent = db.relationship("CertificateAuthority", remote_side=[id], backref="children")
     certificates = db.relationship("Certificate", backref="ca", lazy="dynamic")
     csrs = db.relationship("CertificateSigningRequest", backref="ca", lazy="dynamic")
+    creator = db.relationship("User", foreign_keys=[created_by])
+    approver = db.relationship("User", foreign_keys=[approved_by])
 
     @property
     def has_private_key(self):
@@ -61,12 +69,19 @@ class CertificateAuthority(db.Model):
         HSM keys are non-extractable, so key/PKCS#12 export is refused."""
         return self.key_backend != "softhsm" and bool(self.private_key_enc)
 
+    @property
+    def is_pending_approval(self):
+        """True while a dual-control-created CA awaits a second admin."""
+        return self.approval_status == "pending"
+
     @classmethod
     def signing_capable(cls):
-        """Query for CAs that can sign: not revoked and holding a usable key
-        (software bytes present, or key held in an HSM token)."""
+        """Query for CAs that can sign: not revoked, approved (dual control),
+        and holding a usable key (software bytes present, or key in an HSM
+        token)."""
         return cls.query.filter_by(is_revoked=False).filter(
-            db.or_(cls.key_backend == "softhsm", cls.private_key_enc != b"")
+            cls.approval_status == "approved",
+            db.or_(cls.key_backend == "softhsm", cls.private_key_enc != b""),
         )
 
     @property
@@ -104,6 +119,8 @@ class CertificateAuthority(db.Model):
             "has_private_key": self.has_private_key,
             "has_signing_key": self.has_signing_key,
             "is_exportable": self.is_exportable,
+            "approval_status": self.approval_status,
+            "created_by": self.created_by,
             "created_at": iso(self.created_at),
         }
         if detail:
@@ -112,6 +129,8 @@ class CertificateAuthority(db.Model):
                 "crl_number": self.crl_number,
                 "revoked_at": iso(self.revoked_at),
                 "revocation_reason": self.revocation_reason,
+                "approved_by": self.approved_by,
+                "approved_at": iso(self.approved_at),
                 "certificate_pem": self.certificate_pem,
             })
         return d

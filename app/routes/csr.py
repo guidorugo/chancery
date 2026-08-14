@@ -12,7 +12,7 @@ from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..models.csr import CertificateSigningRequest
 from ..responses import api_error, wants_json
-from ..services import csr_service, cert_service, audit_service
+from ..services import csr_service, cert_service, audit_service, dual_control_service
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +156,15 @@ def sign(csr_id):
         if wants_json():
             return api_error("This CSR has already been processed.", 409)
         flash("This CSR has already been processed.", "warning")
+        return redirect(url_for("csr.detail", csr_id=csr_id))
+
+    if (dual_control_service.is_active()
+            and csr_model.created_by == current_user.id
+            and not dual_control_service.is_exempt(current_user)):
+        msg = "Dual-control mode: a CSR must be signed by a different admin than its creator."
+        if wants_json():
+            return api_error(msg, 403)
+        flash(msg, "warning")
         return redirect(url_for("csr.detail", csr_id=csr_id))
 
     if request.method == "POST":

@@ -72,6 +72,9 @@ services:
       - METRICS_ENABLED=${METRICS_ENABLED:-false}
       - METRICS_ALLOW_UNAUTHENTICATED=${METRICS_ALLOW_UNAUTHENTICATED:-false}
       - METRICS_INCLUDE_CA_DETAILS=${METRICS_INCLUDE_CA_DETAILS:-false}
+      # Dual control (2.10.0; opt-in): four-eyes issuance once the instance is
+      # multi-user — see README "Dual control".
+      - DUAL_CONTROL_ENABLED=${DUAL_CONTROL_ENABLED:-false}
     secrets:
       - master_passphrase
       - pkcs11_user_pin

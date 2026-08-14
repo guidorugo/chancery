@@ -46,6 +46,9 @@ class TestConfig(Config):
     # HSM OCSP tests re-sign and compare, so a cache must not return the first
     # result. The cache itself is exercised in test_crl_ocsp_availability.
     OCSP_RESPONSE_CACHE_TTL_SECONDS = 0
+    # Dual control off regardless of the developer's environment; the mode is
+    # exercised with an explicit config in test_dual_control.
+    DUAL_CONTROL_ENABLED = False
 
 
 @pytest.fixture(scope="session")

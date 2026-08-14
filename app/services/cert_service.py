@@ -63,6 +63,8 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
              crl_dp_url=None, signed_by=None):
     if not ca.has_signing_key:
         raise ValueError("This CA was imported without its private key and cannot issue certificates.")
+    if ca.approval_status == "pending":
+        raise ValueError("This CA is awaiting dual-control approval and cannot issue certificates yet.")
     ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
     csr = x509.load_pem_x509_csr(csr_model.csr_pem.encode())
 
@@ -245,6 +247,8 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
                        crl_dp_url=None):
     if not ca.has_signing_key:
         raise ValueError("This CA was imported without its private key and cannot issue certificates.")
+    if ca.approval_status == "pending":
+        raise ValueError("This CA is awaiting dual-control approval and cannot issue certificates yet.")
     ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
 
     key = _generate_key(key_type, key_size)

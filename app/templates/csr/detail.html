@@ -5,7 +5,9 @@
     <h2>CSR: {{ csr.common_name }}</h2>
     <div>
         {% if current_user.is_admin and csr.status == 'pending' %}
+        {% if not dual_control_active() or csr.created_by != current_user.id or current_user.username == config.ADMIN_USERNAME %}
         <a href="{{ url_for('csr.sign', csr_id=csr.id) }}" class="btn btn-sm btn-success">Sign</a>
+        {% endif %}
         <form method="POST" action="{{ url_for('csr.reject', csr_id=csr.id) }}" class="d-inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-outline-danger">Reject</button>

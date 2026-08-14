@@ -101,6 +101,13 @@ def _register_template_context(app):
             "update_repo": app.config.get("UPDATE_CHECK_REPO") or "guidorugo/cert-manager",
         }
 
+    @app.context_processor
+    def inject_dual_control():
+        # Injected as a CALLABLE — templates say dual_control_active() — so
+        # pages that never reference it pay no user-count query.
+        from .services import dual_control_service
+        return {"dual_control_active": dual_control_service.is_active}
+
 
 def _setup_password_change_guard(app):
     """Force a session user flagged ``must_change_password`` to set a new one
@@ -537,6 +544,23 @@ def _migrate_schema():
         if "key_label" not in columns:
             db.session.execute(text(
                 "ALTER TABLE certificate_authorities ADD COLUMN key_label VARCHAR(200)"
+            ))
+        # Dual-control columns (2.10.0); pre-existing CAs count as approved
+        if "created_by" not in columns:
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN created_by INTEGER REFERENCES users(id)"
+            ))
+        if "approval_status" not in columns:
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN approval_status VARCHAR(20) NOT NULL DEFAULT 'approved'"
+            ))
+        if "approved_by" not in columns:
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN approved_by INTEGER REFERENCES users(id)"
+            ))
+        if "approved_at" not in columns:
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN approved_at DATETIME"
             ))
 
     # Migrate certificates table

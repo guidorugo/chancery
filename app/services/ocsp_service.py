@@ -96,9 +96,10 @@ def _unauthorized():
 
 
 def build_ocsp_response(ocsp_request_der: bytes, ca, passphrase: str) -> bytes:
-    # A certificate-only CA can never sign a response — return an unsigned
-    # UNAUTHORIZED without parsing or decrypting anything.
-    if not ca.has_signing_key:
+    # A certificate-only CA can never sign a response, and a dual-control
+    # pending CA may not yet — return an unsigned UNAUTHORIZED without
+    # parsing or decrypting anything (never raise on the public endpoint).
+    if not ca.has_signing_key or ca.approval_status == "pending":
         return _unauthorized()
 
     # C1: parse the request and look up the subject BEFORE decrypting the CA
