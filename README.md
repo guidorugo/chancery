@@ -25,6 +25,25 @@ A web-based X.509 Certificate Authority management application built with Python
 - **LDAP Login**: Optional LDAP/Active Directory authentication with group-to-role mapping and automatic user provisioning — configurable from the admin UI (Users → LDAP, with a live connection test) or via environment variables
 - **Version & update awareness**: The footer shows the running version; a cached, server-side check (on by default, disable for air-gapped deployments) flags in the footer when a newer GitHub release is available
 
+## PKCS Standards
+
+The application implements the core PKCS (Public-Key Cryptography Standards) used in CA operations:
+
+| Standard | Role in Cert Manager |
+|----------|----------------------|
+| **PKCS #1** | RSA keys and PKCS#1 v1.5 signatures (`sha256WithRSAEncryption`) |
+| **PKCS #5** | PBKDF2-HMAC-SHA256 key derivation (600k iterations) for private-key encryption at rest |
+| **PKCS #8** | Private-key serialization format for stored and exported keys |
+| **PKCS #9** | Attributes embedded in CSRs and PKCS#12 bundles |
+| **PKCS #10** | Certificate Signing Requests — creation, upload, and signing |
+| **PKCS #11** | Hardware token interface — the SoftHSM key backend (drop-in path to a real HSM) |
+| **PKCS #12** | Password-protected import/export bundles for CAs and certificates |
+
+Fun fact: no software can claim *all* fifteen PKCS standards — #2 and #4 were
+withdrawn in the 1980s (merged into #1), and #13 (elliptic-curve cryptography)
+and #14 (pseudo-random number generation) were never published; ECC and PRNG
+standardization happened in ANSI X9 / SEC / NIST documents instead.
+
 ## Quick Start
 
 ### Docker (recommended)
