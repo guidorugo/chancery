@@ -89,10 +89,10 @@ This review covers the `cert-manager` Flask application in its entirety: cryptog
 | **Severity** | High |
 | **Affected Component** | `.git/config` (`forgejo` remote) |
 | **Vulnerability Type** | Cleartext embedded credentials (CWE-798/CWE-256) |
-| **Description** | The `forgejo` remote URL embeds a username/password in cleartext: `http://home:<password>@10.0.0.82:3100/...`. Anyone with read access to the working tree, a filesystem backup, or a leaked developer image obtains valid Forgejo credentials in plaintext, transmitted over HTTP (unencrypted) on every fetch/push. |
+| **Description** | The `forgejo` remote URL embeds a username/password in cleartext: `http://<user>:<password>@<forgejo-host>/...`. Anyone with read access to the working tree, a filesystem backup, or a leaked developer image obtains valid Forgejo credentials in plaintext, transmitted over HTTP (unencrypted) on every fetch/push. |
 | **Who Can Exploit & Why It Works** | A host reader or backup thief; also passive network observers since the remote is `http://`. The secret is stored and transmitted without protection. |
 | **Potential Impact** | Compromise of the Forgejo git forge account, enabling repository tampering (malicious commits that flow into the Docker image build), and — given the n8n PR-review pipeline in the environment — a pivot into the automation. |
-| **Evidence / Indicators** | `.git/config` `url = http://home:<password>@10.0.0.82:3100/...`. |
+| **Evidence / Indicators** | `.git/config` `url = http://<user>:<password>@<forgejo-host>/...`. |
 | **References** | CWE-798, OWASP A07:2021, NIST SP 800-53 IA-5. |
 | **Remediation** | **Rotate this password now** (it is exposed in cleartext on disk). Replace the embedded-credential remote with SSH or a git credential helper (`git config credential.helper`), and switch the Forgejo remote to HTTPS. Purge the credential from any shared images/backups. |
 
