@@ -570,6 +570,10 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificates ADD COLUMN requested_by INTEGER REFERENCES users(id)"
             ))
+        if "issued_by" not in columns:
+            db.session.execute(text(
+                "ALTER TABLE certificates ADD COLUMN issued_by INTEGER REFERENCES users(id)"
+            ))
 
     # Migrate certificate_signing_requests table
     if "certificate_signing_requests" in inspector.get_table_names():

@@ -1,5 +1,6 @@
 """2.10.0 PR-A: CSR signed_by tracking, #<id> title suffixes, Preferences navbar."""
 
+from app.models.certificate import Certificate
 from app.services import ca_service, cert_service, csr_service
 
 PASSPHRASE = "test-passphrase"
@@ -95,6 +96,91 @@ class TestSignedBy:
                 _login(c, "testadmin", "adminpass")
                 html = c.get(f"/csr/{csr_model.id}").get_data(as_text=True)
                 assert "Signed By" not in html
+
+
+class TestIssuedBy:
+    def test_sign_csr_sets_cert_issued_by(self, app, db, admin_user, csr_requester):
+        with app.app_context():
+            ca = _create_ca(name="IssuedBy CSR CA")
+            csr_model = _create_csr(created_by=csr_requester.id,
+                                    cn="issuedby-csr.example.com")
+            with app.test_client() as c:
+                _login(c, "testadmin", "adminpass")
+                c.post(f"/csr/{csr_model.id}/sign", data={
+                    "ca_id": str(ca.id), "validity_days": "365",
+                })
+            db.session.refresh(csr_model)
+            assert csr_model.certificate.issued_by == admin_user.id
+            assert csr_model.certificate.issuer_user.username == "testadmin"
+
+    def test_direct_create_sets_issued_by(self, app, db, admin_user):
+        with app.app_context():
+            ca = _create_ca(name="IssuedBy Direct CA")
+            with app.test_client() as c:
+                _login(c, "testadmin", "adminpass")
+                resp = c.post("/certificates/create",
+                              headers={"Accept": "application/json"}, data={
+                                  "cn": "issuedby-direct.example.com",
+                                  "ca_id": str(ca.id),
+                                  "key_type": "RSA", "key_size": "2048",
+                                  "validity_days": "365",
+                              })
+                assert resp.status_code == 201
+                assert resp.get_json()["issued_by"] == admin_user.id
+
+    def test_cert_detail_shows_issued_by(self, app, db, admin_user, csr_requester):
+        with app.app_context():
+            ca = _create_ca(name="IssuedBy Page CA")
+            csr_model = _create_csr(created_by=csr_requester.id,
+                                    cn="issuedby-page.example.com")
+            with app.test_client() as c:
+                _login(c, "testadmin", "adminpass")
+                c.post(f"/csr/{csr_model.id}/sign", data={
+                    "ca_id": str(ca.id), "validity_days": "365",
+                })
+                db.session.refresh(csr_model)
+                html = c.get(
+                    f"/certificates/{csr_model.certificate_id}"
+                ).get_data(as_text=True)
+                assert "Issued By" in html
+                assert "testadmin" in html
+
+    def test_backfill_from_audit_log(self, app, db, admin_user, csr_requester):
+        with app.app_context():
+            ca = _create_ca(name="Backfill CA")
+            csr_model = _create_csr(created_by=csr_requester.id,
+                                    cn="backfill.example.com")
+            with app.test_client() as c:
+                _login(c, "testadmin", "adminpass")
+                c.post(f"/csr/{csr_model.id}/sign", data={
+                    "ca_id": str(ca.id), "validity_days": "365",
+                })
+                c.post("/certificates/create", data={
+                    "cn": "backfill-direct.example.com",
+                    "ca_id": str(ca.id),
+                    "key_type": "RSA", "key_size": "2048",
+                    "validity_days": "365",
+                })
+            db.session.refresh(csr_model)
+            cert = csr_model.certificate
+            direct = Certificate.query.filter_by(
+                common_name="backfill-direct.example.com").one()
+            # Simulate legacy rows: wipe the columns the audit log can restore.
+            csr_model.signed_by = None
+            cert.issued_by = None
+            direct.issued_by = None
+            db.session.commit()
+
+            result = app.test_cli_runner().invoke(
+                args=["certs", "backfill-issuers"])
+            assert result.exit_code == 0
+
+            db.session.refresh(csr_model)
+            db.session.refresh(cert)
+            db.session.refresh(direct)
+            assert csr_model.signed_by == admin_user.id
+            assert cert.issued_by == admin_user.id
+            assert direct.issued_by == admin_user.id
 
 
 class TestIdSuffix:
