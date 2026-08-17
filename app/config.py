@@ -164,7 +164,8 @@ class Config:
     # effect), no single admin can both request and approve issuance: direct
     # certificate creation is disabled, a CSR's creator cannot sign it, and a
     # new CA needs approval by a different admin. The literal ADMIN_USERNAME
-    # account is exempt (break-glass). See app/services/dual_control_service.py.
+    # account is exempt from all three (break-glass — e.g. an LDAP outage must
+    # not block issuance). See app/services/dual_control_service.py.
     DUAL_CONTROL_ENABLED = os.environ.get("DUAL_CONTROL_ENABLED", "false").lower() == "true"
 
     # Webhook notifications (2.10.0). Selected audit actions are POSTed as
