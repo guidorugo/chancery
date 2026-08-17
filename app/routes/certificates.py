@@ -43,7 +43,8 @@ def list_certs():
 @certificates_bp.route("/create", methods=["GET", "POST"])
 @admin_required
 def create():
-    if dual_control_service.is_active():
+    if (dual_control_service.is_active()
+            and not dual_control_service.is_exempt(current_user)):
         msg = ("Dual-control mode: direct certificate creation is disabled. "
                "Create a CSR and have another admin sign it.")
         if wants_json():

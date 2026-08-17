@@ -16,8 +16,11 @@ from app.models.ca import CertificateAuthority
 from app.models.user import User
 from app.services import (ca_service, cert_service, crl_service, csr_service,
                           dual_control_service, ocsp_service)
+import ldap3
+
 from tests.conftest import TestConfig
 from tests.test_ca_import import _key_pem, _pem, _self_signed_ca
+from tests.test_ldap import BASE_LDAP_CONFIG, _ldap_down
 
 PASS = "test-passphrase"
 
@@ -154,6 +157,39 @@ class TestDirectCreateDisabled:
             assert b"Create Certificate" not in c.get("/certificates/").data
             assert b"Create Cert" not in c.get("/").data
             assert b"Issue Certificate" not in c.get(f"/ca/{ca_id}").data
+
+    def test_bootstrap_admin_may_create_directly(self, dc_app, dc_db):
+        # Break-glass: if LDAP breaks (its being enabled alone keeps the mode
+        # active) the bootstrap account may be the only usable login — it must
+        # keep the one-step form, not just the CSR-and-self-sign path.
+        with dc_app.app_context():
+            _mk_user("admin")
+            _mk_user("bob")
+            ca = _mk_ca("DC Breakglass CA")
+            ca_id = ca.id
+        with dc_app.test_client() as c:
+            _login(c, "admin")
+            assert c.get("/certificates/create").status_code == 200
+            assert b"Create Certificate" in c.get("/certificates/").data
+            assert b"Create Cert" in c.get("/").data
+            assert b"Issue Certificate" in c.get(f"/ca/{ca_id}").data
+
+    def test_ldap_outage_admin_keeps_direct_create(self, dc_app, dc_db,
+                                                   monkeypatch):
+        # The full break-glass story end to end: LDAP being enabled alone
+        # keeps dual control active, the directory is unreachable, and the
+        # bootstrap admin — the only local account — must still log in
+        # (local DB is checked before LDAP) and issue in one step.
+        for key, value in BASE_LDAP_CONFIG.items():
+            monkeypatch.setitem(dc_app.config, key, value)
+        monkeypatch.setattr(ldap3, "Connection", _ldap_down)
+        with dc_app.app_context():
+            _mk_user("admin")
+        with dc_app.test_client() as c:
+            _login(c, "admin")
+            with dc_app.test_request_context():
+                assert dual_control_service.is_active() is True
+            assert c.get("/certificates/create").status_code == 200
 
 
 # --- CSR self-approval -------------------------------------------------------

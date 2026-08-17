@@ -144,7 +144,7 @@
 <div class="card mt-3">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">Issued Certificates</h5>
-        {% if not ca.is_revoked and ca.has_signing_key and ca.approval_status != 'pending' and not dual_control_active() %}
+        {% if not ca.is_revoked and ca.has_signing_key and ca.approval_status != 'pending' and (not dual_control_active() or current_user.username == config.ADMIN_USERNAME) %}
         <a href="{{ url_for('certificates.create') }}" class="btn btn-sm btn-primary">Issue Certificate</a>
         {% endif %}
     </div>
