@@ -74,7 +74,7 @@ def test_metrics_valid_token_ok(app, client, db, monkeypatch):
     from prometheus_client import CONTENT_TYPE_LATEST
 
     assert r.content_type == CONTENT_TYPE_LATEST
-    assert b"cert_manager_build_info" in r.data
+    assert b"chancery_build_info" in r.data
 
 
 def test_metrics_wrong_token_rejected(app, client, db, monkeypatch):
@@ -112,7 +112,7 @@ def test_metrics_allow_unauthenticated(app, client, monkeypatch):
     _enable(app, monkeypatch, METRICS_ALLOW_UNAUTHENTICATED=True)
     r = client.get("/metrics")
     assert r.status_code == 200
-    assert b"cert_manager_build_info" in r.data
+    assert b"chancery_build_info" in r.data
 
 
 # ---- output ---------------------------------------------------------------
@@ -122,8 +122,8 @@ def test_metrics_wellformed_and_parses(app, client, monkeypatch):
     body = client.get("/metrics").get_data(as_text=True)
     from prometheus_client.parser import text_string_to_metric_families
     fams = {f.name for f in text_string_to_metric_families(body)}
-    assert "cert_manager_build_info" in fams
-    assert "cert_manager_scrape_duration_seconds" in fams
+    assert "chancery_build_info" in fams
+    assert "chancery_scrape_duration_seconds" in fams
     assert body.endswith("\n")
 
 
@@ -134,9 +134,9 @@ def test_metrics_reflects_seeded_ca_cert(app, client, db, monkeypatch):
         _cert(ca, cn="reflected.example.com")
         cid = ca.id
     body = client.get("/metrics").get_data(as_text=True)
-    assert 'cert_manager_certificates{state="valid"} 1.0' in body
-    assert 'cert_manager_certificate_authorities_signing_capable 1.0' in body
-    assert f'cert_manager_ca_certificates{{ca_id="{cid}",state="valid"}} 1.0' in body
+    assert 'chancery_certificates{state="valid"} 1.0' in body
+    assert 'chancery_certificate_authorities_signing_capable 1.0' in body
+    assert f'chancery_ca_certificates{{ca_id="{cid}",state="valid"}} 1.0' in body
 
 
 def test_metrics_no_ca_names_by_default(app, client, db, monkeypatch):
@@ -145,7 +145,7 @@ def test_metrics_no_ca_names_by_default(app, client, db, monkeypatch):
         _ca(name="SecretCAName")
     body = client.get("/metrics").get_data(as_text=True)
     assert "SecretCAName" not in body            # names never leak by default
-    assert "cert_manager_ca_info" not in body
+    assert "chancery_ca_info" not in body
 
 
 def test_metrics_ca_details_opt_in(app, client, db, monkeypatch):
@@ -154,7 +154,7 @@ def test_metrics_ca_details_opt_in(app, client, db, monkeypatch):
     with app.app_context():
         _ca(name="VisibleCAName")
     body = client.get("/metrics").get_data(as_text=True)
-    assert "cert_manager_ca_info{" in body
+    assert "chancery_ca_info{" in body
     assert 'name="VisibleCAName"' in body
 
 
@@ -168,7 +168,7 @@ def test_metrics_crl_next_update_parsed(app, client, db, monkeypatch):
         cid = ca.id
     body = client.get("/metrics").get_data(as_text=True)
     m = re.search(
-        rf'cert_manager_ca_crl_next_update_timestamp_seconds{{ca_id="{cid}"}} ([0-9.e+]+)',
+        rf'chancery_ca_crl_next_update_timestamp_seconds{{ca_id="{cid}"}} ([0-9.e+]+)',
         body)
     assert m, body
     assert abs(float(m.group(1)) - expected) < 1.0
@@ -178,8 +178,8 @@ def test_metrics_empty_db_wellformed(app, client, monkeypatch):
     _enable(app, monkeypatch, METRICS_ALLOW_UNAUTHENTICATED=True)
     body = client.get("/metrics").get_data(as_text=True)
     # Closed-label families still emit every label at zero.
-    assert 'cert_manager_csrs{status="pending"} 0.0' in body
-    assert "cert_manager_build_info" in body
+    assert 'chancery_csrs{status="pending"} 0.0' in body
+    assert "chancery_build_info" in body
 
 
 def test_metrics_reachable_under_password_change_guard(app, client, db, monkeypatch):

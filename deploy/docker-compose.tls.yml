@@ -1,4 +1,4 @@
-# TLS overlay (finding E1): puts Caddy in front of cert-manager, terminating
+# TLS overlay (finding E1): puts Caddy in front of chancery, terminating
 # HTTPS, so credentials/cookies/keys never traverse the network in cleartext.
 #
 # Usage (set PUBLIC_HOSTNAME in .env first):

@@ -2,7 +2,7 @@ services:
   app:
     build: .
     # To use the pre-built image instead of building locally, comment out 'build' and uncomment:
-    # image: ghcr.io/guidorugo/cert-manager:latest
+    # image: ghcr.io/guidorugo/chancery:latest
     ports:
       - "5000:5000"
     volumes:
@@ -42,6 +42,8 @@ services:
       - KEY_BACKEND=${KEY_BACKEND:-software}
       - SOFTHSM2_CONF=/app/data/softhsm/softhsm2.conf
       - PKCS11_MODULE=/usr/lib/softhsm/libsofthsm2.so
+      # Token label and DB filename keep the pre-rename "cert-manager" values
+      # so existing tokens/databases are picked up unchanged.
       - PKCS11_TOKEN_LABEL=cert-manager
       - PKCS11_USER_PIN_FILE=/run/secrets/pkcs11_user_pin
       - PKCS11_SO_PIN_FILE=/run/secrets/pkcs11_so_pin

@@ -104,7 +104,7 @@ class TestPayload:
         assert payload["actor"] == "alice"
         assert payload["target"] == {"type": "certificate", "id": 42}
         assert payload["details"] == {"reason": "superseded"}
-        assert payload["app"] == "cert-manager"
+        assert payload["app"] == "chancery"
         assert payload["version"] == __version__
         assert "timestamp" in payload
 
@@ -141,7 +141,7 @@ def urlopen_capture(monkeypatch):
 
 def _signature_header(req):
     for key, value in req.header_items():
-        if key.lower() == "x-certmanager-signature":
+        if key.lower() == "x-chancery-signature":
             return value
     return None
 

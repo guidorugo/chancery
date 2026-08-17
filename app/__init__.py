@@ -98,7 +98,7 @@ def _register_template_context(app):
             "app_version": app_version,
             "update_available": update_available,
             "latest_version": latest_version,
-            "update_repo": app.config.get("UPDATE_CHECK_REPO") or "guidorugo/cert-manager",
+            "update_repo": app.config.get("UPDATE_CHECK_REPO") or "guidorugo/chancery",
         }
 
     @app.context_processor
@@ -216,7 +216,7 @@ def _setup_basic_auth(app):
         # not the closed-over app — so the handler always serves the app
         # actually handling the request.
         if current_app.config.get("BASIC_AUTH_ENABLED", True) and request.authorization is not None:
-            realm = current_app.config.get("BASIC_AUTH_REALM", "cert-manager")
+            realm = current_app.config.get("BASIC_AUTH_REALM", "chancery")
             response = jsonify({"error": "Invalid credentials."})
             response.status_code = 401
             response.headers["WWW-Authenticate"] = f'Basic realm="{realm}"'

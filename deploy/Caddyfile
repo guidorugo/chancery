@@ -1,4 +1,4 @@
-# Caddy reverse proxy terminating TLS in front of cert-manager (finding E1).
+# Caddy reverse proxy terminating TLS in front of chancery (finding E1).
 #
 # Set PUBLIC_HOSTNAME in your .env to the name clients use, e.g. ca.example.com.
 # - A public DNS name → Caddy auto-provisions a Let's Encrypt certificate.
@@ -12,7 +12,7 @@
     # tls /etc/caddy/tls/cert.pem /etc/caddy/tls/key.pem   # <- or bring your own (cert.pem = full chain; key.pem unencrypted)
 
     reverse_proxy app:5000 {
-        # cert-manager reads the real client IP / host from these when
+        # chancery reads the real client IP / host from these when
         # TRUSTED_PROXY_COUNT=1 (set in the TLS compose overlay).
         header_up X-Forwarded-Proto https
     }

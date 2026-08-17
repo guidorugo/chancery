@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Webhook Settings - Cert Manager{% endblock %}
+{% block title %}Webhook Settings - Chancery{% endblock %}
 {% block content %}
 {% set active_tab = 'webhooks' %}
 {% include "users/_tabs.html" %}
@@ -19,7 +19,7 @@
     database (secret encrypted with the master passphrase) and take effect
     immediately, overriding any <code>WEBHOOK_*</code> environment variables.
     When a secret is set, each request carries an
-    <code>X-CertManager-Signature: sha256=&lt;HMAC-SHA256 of the body&gt;</code> header.
+    <code>X-Chancery-Signature: sha256=&lt;HMAC-SHA256 of the body&gt;</code> header.
 </p>
 
 {% if test_result %}
@@ -44,7 +44,7 @@
                 <label class="form-label" for="url">Webhook URL</label>
                 <input class="form-control" id="url" name="url"
                        value="{{ cfg.WEBHOOK_URL }}"
-                       placeholder="https://n8n.example.com/webhook/cert-manager">
+                       placeholder="https://n8n.example.com/webhook/chancery">
                 <div class="form-text">POST target, e.g. an n8n webhook trigger.</div>
             </div>
             <div class="row">

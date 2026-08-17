@@ -37,7 +37,7 @@ rand_pin() {    # $1 = number of digits
   printf '%0*d' "$len" "$(( 0x$(gen -hex 4) % (10 ** len) ))"
 }
 
-echo "cert-manager :: init-secrets"
+echo "chancery :: init-secrets"
 
 # 1. Master passphrase (Docker secret). NEVER overwrite an existing one — it
 #    encrypts every CA private key, so a new value would orphan all existing

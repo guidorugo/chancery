@@ -23,7 +23,7 @@
     {% if current_user.is_authenticated %}
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('dashboard.index') }}">Cert Manager</a>
+            <a class="navbar-brand" href="{{ url_for('dashboard.index') }}">Chancery</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -109,7 +109,7 @@
 
     <footer class="mt-auto py-3 bg-body-tertiary">
         <div class="container text-center text-body-secondary">
-            Cert Manager &mdash; <a href="https://github.com/guidorugo/cert-manager" class="text-body-secondary">GitHub</a>
+            Chancery &mdash; <a href="https://github.com/guidorugo/chancery" class="text-body-secondary">GitHub</a>
             {% if app_version %}
             <br><small class="text-body-secondary">v{{ app_version }}</small>
             {% if update_available %}

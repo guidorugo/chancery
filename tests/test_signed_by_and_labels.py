@@ -191,7 +191,7 @@ class TestIdSuffix:
                 _login(c, "testadmin", "adminpass")
                 html = c.get(f"/ca/{ca.id}").get_data(as_text=True)
                 assert f'<span class="text-body-secondary">#{ca.id}</span>' in html
-                assert f"IdSuffix CA #{ca.id} - Cert Manager" in html
+                assert f"IdSuffix CA #{ca.id} - Chancery" in html
 
     def test_cert_detail_id_suffix(self, app, db, admin_user):
         with app.app_context():
@@ -207,7 +207,7 @@ class TestIdSuffix:
                 _login(c, "testadmin", "adminpass")
                 html = c.get(f"/certificates/{cert.id}").get_data(as_text=True)
                 assert f'<span class="text-body-secondary">#{cert.id}</span>' in html
-                assert f"idsuffix.example.com #{cert.id} - Cert Manager" in html
+                assert f"idsuffix.example.com #{cert.id} - Chancery" in html
 
 
 class TestPreferencesLabel:

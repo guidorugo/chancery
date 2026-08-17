@@ -1,6 +1,8 @@
-# Certificate Manager
+# Chancery
 
 A web-based X.509 Certificate Authority management application built with Python and Flask.
+
+> **Formerly `cert-manager`** (renamed in 2.12.0, no relation to the Kubernetes project). Old GitHub URLs redirect; container images now publish to `ghcr.io/guidorugo/chancery`. Two on-disk identifiers deliberately keep the old name so existing deployments upgrade in place: the default SQLite filename (`cert-manager.db`) and the SoftHSM token label (`PKCS11_TOKEN_LABEL=cert-manager`).
 
 ## Features
 
@@ -31,7 +33,7 @@ A web-based X.509 Certificate Authority management application built with Python
 
 The application implements the core PKCS (Public-Key Cryptography Standards) used in CA operations:
 
-| Standard | Role in Cert Manager |
+| Standard | Role in Chancery |
 |----------|----------------------|
 | **PKCS #1** | RSA keys and PKCS#1 v1.5 signatures (`sha256WithRSAEncryption`) |
 | **PKCS #5** | PBKDF2-HMAC-SHA256 key derivation (600k iterations) for private-key encryption at rest |
@@ -80,7 +82,7 @@ A pre-built image is published to GitHub Container Registry on each `v*` release
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/guidorugo/cert-manager:latest
+docker pull ghcr.io/guidorugo/chancery:latest
 
 # Run with required environment variables
 docker run -d \
@@ -88,7 +90,7 @@ docker run -d \
   -v ./data:/app/data \
   -e SECRET_KEY=your-secret-key \
   -e MASTER_PASSPHRASE=your-passphrase \
-  ghcr.io/guidorugo/cert-manager:latest
+  ghcr.io/guidorugo/chancery:latest
 ```
 
 You can also use the pre-built image with docker compose by commenting out the `build` line and uncommenting the `image` line in `docker-compose.yml`.
@@ -98,13 +100,13 @@ You can also use the pre-built image with docker compose by commenting out the `
 ```bash
 # Verify the keyless cosign signature (signed by the release workflow).
 # Signatures are stored in the legacy tag format, so any cosign version works.
-cosign verify ghcr.io/guidorugo/cert-manager:2.11.0 \
-  --certificate-identity-regexp 'https://github.com/guidorugo/cert-manager/.*' \
+cosign verify ghcr.io/guidorugo/chancery:2.12.0 \
+  --certificate-identity-regexp 'https://github.com/guidorugo/chancery/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # Inspect the SLSA provenance / SBOM (BuildKit in-toto attestations in the index)
-docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.11.0 --format '{{ json .Provenance }}'
-docker buildx imagetools inspect ghcr.io/guidorugo/cert-manager:2.11.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/chancery:2.12.0 --format '{{ json .Provenance }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/chancery:2.12.0 --format '{{ json .SBOM }}'
 ```
 
 ### Local Development
@@ -138,7 +140,7 @@ docker compose pull
 docker compose up -d
 ```
 
-The footer shows an **"Update available"** badge when a newer GitHub release exists (on by default; set `UPDATE_CHECK_ENABLED=false` to disable the outbound check). Check the [release notes](https://github.com/guidorugo/cert-manager/releases) for any **one-time commands** a version needs — e.g. after upgrading to **2.5.0**, correct the stored expiry on certificates issued by older versions:
+The footer shows an **"Update available"** badge when a newer GitHub release exists (on by default; set `UPDATE_CHECK_ENABLED=false` to disable the outbound check). Check the [release notes](https://github.com/guidorugo/chancery/releases) for any **one-time commands** a version needs — e.g. after upgrading to **2.5.0**, correct the stored expiry on certificates issued by older versions:
 
 ```bash
 docker compose exec app flask certs recompute-expiry
@@ -152,7 +154,7 @@ docker compose exec app flask certs backfill-issuers --dry-run   # preview
 docker compose exec app flask certs backfill-issuers
 ```
 
-Upgrading to **2.6.0** raises the auto-generated SoftHSM token PINs to 32 characters for *new* deployments; existing tokens keep their current PINs. To rotate an existing deployment to the stronger length, follow the **SoftHSM PIN migration** guide in the [v2.6.0 release notes](https://github.com/guidorugo/cert-manager/releases/tag/v2.6.0) — the user PIN rotates in place; the SO PIN needs a freshly-initialised token when it holds non-extractable keys.
+Upgrading to **2.6.0** raises the auto-generated SoftHSM token PINs to 32 characters for *new* deployments; existing tokens keep their current PINs. To rotate an existing deployment to the stronger length, follow the **SoftHSM PIN migration** guide in the [v2.6.0 release notes](https://github.com/guidorugo/chancery/releases/tag/v2.6.0) — the user PIN rotates in place; the SO PIN needs a freshly-initialised token when it holds non-extractable keys.
 
 ## Running behind TLS (production)
 
@@ -250,7 +252,7 @@ nothing else is needed — the *Create CA* form simply offers HSM per-CA.
 
 ## API Reference
 
-Cert Manager is a web application with form-based (HTML) endpoints. All authenticated routes use session cookies set at login. Public endpoints require no authentication.
+Chancery is a web application with form-based (HTML) endpoints. All authenticated routes use session cookies set at login. Public endpoints require no authentication.
 
 ### Authentication
 
@@ -432,16 +434,16 @@ Prometheus scrape config:
 
 ```yaml
 scrape_configs:
-  - job_name: cert-manager
+  - job_name: chancery
     metrics_path: /metrics
     authorization:
       type: Bearer
       credentials: cmt_xxxxxxxx_your_token_here
     static_configs:
-      - targets: ["cert-manager.example.com:5000"]
+      - targets: ["chancery.example.com:5000"]
 ```
 
-Exposure is **minimal by default**: certificate/CA counts by state, per-CA expiry and **CRL `nextUpdate`** timestamps (keyed by opaque `ca_id`), CSR/user/audit gauges, and `cert_manager_build_info`. CA names, subject CNs, and key details are **not** exposed unless you set `METRICS_INCLUDE_CA_DETAILS=true` (adds `cert_manager_ca_info`). For an isolated network, `METRICS_ALLOW_UNAUTHENTICATED=true` skips the token. Authenticate scrapes with the **bearer token**, never HTTP Basic auth (a Basic credential is rejected, and would otherwise cost a password hash per scrape).
+Exposure is **minimal by default**: certificate/CA counts by state, per-CA expiry and **CRL `nextUpdate`** timestamps (keyed by opaque `ca_id`), CSR/user/audit gauges, and `chancery_build_info`. CA names, subject CNs, and key details are **not** exposed unless you set `METRICS_INCLUDE_CA_DETAILS=true` (adds `chancery_ca_info`). For an isolated network, `METRICS_ALLOW_UNAUTHENTICATED=true` skips the token. Authenticate scrapes with the **bearer token**, never HTTP Basic auth (a Basic credential is rejected, and would otherwise cost a password hash per scrape).
 
 ## Environment Variables
 
@@ -458,7 +460,7 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `RATE_LIMIT_ENABLED` | `false` | Enable rate limiting (requires Flask-Limiter) |
 | `RATE_LIMIT_DEFAULT` | `60/minute` | Default rate limit when enabled |
 | `BASIC_AUTH_ENABLED` | `true` | Enable HTTP Basic Auth for programmatic access |
-| `BASIC_AUTH_REALM` | `cert-manager` | Basic Auth realm name in `WWW-Authenticate` header |
+| `BASIC_AUTH_REALM` | `chancery` | Basic Auth realm name in `WWW-Authenticate` header |
 | `BASIC_AUTH_CACHE_TTL_SECONDS` | `60` | In-memory cache TTL for verified Basic Auth credentials (`0` disables) |
 | `OCSP_URL_SCHEME` | `http` | URL scheme for OCSP AIA URLs in certificates (`https` recommended for production) |
 | `SESSION_COOKIE_SECURE` | `true` | Send session cookie only over HTTPS (the plain-HTTP reference compose overrides to `false`) |
@@ -471,14 +473,14 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `UPDATE_CHECK_ENABLED` | `true` | Show a footer "Update available" badge when a newer GitHub release exists (makes an outbound call; set `false` for an air-gapped CA) |
 | `METRICS_ENABLED` | `false` | Expose the Prometheus `/metrics` endpoint (opt-in; returns 404 until enabled) |
 | `METRICS_ALLOW_UNAUTHENTICATED` | `false` | Serve `/metrics` without a bearer token (isolated networks only) |
-| `METRICS_INCLUDE_CA_DETAILS` | `false` | Add a `cert_manager_ca_info` metric with CA names/CNs/key details (default: opaque `ca_id` + counts only) |
-| `UPDATE_CHECK_REPO` | `guidorugo/cert-manager` | Repository to check for the latest release |
+| `METRICS_INCLUDE_CA_DETAILS` | `false` | Add a `chancery_ca_info` metric with CA names/CNs/key details (default: opaque `ca_id` + counts only) |
+| `UPDATE_CHECK_REPO` | `guidorugo/chancery` | Repository to check for the latest release |
 | `UPDATE_CHECK_INTERVAL_SECONDS` | `21600` | Cache TTL for the update check (6h) |
 | `MASTER_PASSPHRASE_FILE` / `SECRET_KEY_FILE` / `ADMIN_PASSWORD_FILE` | – | Read the secret from a file (Docker/systemd secret) instead of the env var |
 | `DUAL_CONTROL_ENABLED` | `false` | Four-eyes issuance: once another active user besides `ADMIN_USERNAME` exists (or LDAP is enabled), direct cert creation is disabled, CSR creators cannot sign their own CSRs, and new CAs need approval by a different admin (`POST /ca/<id>/approve`). The bootstrap admin account is exempt |
 | `WEBHOOK_ENABLED` | `false` | POST selected audit events as JSON to `WEBHOOK_URL`. Also configurable in the admin UI (Preferences → Webhooks) — settings saved there override all `WEBHOOK_*` variables until removed |
 | `WEBHOOK_URL` | – | Webhook POST target (e.g. an n8n webhook trigger) |
-| `WEBHOOK_SECRET` | – | Optional signing secret: requests carry `X-CertManager-Signature: sha256=<HMAC-SHA256 of the body>` (`_FILE` convention supported) |
+| `WEBHOOK_SECRET` | – | Optional signing secret: requests carry `X-Chancery-Signature: sha256=<HMAC-SHA256 of the body>` (`_FILE` convention supported) |
 | `WEBHOOK_EVENTS` | – | CSV of audit action names to notify on (e.g. `sign_csr,create_ca`); empty = none, `all` = every action |
 | `WEBHOOK_TIMEOUT_SECONDS` | `5` | Delivery timeout for the background POST |
 | `LDAP_ENABLED` | `false` | Enable LDAP authentication for the web login. Alternatively configure LDAP in the admin UI (Preferences → LDAP) — settings saved there override all `LDAP_*` variables until removed |
