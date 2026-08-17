@@ -1,11 +1,11 @@
-"""Prometheus exposition for cert-manager (2.7.0).
+"""Prometheus exposition for chancery (2.7.0).
 
 A ``prometheus_client`` custom collector whose ``collect()`` runs the DB queries
 at scrape time and yields metric families. Called only from the ``/metrics`` view
 (gated by ``METRICS_ENABLED`` + a bearer token).
 
 Exposure is minimal by default: per-CA series are keyed by the **opaque** ``ca_id``
-only. CA names / subject CNs / key details appear ONLY in ``cert_manager_ca_info``,
+only. CA names / subject CNs / key details appear ONLY in ``chancery_ca_info``,
 and only when ``METRICS_INCLUDE_CA_DETAILS`` is enabled — join it on ``ca_id``.
 
 State semantics mirror the dashboard (``app/routes/dashboard.py``): naive-UTC
@@ -82,7 +82,7 @@ def _ca_state(ca, now, soon):
     return "valid"
 
 
-class CertManagerCollector:
+class ChanceryCollector:
     def __init__(self, config):
         self.config = config
 
@@ -95,8 +95,8 @@ class CertManagerCollector:
         # --- build info ---------------------------------------------------
         version = os.environ.get("APP_VERSION") or __version__
         bi = GaugeMetricFamily(
-            "cert_manager_build_info",
-            "Build information for the running cert-manager instance.",
+            "chancery_build_info",
+            "Build information for the running chancery instance.",
             labels=["version"])
         bi.add_metric([version], 1)
         yield bi
@@ -124,7 +124,7 @@ class CertManagerCollector:
                 cert_totals[s] += counts[s]
 
         certs = GaugeMetricFamily(
-            "cert_manager_certificates",
+            "chancery_certificates",
             "End-entity certificates by state (mutually exclusive; sum = total).",
             labels=["state"])
         for s in _CERT_STATES:
@@ -138,20 +138,20 @@ class CertManagerCollector:
         signing_capable = 0
 
         ca_expiry = GaugeMetricFamily(
-            "cert_manager_ca_expiry_timestamp_seconds",
+            "chancery_ca_expiry_timestamp_seconds",
             "CA certificate notAfter as a Unix timestamp.", labels=["ca_id"])
         ca_crl_next = GaugeMetricFamily(
-            "cert_manager_ca_crl_next_update_timestamp_seconds",
+            "chancery_ca_crl_next_update_timestamp_seconds",
             "CA CRL nextUpdate as a Unix timestamp (parsed from the stored CRL).",
             labels=["ca_id"])
         ca_crl_num = GaugeMetricFamily(
-            "cert_manager_ca_crl_number", "Current CRL number for the CA.",
+            "chancery_ca_crl_number", "Current CRL number for the CA.",
             labels=["ca_id"])
         ca_certs = GaugeMetricFamily(
-            "cert_manager_ca_certificates",
+            "chancery_ca_certificates",
             "Certificates issued by each CA, by state.", labels=["ca_id", "state"])
         ca_info = GaugeMetricFamily(
-            "cert_manager_ca_info",
+            "chancery_ca_info",
             "Per-CA descriptive info (opt-in; reveals CA name/CN/key details). "
             "Join to the numeric series on ca_id.",
             labels=["ca_id", "name", "common_name", "is_root",
@@ -183,28 +183,28 @@ class CertManagerCollector:
                      ca.key_type or "", str(ca.key_size or "")], 1)
 
         caf = GaugeMetricFamily(
-            "cert_manager_certificate_authorities",
+            "chancery_certificate_authorities",
             "Certificate authorities by state (sum = total CAs).", labels=["state"])
         for s in _CERT_STATES:
             caf.add_metric([s], ca_states[s])
         yield caf
 
         bf = GaugeMetricFamily(
-            "cert_manager_certificate_authorities_by_backend",
+            "chancery_certificate_authorities_by_backend",
             "Certificate authorities by signing-key backend.", labels=["backend"])
         for backend, n in sorted(ca_backend.items()):
             bf.add_metric([backend], n)
         yield bf
 
         tf = GaugeMetricFamily(
-            "cert_manager_certificate_authorities_by_type",
+            "chancery_certificate_authorities_by_type",
             "Certificate authorities by root/intermediate.", labels=["type"])
         for t in ("root", "intermediate"):
             tf.add_metric([t], ca_type[t])
         yield tf
 
         yield GaugeMetricFamily(
-            "cert_manager_certificate_authorities_signing_capable",
+            "chancery_certificate_authorities_signing_capable",
             "CAs able to sign (not revoked and holding a usable key).",
             value=signing_capable)
 
@@ -223,7 +223,7 @@ class CertManagerCollector:
             if status in csr_counts:
                 csr_counts[status] = int(n)
         csrf = GaugeMetricFamily(
-            "cert_manager_csrs", "Certificate signing requests by status.",
+            "chancery_csrs", "Certificate signing requests by status.",
             labels=["status"])
         for status in ("pending", "approved", "rejected"):
             csrf.add_metric([status], csr_counts[status])
@@ -234,7 +234,7 @@ class CertManagerCollector:
         for role, n in db.session.query(User.role, func.count()).group_by(User.role).all():
             users_role[role] = int(n)
         uf = GaugeMetricFamily(
-            "cert_manager_users", "User accounts by role.", labels=["role"])
+            "chancery_users", "User accounts by role.", labels=["role"])
         for role in ("admin", "csr_requester"):
             uf.add_metric([role], users_role.get(role, 0))
         yield uf
@@ -242,22 +242,22 @@ class CertManagerCollector:
         active = db.session.query(func.count()).select_from(User).filter(
             User.is_active_user.is_(True)).scalar()
         yield GaugeMetricFamily(
-            "cert_manager_users_active", "Active user accounts.", value=active or 0)
+            "chancery_users_active", "Active user accounts.", value=active or 0)
         locked = db.session.query(func.count()).select_from(User).filter(
             User.locked_until.isnot(None), User.locked_until > now).scalar()
         yield GaugeMetricFamily(
-            "cert_manager_users_locked", "Currently locked user accounts.",
+            "chancery_users_locked", "Currently locked user accounts.",
             value=locked or 0)
 
         # --- audit --------------------------------------------------------
         audit_total = db.session.query(func.count()).select_from(AuditLog).scalar()
         yield GaugeMetricFamily(
-            "cert_manager_audit_events", "Total audit-log entries.",
+            "chancery_audit_events", "Total audit-log entries.",
             value=audit_total or 0)
 
         # --- scrape self-timing (last) ------------------------------------
         yield GaugeMetricFamily(
-            "cert_manager_scrape_duration_seconds",
+            "chancery_scrape_duration_seconds",
             "Time spent building this metrics response, in seconds.",
             value=time.perf_counter() - start)
 
@@ -265,5 +265,5 @@ class CertManagerCollector:
 def render(config):
     """Collect and serialise all metrics to the Prometheus text format (bytes)."""
     registry = CollectorRegistry()
-    registry.register(CertManagerCollector(config))
+    registry.register(ChanceryCollector(config))
     return generate_latest(registry)

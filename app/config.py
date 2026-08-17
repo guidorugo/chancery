@@ -20,6 +20,8 @@ def _read_secret(name, default=None):
 class Config:
     SECRET_KEY = _read_secret("SECRET_KEY", "dev-secret-key")
     MASTER_PASSPHRASE = _read_secret("MASTER_PASSPHRASE", "dev-passphrase")
+    # The DB filename keeps the pre-rename "cert-manager" name: changing it
+    # would silently start an empty database on existing deployments.
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "sqlite:///cert-manager.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
@@ -79,6 +81,8 @@ class Config:
     PKCS11_MODULE = os.environ.get(
         "PKCS11_MODULE", "/usr/lib/softhsm/libsofthsm2.so"
     )
+    # Keeps the pre-rename "cert-manager" label: an existing SoftHSM token
+    # cannot be relabeled without re-init, which destroys non-extractable keys.
     PKCS11_TOKEN_LABEL = os.environ.get("PKCS11_TOKEN_LABEL", "cert-manager")
     PKCS11_USER_PIN = _read_secret("PKCS11_USER_PIN", None)
     PKCS11_SO_PIN = _read_secret("PKCS11_SO_PIN", None)
@@ -114,14 +118,14 @@ class Config:
     # once per interval (server-side, cached, non-blocking) and compared to the
     # running version.
     UPDATE_CHECK_ENABLED = os.environ.get("UPDATE_CHECK_ENABLED", "true").lower() == "true"
-    UPDATE_CHECK_REPO = os.environ.get("UPDATE_CHECK_REPO") or "guidorugo/cert-manager"
+    UPDATE_CHECK_REPO = os.environ.get("UPDATE_CHECK_REPO") or "guidorugo/chancery"
     UPDATE_CHECK_INTERVAL_SECONDS = int(os.environ.get("UPDATE_CHECK_INTERVAL_SECONDS") or "21600")
     UPDATE_CHECK_TIMEOUT_SECONDS = int(os.environ.get("UPDATE_CHECK_TIMEOUT_SECONDS") or "4")
 
     # Prometheus /metrics endpoint (2.7.0). Opt-in and OFF by default (404 until
     # enabled). When enabled, a dedicated bearer token (see `flask metrics-token`)
     # is REQUIRED unless METRICS_ALLOW_UNAUTHENTICATED is set for an isolated
-    # network. METRICS_INCLUDE_CA_DETAILS adds a `cert_manager_ca_info` metric
+    # network. METRICS_INCLUDE_CA_DETAILS adds a `chancery_ca_info` metric
     # exposing CA names / subject CNs / key details — off by default, so the
     # default output is opaque ca_id + aggregate counts only.
     METRICS_ENABLED = os.environ.get("METRICS_ENABLED", "false").lower() == "true"
@@ -129,7 +133,7 @@ class Config:
     METRICS_INCLUDE_CA_DETAILS = os.environ.get("METRICS_INCLUDE_CA_DETAILS", "false").lower() == "true"
 
     BASIC_AUTH_ENABLED = os.environ.get("BASIC_AUTH_ENABLED", "true").lower() == "true"
-    BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "cert-manager")
+    BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "chancery")
     # Verified Basic Auth credentials are cached in memory for this many
     # seconds to avoid an LDAP bind / password-hash check per request (0 = off)
     BASIC_AUTH_CACHE_TTL_SECONDS = int(os.environ.get("BASIC_AUTH_CACHE_TTL_SECONDS") or "60")
@@ -168,7 +172,7 @@ class Config:
     # Settings saved in the admin UI (Preferences → Webhooks) override all of
     # these. WEBHOOK_EVENTS is a CSV of audit action names; "" = none,
     # "all"/"*" = every action. WEBHOOK_SECRET signs the body (HMAC-SHA256,
-    # X-CertManager-Signature header).
+    # X-Chancery-Signature header).
     WEBHOOK_ENABLED = os.environ.get("WEBHOOK_ENABLED", "false").lower() == "true"
     WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
     WEBHOOK_SECRET = _read_secret("WEBHOOK_SECRET", "")

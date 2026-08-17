@@ -39,7 +39,7 @@ def metrics():
         token = metrics_token_service.verify(_bearer(request))
         if token is None:
             resp = Response("Unauthorized\n", status=401, content_type=_PLAIN)
-            resp.headers["WWW-Authenticate"] = 'Bearer realm="cert-manager-metrics"'
+            resp.headers["WWW-Authenticate"] = 'Bearer realm="chancery-metrics"'
             return resp
         metrics_token_service.touch(token)
 

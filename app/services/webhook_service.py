@@ -12,7 +12,7 @@ Design goals, mirroring update_service and ldap_settings_service:
   costs a 600k-iteration PBKDF2, so it is deliberately done INSIDE the worker
   thread (crypto_utils.decrypt_secret is a pure function), never on the
   request path. When a secret resolves, the raw body is signed with
-  HMAC-SHA256 into the X-CertManager-Signature header ("sha256=<hex>").
+  HMAC-SHA256 into the X-Chancery-Signature header ("sha256=<hex>").
 """
 
 import hashlib
@@ -226,7 +226,7 @@ def _build_body(action, target_type, target_id, details, actor_username):
         "actor": actor_username or "anonymous",
         "target": {"type": target_type, "id": target_id},
         "details": details or {},
-        "app": "cert-manager",
+        "app": "chancery",
         "version": __version__,
     }
     return json.dumps(payload).encode("utf-8")
@@ -241,13 +241,13 @@ def _post(url, body, timeout, secret=None, secret_enc=None, passphrase=None):
     try:
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "cert-manager-webhook",
+            "User-Agent": "chancery-webhook",
         }
         if secret_enc and passphrase:
             secret = crypto_utils.decrypt_secret(secret_enc, passphrase)
         if secret:
             sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-            headers["X-CertManager-Signature"] = f"sha256={sig}"
+            headers["X-Chancery-Signature"] = f"sha256={sig}"
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=timeout):  # nosec B310 (admin-configured URL)
             pass
@@ -299,16 +299,16 @@ def send_test(cfg):
     if not cfg["WEBHOOK_ENABLED"]:
         return {"ok": False, "message": "Enable notifications before testing."}
     body = _build_body("test", "config", None,
-                       {"note": "cert-manager webhook test event"}, None)
+                       {"note": "chancery webhook test event"}, None)
     try:
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "cert-manager-webhook",
+            "User-Agent": "chancery-webhook",
         }
         secret = cfg.get("WEBHOOK_SECRET") or ""
         if secret:
             sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-            headers["X-CertManager-Signature"] = f"sha256={sig}"
+            headers["X-Chancery-Signature"] = f"sha256={sig}"
         req = urllib.request.Request(cfg["WEBHOOK_URL"], data=body,
                                      headers=headers, method="POST")
         timeout = int(cfg.get("WEBHOOK_TIMEOUT_SECONDS") or 5)

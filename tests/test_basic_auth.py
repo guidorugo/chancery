@@ -220,4 +220,4 @@ class TestBasicAuthConfig:
                 assert resp.status_code == 401
                 assert "my-custom-realm" in resp.headers["WWW-Authenticate"]
         finally:
-            app.config["BASIC_AUTH_REALM"] = "cert-manager"
+            app.config["BASIC_AUTH_REALM"] = "chancery"

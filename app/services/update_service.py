@@ -27,7 +27,7 @@ from .._version import __version__
 _LOCK = threading.Lock()
 _STATE = {"latest": None, "checked_at": 0.0, "refreshing": False}
 
-_DEFAULT_REPO = "guidorugo/cert-manager"
+_DEFAULT_REPO = "guidorugo/chancery"
 
 
 def _parse_version(value):
@@ -53,7 +53,7 @@ def _fetch_latest_tag(repo, timeout):
         url,
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "cert-manager-update-check",
+            "User-Agent": "chancery-update-check",
         },
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 (https)
