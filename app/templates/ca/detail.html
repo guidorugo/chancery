@@ -9,15 +9,14 @@
         <span class="badge bg-danger">Revoked</span>
         {% elif ca.expiry_status == 'expired' %}
         <span class="badge bg-secondary">Expired</span>
+        {% elif ca.approval_status == 'pending' %}
+        <span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="Awaiting approval by a second admin; cannot issue certificates, sign CRLs, or answer OCSP.">Pending approval</span>
         {% endif %}
         {% if not ca.has_signing_key %}
         <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Imported without a private key: cannot issue certificates, sign CRLs, or answer OCSP.">Cert-only</span>
         {% endif %}
         {% if ca.key_backend == 'softhsm' %}
         <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Signing key held in a PKCS#11 token (SoftHSM); non-exportable.">HSM</span>
-        {% endif %}
-        {% if ca.approval_status == 'pending' %}
-        <span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="Awaiting approval by a second admin; cannot issue certificates, sign CRLs, or answer OCSP.">Pending approval</span>
         {% endif %}
     </h2>
     <div>

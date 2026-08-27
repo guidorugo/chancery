@@ -395,3 +395,48 @@ class TestCaApproval:
         with dc_app.app_context():
             ca = _mk_ca("Service Default CA")
             assert ca.approval_status == "approved"
+
+
+# --- Pending status display ---------------------------------------------------
+
+class TestPendingStatusDisplay:
+    """A pending CA's Status badge must read "Pending approval", never
+    "Active" — mirroring how CSRs surface their pending state. Revoked wins
+    over pending (revoking is the discard path for an unwanted pending CA).
+    Badges depend only on approval_status, so the shared flag-off app works."""
+
+    def test_list_and_dashboard_pending_not_active(self, app, db, admin_user,
+                                                   auth_admin):
+        with app.app_context():
+            _mk_ca("Pending Badge CA", created_by=admin_user.id,
+                   approval_status="pending")
+        for url in ("/ca/", "/"):
+            page = auth_admin.get(url).data
+            assert b"Pending approval" in page
+            assert b'bg-success">Active<' not in page
+
+    def test_approved_ca_shows_active_again(self, app, db, admin_user,
+                                            auth_admin):
+        with app.app_context():
+            ca = _mk_ca("Approved Badge CA", created_by=admin_user.id,
+                        approval_status="pending")
+            ca_id = ca.id
+        assert auth_admin.post(f"/ca/{ca_id}/approve",
+                               headers=JSON).status_code == 200
+        page = auth_admin.get("/ca/").data
+        assert b'bg-success">Active<' in page
+        assert b"Pending approval" not in page
+
+    def test_revoked_pending_shows_revoked_not_pending(self, app, db,
+                                                       admin_user, auth_admin):
+        with app.app_context():
+            ca = _mk_ca("Discarded Pending CA", created_by=admin_user.id,
+                        approval_status="pending")
+            ca_id = ca.id
+        assert auth_admin.post(f"/ca/{ca_id}/revoke", headers=JSON,
+                               data={"reason": "cessation_of_operation"}
+                               ).status_code == 200
+        for url in ("/ca/", f"/ca/{ca_id}"):
+            page = auth_admin.get(url).data
+            assert b"Revoked" in page
+            assert b"Pending approval" not in page
