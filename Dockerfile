@@ -3,7 +3,7 @@
 # unfixable ("won't fix" in stable) CVEs in Essential packages the app never
 # executes (perl, util-linux, glib2, ncurses, ...) — see IMAGE_VULN_SCAN_12-08-26.md.
 # Update via Dependabot (docker ecosystem) or re-resolve the tag's digest.
-FROM python:3.14-alpine@sha256:05b2b8b732ecd268fee8727a369f936f022d1321b59befd13c30ede22769dcdc AS builder
+FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc AS builder
 
 WORKDIR /build
 # build-base + libffi-dev let C extensions compile from sdist when a musllinux
@@ -15,7 +15,7 @@ COPY requirements.txt .
 # match a pinned sha256, and every dependency (incl. transitive) must be pinned.
 RUN pip install --no-cache-dir --require-hashes --prefix=/install -r requirements.txt
 
-FROM python:3.14-alpine@sha256:05b2b8b732ecd268fee8727a369f936f022d1321b59befd13c30ede22769dcdc
+FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc
 
 WORKDIR /app
 
