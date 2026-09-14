@@ -39,6 +39,7 @@ class CertificateAuthority(db.Model):
     approved_at = db.Column(db.DateTime, nullable=True)
     # F1: JSON list of certificate_profiles.id this CA may issue under; NULL = any.
     allowed_profiles_json = db.Column(db.Text, nullable=True)
+    expiry_notified_at = db.Column(db.DateTime, nullable=True)  # F10, same rule as Certificate
 
     parent = db.relationship("CertificateAuthority", remote_side=[id], backref="children")
     certificates = db.relationship("Certificate", backref="ca", lazy="dynamic")
@@ -133,6 +134,7 @@ class CertificateAuthority(db.Model):
             "not_after": iso(self.not_after),
             "days_until_expiry": self.days_until_expiry,
             "expiry_status": self.expiry_status,
+            "expiry_notified_at": iso(self.expiry_notified_at),
             "is_revoked": self.is_revoked,
             "has_private_key": self.has_private_key,
             "has_signing_key": self.has_signing_key,

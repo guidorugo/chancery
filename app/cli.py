@@ -396,16 +396,18 @@ scheduler_cli = AppGroup("scheduler", help="Background scheduler (2.17.0, F8).")
 
 @scheduler_cli.command("status")
 def scheduler_status():
-    """Show the scheduler lease, this process's view, and the effective config."""
+    """Show the scheduler lease, each job's last run, this process's view, and the effective config."""
     from .services import scheduler_service
     click.echo(json.dumps(scheduler_service.status(), indent=2, default=str))
 
 
 @scheduler_cli.command("tick")
 @click.option("--force", is_flag=True,
-              help="Run the jobs even if another worker currently holds the lease.")
+              help="Run every job now, even if another worker holds the lease or a job's interval "
+                   "(the daily expiry-events pass) has not elapsed.")
 def scheduler_tick(force):
-    """Run one scheduler pass now (CRL refresh for CAs whose CRL is due)."""
+    """Run one scheduler pass now: CRL refresh for CAs whose CRL is due, and the
+    daily expiry-events pass when it is due (or always, with --force)."""
     from .services import scheduler_service
     summary = scheduler_service.tick(force=force)
     click.echo(json.dumps(summary, indent=2, default=str))

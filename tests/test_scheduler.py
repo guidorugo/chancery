@@ -80,7 +80,7 @@ class TestLease:
             now = datetime(2026, 9, 14, 12, 0, 0)
             assert scheduler_service.acquire_lease(now, ttl_seconds=600, holder="someone-else")
             calls = []
-            monkeypatch.setattr(scheduler_service, "JOBS", (("probe", lambda n: calls.append(n)),))
+            monkeypatch.setattr(scheduler_service, "JOBS", (("probe", lambda n: calls.append(n), 0),))
             summary = scheduler_service.tick(now=now + timedelta(seconds=1))
             assert summary["lease"] is False and calls == []
             forced = scheduler_service.tick(now=now + timedelta(seconds=1), force=True)
@@ -158,7 +158,7 @@ class TestCrlRefreshJob:
             def boom(now):
                 raise RuntimeError("job exploded")
 
-            monkeypatch.setattr(scheduler_service, "JOBS", (("boom", boom), ("ok", lambda n: {"ran": True})))
+            monkeypatch.setattr(scheduler_service, "JOBS", (("boom", boom, 0), ("ok", lambda n: {"ran": True}, 0)))
             summary = scheduler_service.tick(force=True)
             assert summary["jobs"]["boom"] == {"error": "RuntimeError"}
             assert summary["jobs"]["ok"] == {"ran": True}

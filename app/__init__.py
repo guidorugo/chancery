@@ -605,6 +605,10 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificate_authorities ADD COLUMN allowed_profiles_json TEXT"
             ))
+        if "expiry_notified_at" not in columns:  # F10
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN expiry_notified_at DATETIME"
+            ))
         # G9-1: DB-level uniqueness for CA serials (generated serials are random
         # and imports check in code; the index closes the race). Committed first
         # and guarded so a legacy DB with a duplicate keeps booting.
@@ -635,6 +639,10 @@ def _migrate_schema():
         if "profile_id" not in columns:  # F1
             db.session.execute(text(
                 "ALTER TABLE certificates ADD COLUMN profile_id INTEGER REFERENCES certificate_profiles(id)"
+            ))
+        if "expiry_notified_at" not in columns:  # F10
+            db.session.execute(text(
+                "ALTER TABLE certificates ADD COLUMN expiry_notified_at DATETIME"
             ))
 
     # Migrate certificate_signing_requests table

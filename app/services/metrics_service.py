@@ -269,6 +269,20 @@ class ChanceryCollector:
             "chancery_scheduler_last_tick_failed",
             "1 if the last scheduler tick recorded a job error.",
             value=1 if lease is not None and lease.last_error else 0)
+        # F10: per-job cadence (the daily expiry-events pass, the per-tick CRL job)
+        from ..models.scheduler_lease import SchedulerJob
+        job_last_run = GaugeMetricFamily(
+            "chancery_scheduler_job_last_run_timestamp_seconds",
+            "Unix time of the job's last successful run (0 = never).", labels=["job"])
+        job_failed = GaugeMetricFamily(
+            "chancery_scheduler_job_failed",
+            "1 if the job's last run failed (it is retried every tick until it succeeds).", labels=["job"])
+        for name, _job, _interval in scheduler_service.JOBS:
+            row = db.session.get(SchedulerJob, name)
+            job_last_run.add_metric([name], _unix(row.last_run_at) if row is not None and row.last_run_at else 0)
+            job_failed.add_metric([name], 1 if row is not None and row.last_error else 0)
+        yield job_last_run
+        yield job_failed
 
         # --- audit --------------------------------------------------------
         audit_total = db.session.query(func.count()).select_from(AuditLog).scalar()
