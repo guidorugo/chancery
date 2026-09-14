@@ -20,12 +20,12 @@ A web-based X.509 Certificate Authority management application built with Python
 - **User Management**: Admin UI for creating users, assigning roles, and managing accounts
 - **HTTP Basic Auth**: Stateless API access via `curl -u user:pass` for scripts and automation, alongside session-based browser auth
 - **Dark Theme**: Light/dark mode toggle with OS-preference default and per-browser persistence
-- **Security**: Private keys encrypted at rest with Fernet (PBKDF2-derived key, 600k iterations), session hardening, insecure-default rejection
+- **Security**: Private keys encrypted at rest with Fernet (PBKDF2-derived key, 600k iterations), session hardening, per-IP rate limiting and per-account login lockout (both on by default), insecure-default rejection
 - **Minimal hardened image**: Alpine-based (~123 MB), digest-pinned, runs as non-root with all capabilities dropped; no `pip`, `bash`, or package manager extras in the runtime — scanned clean (0 known CVEs) at the v2.8.0 release
 - **Forced first-login password change**: The bootstrap admin seeded from `ADMIN_PASSWORD` must set a new password before using the app, so the seed credential can't become permanent; self-service change-password for any local user
 - **Hardware-backed keys (SoftHSM/PKCS#11)**: Enabled by default — CA signing keys can be held in a PKCS#11 token so they never enter application memory and cannot be exported; selectable per-CA (software stays the default backend), with a one-way migration for existing CAs and a drop-in path to a real hardware HSM
 - **LDAP Login**: Optional LDAP/Active Directory authentication with group-to-role mapping and automatic user provisioning — configurable from the admin UI (Preferences → LDAP, with a live connection test) or via environment variables
-- **Dual control (four-eyes)**: Opt-in mode (`DUAL_CONTROL_ENABLED`) where no single admin can both request and approve issuance — direct certificate creation is disabled in favour of the CSR flow, a CSR's creator cannot sign it, and a new CA must be approved by a different admin before it can issue anything; kicks in automatically once the instance is genuinely multi-user (or LDAP is enabled), with the bootstrap `admin` account exempt from all three restrictions as break-glass (so e.g. an LDAP outage can never block issuance)
+- **Dual control (four-eyes)**: Opt-in mode (`DUAL_CONTROL_ENABLED`) where no single admin can both request and approve issuance — direct certificate creation is disabled in favour of the CSR flow, a CSR's creator cannot sign it, and a new CA must be approved by a different admin before it can issue anything; kicks in automatically once the instance is genuinely multi-user (or LDAP is enabled), with the bootstrap `admin` account exempt from all three restrictions as break-glass (so e.g. an LDAP outage can never block issuance); a CA awaiting approval is shown as **Pending approval** rather than *Active* until a second admin approves it
 - **Webhook notifications**: POST selected audit events (certificate issued/revoked, CSR signed, CA created/approved, logins, …) as JSON to any HTTP endpoint (e.g. an n8n workflow) — configurable from the admin UI (Preferences → Webhooks, with a test button) or via `WEBHOOK_*` environment variables; optional HMAC-SHA256 body signature, fire-and-forget delivery that never blocks a request
 - **Version & update awareness**: The footer shows the running version; a cached, server-side check (on by default, disable for air-gapped deployments) flags in the footer when a newer GitHub release is available
 
@@ -84,14 +84,19 @@ A pre-built image is published to GitHub Container Registry on each `v*` release
 # Pull the latest image
 docker pull ghcr.io/guidorugo/chancery:latest
 
-# Run with required environment variables
+# Run with the required environment variables
 docker run -d \
   -p 5000:5000 \
   -v ./data:/app/data \
   -e SECRET_KEY=your-secret-key \
   -e MASTER_PASSPHRASE=your-passphrase \
+  -e ADMIN_PASSWORD=your-initial-admin-password \
+  -e DATABASE_URL=sqlite:////app/data/cert-manager.db \
+  -e SESSION_COOKIE_SECURE=false \
   ghcr.io/guidorugo/chancery:latest
 ```
+
+All five variables matter for a bare `docker run`: the app refuses to start with the placeholder `SECRET_KEY`/`MASTER_PASSPHRASE`, and with the placeholder `ADMIN_PASSWORD` when it would seed the first admin; `DATABASE_URL` must point inside the `/app/data` volume (the process runs as uid 1000 and cannot write anywhere else in the image); and `SESSION_COOKIE_SECURE` defaults to `true`, so drop that line once a TLS proxy is in front. This bare form does not wire up the SoftHSM backend — use `docker-compose.yml` for that (it sets all of the above for you).
 
 You can also use the pre-built image with docker compose by commenting out the `build` line and uncommenting the `image` line in `docker-compose.yml`.
 
@@ -100,13 +105,13 @@ You can also use the pre-built image with docker compose by commenting out the `
 ```bash
 # Verify the keyless cosign signature (signed by the release workflow).
 # Signatures are stored in the legacy tag format, so any cosign version works.
-cosign verify ghcr.io/guidorugo/chancery:2.12.0 \
+cosign verify ghcr.io/guidorugo/chancery:2.12.3 \
   --certificate-identity-regexp 'https://github.com/guidorugo/chancery/.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
 # Inspect the SLSA provenance / SBOM (BuildKit in-toto attestations in the index)
-docker buildx imagetools inspect ghcr.io/guidorugo/chancery:2.12.0 --format '{{ json .Provenance }}'
-docker buildx imagetools inspect ghcr.io/guidorugo/chancery:2.12.0 --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/chancery:2.12.3 --format '{{ json .Provenance }}'
+docker buildx imagetools inspect ghcr.io/guidorugo/chancery:2.12.3 --format '{{ json .SBOM }}'
 ```
 
 ### Local Development
@@ -140,18 +145,18 @@ docker compose pull
 docker compose up -d
 ```
 
-The footer shows an **"Update available"** badge when a newer GitHub release exists (on by default; set `UPDATE_CHECK_ENABLED=false` to disable the outbound check). Check the [release notes](https://github.com/guidorugo/chancery/releases) for any **one-time commands** a version needs — e.g. after upgrading to **2.5.0**, correct the stored expiry on certificates issued by older versions:
+The footer shows an **"Update available"** badge when a newer GitHub release exists (on by default; set `UPDATE_CHECK_ENABLED=false` to disable the outbound check). Check the [release notes](https://github.com/guidorugo/chancery/releases) for any **one-time commands** a version needs (run them as the `app` user — see [CLI Commands](#cli-commands)) — e.g. after upgrading to **2.5.0**, correct the stored expiry on certificates issued by older versions:
 
 ```bash
-docker compose exec app flask certs recompute-expiry
+docker compose exec -u app app flask certs recompute-expiry
 ```
 
 Similarly, after upgrading to **2.11.0**, populate the new signer/issuer fields on
 pre-existing CSRs and certificates from the audit log (idempotent, optional):
 
 ```bash
-docker compose exec app flask certs backfill-issuers --dry-run   # preview
-docker compose exec app flask certs backfill-issuers
+docker compose exec -u app app flask certs backfill-issuers --dry-run   # preview
+docker compose exec -u app app flask certs backfill-issuers
 ```
 
 Upgrading to **2.6.0** raises the auto-generated SoftHSM token PINs to 32 characters for *new* deployments; existing tokens keep their current PINs. To rotate an existing deployment to the stronger length, follow the **SoftHSM PIN migration** guide in the [v2.6.0 release notes](https://github.com/guidorugo/chancery/releases/tag/v2.6.0) — the user PIN rotates in place; the SO PIN needs a freshly-initialised token when it holds non-extractable keys.
@@ -237,9 +242,9 @@ nothing else is needed — the *Create CA* form simply offers HSM per-CA.
   the HSM):
 
   ```bash
-  docker compose exec app flask keys migrate-to-hsm --dry-run   # preview
-  docker compose exec app flask keys migrate-to-hsm             # migrate all
-  docker compose exec app flask keys migrate-to-hsm --ca-id 3   # just one
+  docker compose exec -u app app flask keys migrate-to-hsm --dry-run   # preview
+  docker compose exec -u app app flask keys migrate-to-hsm             # migrate all
+  docker compose exec -u app app flask keys migrate-to-hsm --ca-id 3   # just one
   ```
 
 ## Subscriber keys & escrow
@@ -349,32 +354,34 @@ All authenticated endpoints support HTTP Basic Auth or session cookies (see [Aut
 | GET, POST | `/ca/create` | Create or import a CA |
 | POST | `/ca/detect-parent` | Detect parent CA for an imported certificate (JSON response) |
 | GET | `/ca/<ca_id>` | View CA details |
+| POST | `/ca/<ca_id>/approve` | Approve a pending CA (dual control); while the mode is active the approver must not be the CA's creator |
+| GET, POST | `/ca/<ca_id>/revoke` | Revoke a CA (also the way to discard an unwanted pending CA) |
 | POST | `/ca/<ca_id>/crl` | Generate a new CRL |
 | GET, POST | `/ca/<ca_id>/download` | Export CA. `pem`/`chain` via GET; `key`/`pkcs12` are **POST-only** (private-key material). `pkcs12` needs a `password` **form** field |
 
-#### Certificate Management (admin only)
+#### Certificate Management
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/certificates/` | List all certificates |
-| GET, POST | `/certificates/create` | Issue a new certificate |
-| GET | `/certificates/<cert_id>` | View certificate details |
-| GET, POST | `/certificates/<cert_id>/revoke` | Revoke a certificate |
-| GET | `/certificates/<cert_id>/download` | Download certificate (`?format=pem\|der\|pkcs12`) |
-| GET | `/certificates/<cert_id>/download-key` | Download private key (PEM) |
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| GET | `/certificates/` | Any | List certificates (admin sees all, CSR users see those issued from their own CSRs) |
+| GET, POST | `/certificates/create` | Admin | Issue a new certificate (disabled while dual control is active — use the CSR flow) |
+| GET | `/certificates/<cert_id>` | Any | View certificate details (CSR users: own only) |
+| GET, POST | `/certificates/<cert_id>/revoke` | Admin | Revoke a certificate |
+| GET, POST | `/certificates/<cert_id>/download` | Any (own) | Download certificate: `?format=pem\|der\|fullchain\|chain` via GET (`fullchain` = leaf → intermediates → root, `chain` = issuers only); `pkcs12` is **POST-only** with a `password` form field, so key material never appears in a URL |
+| POST | `/certificates/<cert_id>/download-key` | Admin | Download the escrowed private key (PEM, **POST-only**) |
 
 ```bash
-# Download a certificate in PEM format
-curl -b cookies.txt -O http://localhost:5000/certificates/1/download?format=pem
+# Download a certificate in PEM / DER format
+curl -u admin:PASSWORD -o cert.pem "http://localhost:5000/certificates/1/download?format=pem"
+curl -u admin:PASSWORD -o cert.der "http://localhost:5000/certificates/1/download?format=der"
 
-# Download in DER format
-curl -b cookies.txt -O http://localhost:5000/certificates/1/download?format=der
+# Full chain (leaf + issuers) or just the issuing chain
+curl -u admin:PASSWORD -o fullchain.pem "http://localhost:5000/certificates/1/download?format=fullchain"
+curl -u admin:PASSWORD -o chain.pem "http://localhost:5000/certificates/1/download?format=chain"
 
-# Download as PKCS#12 bundle
-curl -b cookies.txt -O "http://localhost:5000/certificates/1/download?format=pkcs12&password=changeit"
-
-# Download private key
-curl -b cookies.txt -O http://localhost:5000/certificates/1/download-key
+# PKCS#12 bundle and private key are POST-only (Basic Auth needs no CSRF token)
+curl -u admin:PASSWORD -X POST -d "format=pkcs12&password=changeit" -o cert.p12 http://localhost:5000/certificates/1/download
+curl -u admin:PASSWORD -X POST -o cert.key http://localhost:5000/certificates/1/download-key
 ```
 
 #### CSR Management (all authenticated users)
@@ -408,6 +415,7 @@ curl -b cookies.txt -O http://localhost:5000/certificates/1/download-key
 |--------|----------|------|-------------|
 | GET | `/` | Any | Dashboard (role-conditional stats) |
 | GET, POST | `/auth/login` | None | Login page |
+| GET, POST | `/auth/change-password` | Any (local accounts) | Self-service password change; forced on first login for the seeded admin |
 | POST | `/auth/logout` | Any | Logout (POST-only, CSRF-protected) |
 
 ## Running Tests
@@ -415,6 +423,28 @@ curl -b cookies.txt -O http://localhost:5000/certificates/1/download-key
 ```bash
 pip install pytest
 python -m pytest tests/ -v
+```
+
+The SoftHSM differential tests need `softhsm2` on the host (`apt install softhsm2`) and skip cleanly without it; CI installs it. The Docker image runs Python 3.14, so for full parity run the suite inside the pinned `python:3.14-alpine` base image rather than a host interpreter.
+
+## CLI Commands
+
+Operational commands run through the Flask CLI inside the container. Run them **as the `app` user**: the container starts as root only to fix the data volume's ownership and then drops to `app` (uid 1000); with all capabilities dropped, root cannot read the `0600` secret files, so a plain `docker compose exec app flask …` fails with `PermissionError: … /run/secrets/master_passphrase`.
+
+| Command | Purpose |
+|---------|---------|
+| `flask certs expiring [--days N] [--json]` | List certificates and CAs expiring within N days (default `CERT_EXPIRY_WARNING_DAYS`), including already-expired ones — cron/monitoring friendly |
+| `flask certs recompute-expiry [--dry-run]` | One-time backfill of the stored `not_after` for certificates issued before 2.5.0 |
+| `flask certs backfill-issuers [--dry-run]` | One-time backfill of CSR signer / certificate issuer from the audit log (2.11.0) |
+| `flask crl refresh [--all]` | Regenerate stale CRLs (or all of them) — run from cron so no CRL passes its `nextUpdate` (`CRL_VALIDITY_DAYS`) |
+| `flask keys migrate-to-hsm [--ca-id N] [--dry-run]` | Move software-backed CA keys into the SoftHSM token (one-way) |
+| `flask users unlock <username>` | Clear a login lockout / failed-attempt counter from the shell — for when the locked account is the only admin and nobody can unlock it from the Users page |
+| `flask metrics-token create --name <n> --expires-in-days <N>` / `list` / `revoke <name-or-id>` | Manage bearer tokens for `/metrics` |
+
+```bash
+docker compose exec -u app app flask certs expiring --days 14
+# keep CRLs fresh (e.g. a daily cron job on the host)
+docker compose exec -u app app flask crl refresh
 ```
 
 ## Monitoring & Metrics
@@ -425,9 +455,9 @@ python -m pytest tests/ -v
 
 ```bash
 # The secret is printed ONCE — store it now.
-docker compose exec app flask metrics-token create --name prometheus --expires-in-days 90
-docker compose exec app flask metrics-token list
-docker compose exec app flask metrics-token revoke prometheus
+docker compose exec -u app app flask metrics-token create --name prometheus --expires-in-days 90
+docker compose exec -u app app flask metrics-token list
+docker compose exec -u app app flask metrics-token revoke prometheus
 ```
 
 Prometheus scrape config:
@@ -451,14 +481,16 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 |----------|---------|-------------|
 | `SECRET_KEY` | `dev-secret-key` | Flask session secret |
 | `MASTER_PASSPHRASE` | `dev-passphrase` | Key encryption passphrase |
-| `DATABASE_URL` | `sqlite:///cert-manager.db` | Database URI |
+| `DATABASE_URL` | `sqlite:///cert-manager.db` | Database URI (the compose file sets `sqlite:////app/data/cert-manager.db` — the data volume is the only path the uid-1000 process can write to) |
 | `ADMIN_USERNAME` | `admin` | Default admin username |
 | `ADMIN_PASSWORD` | `admin` | Seeds the **first** admin only (when no users exist); a change is forced on first login, after which it is unused and can be removed |
 | `MIN_PASSWORD_LENGTH` | `12` | Minimum length when setting a new password on the change-password page |
 | `SERVER_NAME_FOR_OCSP` | `localhost:5000` | Server hostname for OCSP/CRL URLs. When at default, auto-detected from request |
 | `SESSION_LIFETIME_MINUTES` | `30` | Session timeout in minutes |
-| `RATE_LIMIT_ENABLED` | `false` | Enable rate limiting (requires Flask-Limiter) |
+| `RATE_LIMIT_ENABLED` | `true` | Per-IP rate limiting (Flask-Limiter is a pinned dependency); `/health` is exempt. Set `false` to disable |
 | `RATE_LIMIT_DEFAULT` | `60/minute` | Default rate limit when enabled |
+| `LOGIN_LOCKOUT_THRESHOLD` | `5` | Failed logins per local account before a temporary lock (`0` disables). The last active admin is never hard-locked, so an attacker cannot lock everyone out |
+| `LOGIN_LOCKOUT_MINUTES` | `15` | Lock duration once the threshold is hit; cleared early by an admin or `flask users unlock <username>` |
 | `BASIC_AUTH_ENABLED` | `true` | Enable HTTP Basic Auth for programmatic access |
 | `BASIC_AUTH_REALM` | `chancery` | Basic Auth realm name in `WWW-Authenticate` header |
 | `BASIC_AUTH_CACHE_TTL_SECONDS` | `60` | In-memory cache TTL for verified Basic Auth credentials (`0` disables) |
@@ -470,13 +502,23 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `MAX_CA_VALIDITY_DAYS` | `7305` | Cap on issued CA validity |
 | `MIN_RSA_KEY_SIZE` | `2048` | Minimum accepted RSA key size |
 | `OCSP_KEY_CACHE_TTL_SECONDS` | `300` | In-memory TTL for the decrypted CA key used by OCSP (`0` disables) |
+| `OCSP_RESPONSE_CACHE_TTL_SECONDS` | `60` | Cache signed OCSP responses per (CA, serial, status) for this long (`0` disables); the status is part of the key, so a revoked certificate is never served `good` from cache |
+| `CRL_VALIDITY_DAYS` | `7` | `nextUpdate` window stamped into generated CRLs; run `flask crl refresh` from cron to keep them fresh |
+| `CERT_EXPIRY_WARNING_DAYS` | `30` | Days before `notAfter` at which a certificate/CA is flagged *expiring soon* (dashboard counts, badges, JSON, `flask certs expiring`) |
 | `UPDATE_CHECK_ENABLED` | `true` | Show a footer "Update available" badge when a newer GitHub release exists (makes an outbound call; set `false` for an air-gapped CA) |
 | `METRICS_ENABLED` | `false` | Expose the Prometheus `/metrics` endpoint (opt-in; returns 404 until enabled) |
 | `METRICS_ALLOW_UNAUTHENTICATED` | `false` | Serve `/metrics` without a bearer token (isolated networks only) |
 | `METRICS_INCLUDE_CA_DETAILS` | `false` | Add a `chancery_ca_info` metric with CA names/CNs/key details (default: opaque `ca_id` + counts only) |
 | `UPDATE_CHECK_REPO` | `guidorugo/chancery` | Repository to check for the latest release |
 | `UPDATE_CHECK_INTERVAL_SECONDS` | `21600` | Cache TTL for the update check (6h) |
+| `UPDATE_CHECK_TIMEOUT_SECONDS` | `4` | HTTP timeout for the update check |
+| `APP_VERSION` | – | Override the version shown in the footer (e.g. a git SHA for an untagged build) |
 | `MASTER_PASSPHRASE_FILE` / `SECRET_KEY_FILE` / `ADMIN_PASSWORD_FILE` | – | Read the secret from a file (Docker/systemd secret) instead of the env var |
+| `KEY_BACKEND` | `software` | Default signing-key backend for **new** CAs: `software` (Fernet-encrypted, exportable) or `softhsm` (PKCS#11 token, non-exportable). HSM is offered per-CA in the create form whenever the token is configured |
+| `PKCS11_MODULE` | `/usr/lib/softhsm/libsofthsm2.so` | PKCS#11 library path |
+| `PKCS11_TOKEN_LABEL` | `cert-manager` | Token label (kept from the old project name — an existing token cannot be relabelled without destroying its keys) |
+| `PKCS11_USER_PIN` / `PKCS11_SO_PIN` | – | Token PINs (`_FILE` convention supported; the compose file reads them from `secrets/`) |
+| `SOFTHSM2_CONF` | – | SoftHSM config path; when set, the entrypoint creates the token store and initialises the token on first boot |
 | `DUAL_CONTROL_ENABLED` | `false` | Four-eyes issuance: once another active user besides `ADMIN_USERNAME` exists (or LDAP is enabled), direct cert creation is disabled, CSR creators cannot sign their own CSRs, and new CAs need approval by a different admin (`POST /ca/<id>/approve`). The bootstrap admin account is exempt |
 | `WEBHOOK_ENABLED` | `false` | POST selected audit events as JSON to `WEBHOOK_URL`. Also configurable in the admin UI (Preferences → Webhooks) — settings saved there override all `WEBHOOK_*` variables until removed |
 | `WEBHOOK_URL` | – | Webhook POST target (e.g. an n8n webhook trigger) |
@@ -488,6 +530,7 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `LDAP_USE_STARTTLS` | `false` | Upgrade `ldap://` connections with StartTLS |
 | `LDAP_TLS_VERIFY` | `true` | Verify the directory's TLS certificate |
 | `LDAP_CA_CERT_FILE` | – | CA bundle for verifying the directory's certificate |
+| `LDAP_ALLOW_PLAINTEXT` | `false` | Allow a cleartext `ldap://` URI without StartTLS — startup refuses it otherwise (not recommended) |
 | `LDAP_USER_DN_TEMPLATE` | – | Direct-bind DN template, e.g. `uid={username},ou=people,dc=example,dc=com` |
 | `LDAP_BIND_DN` / `LDAP_BIND_PASSWORD` | – | Service account for search+bind mode |
 | `LDAP_USER_SEARCH_BASE` | – | Search base for search+bind mode |
@@ -510,27 +553,40 @@ When `LDAP_ENABLED=true`, the web login checks the local database first (so the 
 ## Architecture
 
 ```
-Flask App Factory
+Flask App Factory (app/__init__.py)
 ├── Models (SQLAlchemy)
-│   ├── User            (roles: admin, csr_requester)
-│   ├── CertificateAuthority
-│   ├── Certificate
-│   ├── CertificateSigningRequest
-│   └── AuditLog
+│   ├── User                       (roles: admin, csr_requester; local or LDAP-provisioned; lockout counters)
+│   ├── CertificateAuthority       (key_backend software|softhsm; approval_status for dual control)
+│   ├── Certificate                (issued_by; escrowed private key)
+│   ├── CertificateSigningRequest  (signed_by)
+│   ├── AuditLog
+│   ├── MetricsToken               (hashed bearer tokens for /metrics)
+│   ├── LdapSettings               (single row; overrides LDAP_* env when saved)
+│   └── WebhookSettings            (single row; overrides WEBHOOK_* env when saved)
 ├── Services
-│   ├── crypto_utils    (Fernet key encryption)
-│   ├── ca_service      (CA creation)
-│   ├── cert_service    (certificate signing/export)
-│   ├── csr_service     (CSR generation/import)
-│   ├── crl_service     (revocation/CRL)
-│   ├── ocsp_service    (OCSP responder)
-│   └── audit_service   (audit logging)
+│   ├── crypto_utils               (Fernet/PBKDF2 key + secret encryption)
+│   ├── keybackend/                (software | softhsm PKCS#11 signing backends)
+│   ├── ca_service                 (CA creation, import/export, chains)
+│   ├── cert_service               (issuance, CSR signing, bundles, PKCS#12)
+│   ├── csr_service                (CSR generation/import)
+│   ├── crl_service                (revocation, CRL generation/refresh)
+│   ├── ocsp_service               (OCSP responder + response cache)
+│   ├── policy                     (server-side key-strength / validity policy)
+│   ├── auth_service               (local + LDAP login, Basic Auth, lockout)
+│   ├── ldap_service / ldap_settings_service
+│   ├── dual_control_service       (four-eyes rules)
+│   ├── webhook_service            (audit-event notifications)
+│   ├── audit_service              (audit logging → webhook hook)
+│   ├── metrics_service / metrics_token_service
+│   └── update_service             (cached "update available" check)
 └── Routes (Blueprints)
-    ├── auth            (login/logout)
+    ├── auth            (login/logout/change-password)
     ├── dashboard       (role-conditional stats)
-    ├── ca              (CA CRUD - admin only)
-    ├── certificates    (cert CRUD - admin only)
-    ├── csr             (CSR CRUD - ownership enforced)
-    ├── users           (user management - admin only)
-    └── public          (CRL/CA/OCSP - no auth)
+    ├── ca              (CA management + approval - admin only)
+    ├── certificates    (issuance/revocation - admin; details/downloads owner-visible)
+    ├── csr             (CSR lifecycle - ownership enforced)
+    ├── users           (users, audit log, LDAP & webhook settings - admin only)
+    ├── public          (CRL/CA/OCSP - no auth)
+    ├── health          (/health liveness probe - no auth)
+    └── metrics         (/metrics Prometheus - bearer token)
 ```
