@@ -26,6 +26,14 @@ if [ -n "${SOFTHSM2_CONF:-}" ] && command -v softhsm2-util >/dev/null 2>&1; then
     [ -n "${PKCS11_USER_PIN_FILE:-}" ] && [ -f "${PKCS11_USER_PIN_FILE}" ] && USER_PIN="$(cat "$PKCS11_USER_PIN_FILE")"
     SO_PIN="${PKCS11_SO_PIN:-}"
     [ -n "${PKCS11_SO_PIN_FILE:-}" ] && [ -f "${PKCS11_SO_PIN_FILE}" ] && SO_PIN="$(cat "$PKCS11_SO_PIN_FILE")"
+    # G5-1: PIN strength is otherwise never checked. SoftHSM's at-rest
+    # protection is bounded by the WEAKER of the two PINs; warn, never refuse.
+    if [ -n "$USER_PIN" ] && [ "${#USER_PIN}" -lt 16 ]; then
+        echo "WARNING: PKCS11 user PIN is only ${#USER_PIN} characters (scripts/init-secrets.sh generates 32); the token's at-rest protection is bounded by it." >&2
+    fi
+    if [ -n "$SO_PIN" ] && [ "${#SO_PIN}" -lt 16 ]; then
+        echo "WARNING: PKCS11 SO PIN is only ${#SO_PIN} characters (scripts/init-secrets.sh generates 32); the token's at-rest protection is bounded by the weaker PIN. Re-keying to a stronger SO PIN needs a new token (HSM keys are non-extractable)." >&2
+    fi
     # Match the label allowing softhsm2-util's trailing padding spaces (a bare
     # "...${LABEL}$" fails to match and would re-init a duplicate token each boot).
     if ! softhsm2-util --show-slots --module "$MODULE" 2>/dev/null | grep -qE "Label:[[:space:]]*${LABEL}[[:space:]]*$"; then

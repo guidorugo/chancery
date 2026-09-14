@@ -12,14 +12,23 @@ services:
       # A2/A1-tier0: MASTER_PASSPHRASE is delivered as a Docker secret (file at
       # /run/secrets/master_passphrase) instead of an env var, so it does not
       # appear in `docker inspect`, /proc/<pid>/environ, or the compose env.
-      # (SECRET_KEY can be moved the same way via SECRET_KEY_FILE if desired.)
+      # G2-1: SECRET_KEY should travel the same way. To switch: replace the
+      # SECRET_KEY line above with
+      #   - SECRET_KEY_FILE=/run/secrets/secret_key
+      # add `secret_key` to this service's `secrets:` list and a
+      #   secret_key: { file: ./secrets/secret_key }
+      # entry to the top-level `secrets:` block, then remove SECRET_KEY from .env
+      # (`openssl rand -hex 32 > secrets/secret_key && chmod 600 secrets/secret_key`;
+      # active sessions drop once).
       - MASTER_PASSPHRASE_FILE=/run/secrets/master_passphrase
       - DATABASE_URL=sqlite:////app/data/cert-manager.db
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      # INFRA-4: ADMIN_PASSWORD seeds the first admin (removable after first
-      # login). To keep it out of `docker inspect` / the process env, deliver it
-      # as a Docker secret instead — set ADMIN_PASSWORD_FILE=/run/secrets/admin_password
-      # and add an admin_password secret (the app honours the *_FILE convention).
+      # INFRA-4: ADMIN_PASSWORD seeds the first admin ONLY. Once that admin has
+      # logged in and changed it, delete ADMIN_PASSWORD from .env — it is never
+      # read again and only lingers in `docker inspect` / the process env (G2-1).
+      # To keep it out of the env even at first boot, deliver it as a Docker
+      # secret instead: ADMIN_PASSWORD_FILE=/run/secrets/admin_password plus an
+      # admin_password secret (the app honours the *_FILE convention).
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
       - SERVER_NAME_FOR_OCSP=${SERVER_NAME_FOR_OCSP:-localhost:5000}
       # This reference stack serves plain HTTP, so secure cookies are disabled;

@@ -12,6 +12,12 @@ venv/
 # Docker secrets (e.g. the master passphrase file)
 secrets/
 
+# Key material and exported bundles must never be committed (G19-2)
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Bring-your-own TLS cert/key mounted into Caddy (see deploy/Caddyfile)
 deploy/tls/
 

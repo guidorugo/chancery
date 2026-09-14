@@ -74,7 +74,7 @@ def test_api3_crosssite_basic_auth_is_not_csrf_exempt(app, admin_user, client):
 
         # A non-browser client (no Sec-Fetch-Site) keeps the exemption.
         api = client.post("/users/create",
-                          data={"username": "apiuser", "password": "apipass1234"},
+                          data={"username": "apiuser", "password": "apipass12345"},
                           headers=creds)
         assert api.status_code != 400       # CSRF skipped → view ran (redirects)
     finally:

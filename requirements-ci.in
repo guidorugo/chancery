@@ -1,0 +1,8 @@
+# CI-only tooling, hash-locked like the app dependencies (assessment G17-1).
+# Constrained by requirements.txt so shared transitive pins stay identical.
+# Regenerate after editing:
+#   docker run --rm -v "$PWD:/w" -w /w python:3.14-alpine sh -c \
+#     "pip install pip-tools && pip-compile --generate-hashes --output-file=requirements-ci.txt requirements-ci.in"
+-c requirements.txt
+pytest==9.1.1
+pip-audit==2.10.1

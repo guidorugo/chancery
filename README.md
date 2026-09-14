@@ -20,9 +20,9 @@ A web-based X.509 Certificate Authority management application built with Python
 - **User Management**: Admin UI for creating users, assigning roles, and managing accounts
 - **HTTP Basic Auth**: Stateless API access via `curl -u user:pass` for scripts and automation, alongside session-based browser auth
 - **Dark Theme**: Light/dark mode toggle with OS-preference default and per-browser persistence
-- **Security**: Private keys encrypted at rest with Fernet (PBKDF2-derived key, 600k iterations), session hardening, per-IP rate limiting and per-account login lockout (both on by default), insecure-default rejection
+- **Security**: Private keys encrypted at rest with Fernet (PBKDF2-derived key, 600k iterations), session hardening, per-IP rate limiting and per-account login lockout (both on by default), insecure-default rejection plus a startup warning for short `SECRET_KEY` / `MASTER_PASSPHRASE` / PKCS#11 PIN values
 - **Minimal hardened image**: Alpine-based (~123 MB), digest-pinned, runs as non-root with all capabilities dropped; no `pip`, `bash`, or package manager extras in the runtime — scanned clean (0 known CVEs) at the v2.8.0 release
-- **Forced first-login password change**: The bootstrap admin seeded from `ADMIN_PASSWORD` must set a new password before using the app, so the seed credential can't become permanent; self-service change-password for any local user
+- **Forced first-login password change**: The bootstrap admin seeded from `ADMIN_PASSWORD` must set a new password before using the app, so the seed credential can't become permanent; the same applies to passwords an admin sets for other users (create / reset), which must also meet `MIN_PASSWORD_LENGTH`; self-service change-password for any local user
 - **Hardware-backed keys (SoftHSM/PKCS#11)**: Enabled by default — CA signing keys can be held in a PKCS#11 token so they never enter application memory and cannot be exported; selectable per-CA (software stays the default backend), with a one-way migration for existing CAs and a drop-in path to a real hardware HSM
 - **LDAP Login**: Optional LDAP/Active Directory authentication with group-to-role mapping and automatic user provisioning — configurable from the admin UI (Preferences → LDAP, with a live connection test) or via environment variables
 - **Dual control (four-eyes)**: Opt-in mode (`DUAL_CONTROL_ENABLED`) where no single admin can both request and approve issuance — direct certificate creation is disabled in favour of the CSR flow, a CSR's creator cannot sign it, and a new CA must be approved by a different admin before it can issue anything; kicks in automatically once the instance is genuinely multi-user (or LDAP is enabled), with the bootstrap `admin` account exempt from all three restrictions as break-glass (so e.g. an LDAP outage can never block issuance); a CA awaiting approval is shown as **Pending approval** rather than *Active* until a second admin approves it
@@ -196,7 +196,7 @@ Go to **CSRs > Create CSR** to generate or upload a CSR. Then sign it with a CA 
 
 ### 4. Revoke & CRL
 
-Revoke a certificate from its detail page. Generate a CRL from the CA detail page.
+Revoke a certificate from its detail page. Generate a CRL from the CA detail page. Revoking refreshes the issuing CA's CRL immediately; if that refresh fails (token unreachable, passphrase mismatch) the revocation itself still stands and is audited — the page shows a warning and JSON clients get a `warning` field, and you regenerate the CRL from the CA page. A revoked CA publishes one final CRL that stays valid until the CA certificate expires, so old leaves keep validating as *revoked* rather than *CRL expired*.
 
 ### 5. Public Endpoints
 
@@ -206,6 +206,7 @@ Revoke a certificate from its detail page. Generate a CRL from the CA detail pag
 | `/public/crl/<id>.crl` | Download CRL (DER) |
 | `/public/crl/<id>.pem` | Download CRL (PEM) |
 | `/public/ocsp/<id>` | OCSP responder (POST, DER) |
+| `/public/ocsp/<id>/<base64-request>` | OCSP responder, RFC 6960 GET form (URL-encoded base64 of the DER request) |
 
 ### OCSP Testing
 
@@ -216,6 +217,8 @@ openssl ocsp \
   -url http://localhost:5000/public/ocsp/1 \
   -resp_text
 ```
+
+Both the POST form and the RFC 6960 GET form (`GET /public/ocsp/1/<url-encoded base64 request>`, what Windows CryptoAPI uses for small requests) are served. A request that is not valid DER gets an OCSP `malformedRequest` response at HTTP 200, not an HTTP error.
 
 ## Hardware-Backed Keys (SoftHSM / PKCS#11)
 
@@ -242,9 +245,9 @@ nothing else is needed — the *Create CA* form simply offers HSM per-CA.
   the HSM):
 
   ```bash
-  docker compose exec -u app app flask keys migrate-to-hsm --dry-run   # preview
-  docker compose exec -u app app flask keys migrate-to-hsm             # migrate all
-  docker compose exec -u app app flask keys migrate-to-hsm --ca-id 3   # just one
+  docker compose exec -u app app flask keys migrate-to-hsm --dry-run         # preview
+  docker compose exec -u app app flask keys migrate-to-hsm                   # migrate all (interactive confirmation)
+  docker compose exec -u app app flask keys migrate-to-hsm --ca-id 3 --yes   # just one, unattended
   ```
 
 ## Subscriber keys & escrow
@@ -437,7 +440,7 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask certs recompute-expiry [--dry-run]` | One-time backfill of the stored `not_after` for certificates issued before 2.5.0 |
 | `flask certs backfill-issuers [--dry-run]` | One-time backfill of CSR signer / certificate issuer from the audit log (2.11.0) |
 | `flask crl refresh [--all]` | Regenerate stale CRLs (or all of them) — run from cron so no CRL passes its `nextUpdate` (`CRL_VALIDITY_DAYS`) |
-| `flask keys migrate-to-hsm [--ca-id N] [--dry-run]` | Move software-backed CA keys into the SoftHSM token (one-way) |
+| `flask keys migrate-to-hsm [--ca-id N] [--dry-run] [--yes]` | Move software-backed CA keys into the SoftHSM token (one-way). `--yes` skips the prompt only together with `--ca-id`; if the token fails the post-import signing check, the token object is removed and the software key is left untouched |
 | `flask users unlock <username>` | Clear a login lockout / failed-attempt counter from the shell — for when the locked account is the only admin and nobody can unlock it from the Users page |
 | `flask metrics-token create --name <n> --expires-in-days <N>` / `list` / `revoke <name-or-id>` | Manage bearer tokens for `/metrics` |
 

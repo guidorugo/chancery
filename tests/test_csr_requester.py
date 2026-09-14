@@ -109,7 +109,7 @@ class TestCSRRequesterUserManagement:
     def test_admin_can_create_csr_requester(self, auth_admin, db):
         resp = auth_admin.post("/users/create", data={
             "username": "newrequester",
-            "password": "pass123",
+            "password": "pass1234567890",
             "role": "csr_requester",
         }, follow_redirects=True)
         assert b"newrequester" in resp.data

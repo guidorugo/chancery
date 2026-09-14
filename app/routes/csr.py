@@ -12,7 +12,7 @@ from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..models.csr import CertificateSigningRequest
 from ..responses import api_error, wants_json
-from ..services import csr_service, cert_service, audit_service, dual_control_service
+from ..services import csr_service, cert_service, audit_service, dual_control_service, public_url
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,9 @@ def create():
                     return jsonify(csr_model.to_dict(detail=True)), 201
                 flash(f"CSR for '{csr_model.common_name}' imported.", "success")
                 return redirect(url_for("csr.detail", csr_id=csr_model.id))
+            except ValueError as e:
+                # G7-2: a bad/unsupported CSR is a 400, not a generic 500.
+                return _err(str(e))
             except Exception:
                 logger.exception("Error importing CSR")
                 return _err("An unexpected error occurred while importing the CSR.", 500)
@@ -168,10 +171,8 @@ def sign(csr_id):
         return redirect(url_for("csr.detail", csr_id=csr_id))
 
     if request.method == "POST":
-        ocsp_server = current_app.config.get("SERVER_NAME_FOR_OCSP", "localhost:5000")
-        if ocsp_server == "localhost:5000":
-            ocsp_server = request.host
-        ocsp_scheme = current_app.config.get("OCSP_URL_SCHEME", "http")
+        ocsp_server = public_url.public_host()
+        ocsp_scheme = public_url.public_scheme()
 
         def _err(message, status=400):
             if wants_json():
@@ -196,10 +197,11 @@ def sign(csr_id):
 
         passphrase = current_app.config["MASTER_PASSPHRASE"]
 
-        ocsp_url = f"{ocsp_scheme}://{ocsp_server}/public/ocsp/{ca_id}"
-        crl_dp_url = request.form.get("crl_dp_url", "").strip()
-        if not crl_dp_url:
-            crl_dp_url = f"{ocsp_scheme}://{ocsp_server}/public/crl/{ca_id}.crl"
+        # G8-3: a loopback hostname is refused — it would be baked in for life.
+        try:
+            ocsp_url, crl_dp_url = public_url.issuance_urls(ca_id, request.form.get("crl_dp_url"))
+        except ValueError as e:
+            return _err(str(e))
 
         # Parse Key Usage and Extended Key Usage from checkboxes
         # If no ku_* fields are present at all (e.g. API call), use service defaults
@@ -243,17 +245,21 @@ def sign(csr_id):
                 return jsonify(certificate.to_dict(detail=True)), 201
             flash(f"Certificate '{certificate.common_name}' issued.", "success")
             return redirect(url_for("certificates.detail", cert_id=certificate.id))
+        except cert_service.CsrAlreadyProcessed as e:
+            # G7-4: lost the single-flight claim to a concurrent request.
+            return _err(str(e), 409)
+        except ValueError as e:
+            # G7-2: policy refusals (PoP failure, weak key, validity cap, bad
+            # SAN, expired CA) are 400s, not "unexpected error" 500s.
+            return _err(str(e))
         except Exception:
             logger.exception("Error signing CSR")
             return _err("An unexpected error occurred while signing the CSR.", 500)
 
     cas = CertificateAuthority.signing_capable().all()
-    server = current_app.config.get("SERVER_NAME_FOR_OCSP", "localhost:5000")
-    if server == "localhost:5000":
-        server = request.host
-    scheme = current_app.config.get("OCSP_URL_SCHEME", "http")
     return render_template("csr/sign.html", csr=csr_model, cas=cas,
-                           ocsp_scheme=scheme, ocsp_server=server)
+                           ocsp_scheme=public_url.public_scheme(),
+                           ocsp_server=public_url.public_host())
 
 
 @csr_bp.route("/<int:csr_id>/reject", methods=["POST"])

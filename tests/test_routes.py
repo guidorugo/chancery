@@ -200,7 +200,9 @@ class TestPublicOCSP:
                 ocsp_resp = ocsp.load_der_ocsp_response(resp.data)
                 assert ocsp_resp.response_status == ocsp.OCSPResponseStatus.UNAUTHORIZED
 
-    def test_ocsp_invalid_request_returns_500(self, app, db):
+    def test_ocsp_invalid_request_returns_malformed_request(self, app, db):
+        # G8-2: RFC 6960 §4.2.1 — an unparseable request gets an OCSP-level
+        # malformedRequest at HTTP 200, not a 500.
         with app.app_context():
             ca = _create_test_ca()
             with app.test_client() as c:
@@ -209,8 +211,10 @@ class TestPublicOCSP:
                     data=b"not-a-valid-ocsp-request",
                     content_type="application/ocsp-request",
                 )
-                assert resp.status_code == 500
-                assert b"Internal server error" in resp.data
+                assert resp.status_code == 200
+                assert resp.mimetype == "application/ocsp-response"
+                ocsp_resp = ocsp.load_der_ocsp_response(resp.data)
+                assert ocsp_resp.response_status == ocsp.OCSPResponseStatus.MALFORMED_REQUEST
 
     def test_ocsp_ca_not_found(self, client):
         resp = client.post(
@@ -735,13 +739,14 @@ class TestUserManagementRoutes:
     def test_create_user(self, auth_admin):
         resp = auth_admin.post("/users/create", data={
             "username": "newuser",
-            "password": "newpass123",
+            "password": "newpass123456",
             "role": "csr_requester",
         }, follow_redirects=True)
         assert b"newuser" in resp.data
         user = User.query.filter_by(username="newuser").first()
         assert user is not None
         assert user.role == "csr_requester"
+        assert user.must_change_password is True  # G6-2
 
     def test_create_user_duplicate(self, auth_admin, admin_user):
         resp = auth_admin.post("/users/create", data={
@@ -791,11 +796,12 @@ class TestUserManagementRoutes:
         db.session.commit()
 
         resp = auth_admin.post(f"/users/{user.id}/reset-password", data={
-            "password": "newpass123",
+            "password": "newpass123456",
         }, follow_redirects=True)
         assert b"has been reset" in resp.data
         db.session.refresh(user)
-        assert user.check_password("newpass123")
+        assert user.check_password("newpass123456")
+        assert user.must_change_password is True  # G6-2
 
     def test_reset_password_empty(self, auth_admin, db):
         user = User(username="resetempty", role="csr_requester")

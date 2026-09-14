@@ -7,10 +7,13 @@ from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from ..extensions import db
 from ..models.csr import CertificateSigningRequest
 from .crypto_utils import encrypt_private_key
-from .policy import build_subject
+from .policy import build_subject, enforce_key_strength
 
 
 def _generate_key(key_type: str, key_size: int):
+    # G7-1: the same floor as CA/certificate generation — a 1024-bit CSR key was
+    # accepted here (and only refused later, at signing).
+    enforce_key_strength(key_type, key_size)
     if key_type == "RSA":
         return rsa.generate_private_key(public_exponent=65537, key_size=key_size)
     elif key_type == "EC":

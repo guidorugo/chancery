@@ -5,17 +5,34 @@ token. This is intentionally one-way: after migration the key is non-extractable
 and the encrypted software copy is scrubbed, so the trust anchor can no longer be
 read off the host. Back up any key you might need to export BEFORE migrating.
 """
+import json
+
 import click
 from flask import current_app
 from flask.cli import AppGroup
 
 from .extensions import db
+from .models.audit_log import AuditLog
 from .models.ca import CertificateAuthority
 from .services.crypto_utils import decrypt_private_key
 from .services.keybackend import get_backend, hsm_available
 from .services.ca_service import _key_label
 
 keys_cli = AppGroup("keys", help="CA key-backend management.")
+
+
+def _cli_audit(action, target_type, target_id=None, details=None):
+    """Audit a CLI mutation (no request context → actor 'cli'). Added to the
+    session only; the caller commits (G13-1)."""
+    db.session.add(AuditLog(
+        user_id=None,
+        username="cli",
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        details=json.dumps(details) if details else None,
+        ip_address="cli",
+    ))
 
 
 @keys_cli.command("migrate-to-hsm")
@@ -26,6 +43,11 @@ keys_cli = AppGroup("keys", help="CA key-backend management.")
 @click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
 def migrate_to_hsm(ca_id, dry_run, yes):
     """Move software CA signing keys into the PKCS#11 token (IRREVERSIBLE)."""
+    # G13-1: an unattended bulk migration of EVERY CA is too easy to run by
+    # accident; --yes only skips the prompt for one explicitly named CA.
+    if yes and ca_id is None:
+        raise click.ClickException(
+            "--yes requires --ca-id: migrating every CA must be confirmed interactively.")
     if not hsm_available():
         raise click.ClickException(
             "HSM backend not available. Set KEY_BACKEND=softhsm and the PKCS11_* "
@@ -66,11 +88,30 @@ def migrate_to_hsm(ca_id, dry_run, yes):
         backend.import_ca_key(key, label=label, secret=secret)
         ca.key_backend = "softhsm"
         ca.key_label = label
-        # CORE-3: prove the token can actually sign for this CA BEFORE destroying
-        # the only software copy — a silent/partial import must not brick it.
-        backend.verify_signing_key(ca)
+        try:
+            # CORE-3: prove the token can actually sign for this CA BEFORE
+            # destroying the only software copy — a silent/partial import must
+            # not brick it.
+            backend.verify_signing_key(ca)
+        except Exception as exc:
+            # G13-1: leave the CA exactly as it was (software-backed, key
+            # intact) and don't leave an orphaned private object in the token.
+            db.session.rollback()
+            try:
+                destroyed = backend.destroy_key(label)
+            except Exception as cleanup_exc:  # pragma: no cover - token-specific
+                destroyed = f"cleanup failed: {cleanup_exc}"
+            _cli_audit("migrate_to_hsm_failed", "ca", ca.id,
+                       {"label": label, "objects_destroyed": destroyed,
+                        "error": exc.__class__.__name__})
+            db.session.commit()
+            raise click.ClickException(
+                f"Verification failed for [{ca.id}] {ca.name}: {exc}. The token object "
+                f"was removed and the software key left untouched ({migrated} CA key(s) "
+                "migrated before the failure).")
         ca.private_key_enc = b""
         db.session.add(ca)
+        _cli_audit("migrate_to_hsm", "ca", ca.id, {"label": label})
         db.session.commit()
         migrated += 1
         click.echo(f"Migrated [{ca.id}] {ca.name} -> HSM ({label})")

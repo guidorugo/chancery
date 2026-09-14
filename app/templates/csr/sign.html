@@ -159,7 +159,7 @@ function syncProfile() {
 
 function updateCrlDp() {
     var caId = document.getElementById('ca_id').value;
-    var url = '{{ ocsp_scheme }}://{{ ocsp_server }}/public/crl/' + caId + '.crl';
+    var url = {{ (ocsp_scheme ~ '://' ~ ocsp_server ~ '/public/crl/')|tojson }} + caId + '.crl';
     document.getElementById('crl_dp').value = url;
 }
 
