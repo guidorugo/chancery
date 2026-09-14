@@ -3,7 +3,7 @@
 #   docker run --rm -v "$PWD:/w" -w /w python:3.14-alpine sh -c \
 #     "pip install pip-tools && pip-compile --generate-hashes --output-file=requirements.txt requirements.in"
 Flask==3.1.3
-cryptography==50.0.0
+cryptography==50.0.1
 SQLAlchemy==2.0.52
 Flask-SQLAlchemy==3.1.1
 Flask-WTF==1.3.0
@@ -12,7 +12,7 @@ python-dotenv==1.2.3
 gunicorn==26.2.0
 ldap3==2.9.1
 # A1 SoftHSM/PKCS#11 key backend (only used when KEY_BACKEND=softhsm)
-python-pkcs11==0.9.5
+python-pkcs11==0.10.0
 asn1crypto==1.5.1
 # DoS-1: rate limiting is enabled by default (RATE_LIMIT_ENABLED=true)
 Flask-Limiter==4.1.1
