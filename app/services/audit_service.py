@@ -31,16 +31,23 @@ def sanitize_username_for_log(attempted_username):
     return attempted_username[:_MAX_LOGGED_USERNAME_LEN] + "***"
 
 
-def log_action(action, target_type=None, target_id=None, details=None):
-    """Create an audit log entry. Caller is responsible for db.session.commit()."""
-    if current_user and current_user.is_authenticated:
-        user_id = current_user.id
-        username = current_user.username
-    else:
-        user_id = None
-        username = "anonymous"
+def log_action(action, target_type=None, target_id=None, details=None, actor=None):
+    """Create an audit log entry. Caller is responsible for db.session.commit().
 
-    ip_address = request.remote_addr or "unknown"
+    `actor` names a system-originated action outside any request — "scheduler",
+    "cli" or "system" (F8, G10-2): the row carries that username, no user id and
+    the pseudo-address "local", and still feeds the webhook stream below.
+    """
+    if actor is not None:
+        user_id, username, ip_address = None, actor, "local"
+    else:
+        if current_user and current_user.is_authenticated:
+            user_id = current_user.id
+            username = current_user.username
+        else:
+            user_id = None
+            username = "anonymous"
+        ip_address = request.remote_addr or "unknown"
 
     entry = AuditLog(
         user_id=user_id,

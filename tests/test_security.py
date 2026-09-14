@@ -209,8 +209,10 @@ class TestPublicEndpointErrorDisclosure:
             ca_id = self._make_dummy_ca("Test CA DER")
 
         resp = client.get(f"/public/crl/{ca_id}.crl")
-        assert resp.status_code == 500
-        assert b"Internal server error" in resp.data
+        # An unreadable cached CRL is treated as "no CRL" (clean 404) since the
+        # lazy-refresh path of 2.17.0; either way nothing about the failure leaks.
+        assert resp.status_code == 404
+        assert b"CRL not available" in resp.data
         # Must NOT contain exception details
         assert b"Traceback" not in resp.data
         assert b"Error generating CRL:" not in resp.data

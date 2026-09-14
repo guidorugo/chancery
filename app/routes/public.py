@@ -1,14 +1,16 @@
 import base64
 import binascii
+from datetime import datetime, timezone
 from urllib.parse import unquote
 
 from flask import Blueprint, Response, current_app, request
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
+from werkzeug.http import http_date
 
 from ..extensions import db, csrf
 from ..models.ca import CertificateAuthority
-from ..services import ocsp_service
+from ..services import audit_service, crl_service, ocsp_service
 from ..services.filenames import content_disposition
 
 public_bp = Blueprint("public", __name__, url_prefix="/public")
@@ -20,6 +22,47 @@ def _ca_disposition(ca, extension):
     return content_disposition(ca.name, extension, fallback=f"ca-{ca.id}")
 
 
+def _current_crl(ca):
+    """The CA's cached CRL, regenerated first when it is past nextUpdate and
+    the CA can still sign (lazy refresh, G4-1 belt-and-braces to the
+    scheduler). A refresh failure serves the stale CRL rather than nothing.
+    Returns a pyca CRL or None."""
+    if not ca.crl_pem:
+        return None
+    try:
+        crl = x509.load_pem_x509_crl(ca.crl_pem.encode())
+    except Exception:
+        current_app.logger.exception("Cached CRL for CA %s is unreadable", ca.id)
+        return None
+    next_update = crl.next_update_utc
+    if (next_update is not None and next_update <= datetime.now(timezone.utc)
+            and not ca.is_revoked and ca.has_signing_key and ca.approval_status != "pending"):
+        try:
+            crl = crl_service.generate_crl(ca, current_app.config["MASTER_PASSPHRASE"])
+            audit_service.log_action("crl_refreshed", target_type="ca", target_id=ca.id,
+                                     details={"trigger": "lazy", "crl_number": ca.crl_number},
+                                     actor="system")
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception("Lazy CRL refresh failed for CA %s; serving the stale CRL", ca.id)
+    return crl
+
+
+def _crl_headers(ca, crl, extension):
+    """Content-Disposition plus HTTP caching headers derived from the CRL's
+    own validity window (G8-4): Last-Modified = thisUpdate, Expires =
+    nextUpdate, Cache-Control max-age = seconds until nextUpdate."""
+    headers = {"Content-Disposition": _ca_disposition(ca, extension),
+               "Last-Modified": http_date(crl.last_update_utc)}
+    next_update = crl.next_update_utc
+    if next_update is not None:
+        max_age = max(0, int((next_update - datetime.now(timezone.utc)).total_seconds()))
+        headers["Expires"] = http_date(next_update)
+        headers["Cache-Control"] = f"public, max-age={max_age}"
+    return headers
+
+
 @public_bp.route("/crl/<int:ca_id>.crl")
 def download_crl_der(ca_id):
     ca = db.session.get(CertificateAuthority, ca_id)
@@ -29,14 +72,14 @@ def download_crl_der(ca_id):
     # CRL and never decrypts the CA key or writes to the DB. Keyed CAs get an
     # initial CRL at creation; revocation refreshes it (B2). No cached CRL
     # (e.g. certificate-only CA) → 404.
-    if not ca.crl_pem:
+    crl = _current_crl(ca)
+    if crl is None:
         return "CRL not available for this CA", 404
     try:
-        crl = x509.load_pem_x509_crl(ca.crl_pem.encode())
         return Response(
             crl.public_bytes(serialization.Encoding.DER),
             mimetype="application/pkix-crl",
-            headers={"Content-Disposition": _ca_disposition(ca, "crl")},
+            headers=_crl_headers(ca, crl, "crl"),
         )
     except Exception:
         current_app.logger.exception("Error serving cached CRL (DER)")
@@ -48,13 +91,14 @@ def download_crl_pem(ca_id):
     ca = db.session.get(CertificateAuthority, ca_id)
     if not ca:
         return "CA not found", 404
-    if not ca.crl_pem:  # C1: read-only, see download_crl_der
+    crl = _current_crl(ca)
+    if crl is None:
         return "CRL not available for this CA", 404
     try:
         return Response(
-            ca.crl_pem,
+            crl.public_bytes(serialization.Encoding.PEM),
             mimetype="application/x-pem-file",
-            headers={"Content-Disposition": _ca_disposition(ca, "crl.pem")},
+            headers=_crl_headers(ca, crl, "crl.pem"),
         )
     except Exception:
         current_app.logger.exception("Error generating CRL (PEM)")

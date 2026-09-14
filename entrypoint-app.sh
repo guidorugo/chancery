@@ -56,8 +56,10 @@ find /app/data -type f -name '*.db*' -exec chmod 600 {} + 2>/dev/null || true
 
 echo "Database initialized."
 
-# Start gunicorn
-exec gunicorn \
+# Start gunicorn. CHANCERY_RUN_SCHEDULER=1 is set on this exec line ONLY, so
+# the background scheduler thread (F8) starts inside the serving workers and
+# never in the boot-time create_app() above or in `flask …` CLI runs.
+CHANCERY_RUN_SCHEDULER=1 exec gunicorn \
     --bind 0.0.0.0:5000 \
     --workers 2 \
     --timeout 120 \

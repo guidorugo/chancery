@@ -78,6 +78,15 @@ class Config:
     # this many days). Raise it to reduce how often CRLs expire; cron
     # `flask crl refresh` to keep published CRLs fresh.
     CRL_VALIDITY_DAYS = int(os.environ.get("CRL_VALIDITY_DAYS") or "7")
+    # Background scheduler (2.17.0, F8): refreshes CRLs before they expire.
+    # One thread per gunicorn worker, a DB lease makes exactly one run the
+    # jobs; started only under the entrypoint (CHANCERY_RUN_SCHEDULER=1).
+    SCHEDULER_ENABLED = (os.environ.get("SCHEDULER_ENABLED") or "true").lower() == "true"
+    SCHEDULER_TICK_SECONDS = int(os.environ.get("SCHEDULER_TICK_SECONDS") or "60")
+    # A CRL is regenerated once it expires within this many days.
+    CRL_REFRESH_BEFORE_DAYS = int(os.environ.get("CRL_REFRESH_BEFORE_DAYS") or "2")
+    # Relying parties poll CRL/OCSP far more often than humans use the UI (G8-4).
+    PUBLIC_RATE_LIMIT = os.environ.get("PUBLIC_RATE_LIMIT") or "600/minute"
 
     # A1: default backend for NEW CA signing keys. "software" (Fernet-encrypted,
     # today's behaviour) or "softhsm" (key held in a PKCS#11 token). Existing CAs

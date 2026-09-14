@@ -63,14 +63,19 @@ def create_app(config_class=Config):
     if getattr(app, "limiter", None) is not None:
         app.limiter.exempt(health_bp)
         app.limiter.exempt(metrics_bp)
+        # G8-4: CRL/OCSP clients poll far more often than humans use the UI —
+        # the public blueprint gets its own, larger bucket.
+        app.limiter.limit(app.config.get("PUBLIC_RATE_LIMIT", "600/minute"))(public_bp)
 
-    from .cli import keys_cli, certs_cli, users_cli, crl_cli, metrics_cli, profiles_cli
+    from .cli import (keys_cli, certs_cli, users_cli, crl_cli, metrics_cli, profiles_cli,
+                      scheduler_cli)
     app.cli.add_command(keys_cli)
     app.cli.add_command(certs_cli)
     app.cli.add_command(users_cli)
     app.cli.add_command(crl_cli)
     app.cli.add_command(metrics_cli)
     app.cli.add_command(profiles_cli)
+    app.cli.add_command(scheduler_cli)
 
     with app.app_context():
         from . import models  # noqa: F401
@@ -80,6 +85,11 @@ def create_app(config_class=Config):
         from .services import profile_service
         profile_service.ensure_builtins()
         _create_default_admin(app)
+
+    # F8: background scheduler — starts only in a real serving process
+    # (CHANCERY_RUN_SCHEDULER=1 from the entrypoint, not TESTING, enabled).
+    from .services import scheduler_service
+    scheduler_service.start(app)
 
     return app
 

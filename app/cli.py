@@ -12,7 +12,6 @@ from flask import current_app
 from flask.cli import AppGroup
 
 from .extensions import db
-from .models.audit_log import AuditLog
 from .models.ca import CertificateAuthority
 from .services.crypto_utils import decrypt_private_key
 from .services.keybackend import get_backend, hsm_available
@@ -22,17 +21,12 @@ keys_cli = AppGroup("keys", help="CA key-backend management.")
 
 
 def _cli_audit(action, target_type, target_id=None, details=None):
-    """Audit a CLI mutation (no request context → actor 'cli'). Added to the
-    session only; the caller commits (G13-1)."""
-    db.session.add(AuditLog(
-        user_id=None,
-        username="cli",
-        action=action,
-        target_type=target_type,
-        target_id=target_id,
-        details=json.dumps(details) if details else None,
-        ip_address="cli",
-    ))
+    """Audit a CLI mutation through the shared system-actor path (G10-2, G13-1):
+    username 'cli', no user id, and the row also feeds the webhook stream.
+    Added to the session only; the caller commits."""
+    from .services import audit_service
+    audit_service.log_action(action, target_type=target_type, target_id=target_id,
+                             details=details, actor="cli")
 
 
 @keys_cli.command("migrate-to-hsm")
@@ -264,6 +258,7 @@ def recompute_expiry(dry_run):
     if dry_run:
         click.echo(f"--dry-run: {changed} row(s) would change.")
     else:
+        _cli_audit("recompute_expiry", "certificate", None, {"changed": changed})
         db.session.commit()
         click.echo(f"Updated {changed} row(s).")
 
@@ -327,6 +322,8 @@ def backfill_issuers(dry_run):
         click.echo(f"--dry-run: {csrs_filled} CSR(s), {certs_filled} "
                    "certificate(s) would be filled.")
     else:
+        _cli_audit("backfill_issuers", "certificate", None,
+                   {"csrs": csrs_filled, "certificates": certs_filled})
         db.session.commit()
         click.echo(f"Filled {csrs_filled} CSR(s), {certs_filled} certificate(s).")
 
@@ -349,6 +346,7 @@ def unlock_user(username):
     if user is None:
         raise click.ClickException(f"No user named {username!r}.")
     auth_service.clear_lockout(user)
+    _cli_audit("unlock_user", "user", user.id, {"username": username})
     db.session.commit()
     click.echo(f"Cleared lockout for {username!r}.")
 
@@ -385,9 +383,34 @@ def crl_refresh(refresh_all):
                 stale = True
         if refresh_all or stale:
             crl_service.generate_crl(ca, secret)
+            _cli_audit("crl_refreshed", "ca", ca.id,
+                       {"trigger": "cli", "all": refresh_all, "crl_number": ca.crl_number})
+            db.session.commit()
             refreshed += 1
             click.echo(f"Refreshed CRL for [{ca.id}] {ca.name}")
     click.echo(f"Done. {refreshed} CRL(s) refreshed.")
+
+
+scheduler_cli = AppGroup("scheduler", help="Background scheduler (2.17.0, F8).")
+
+
+@scheduler_cli.command("status")
+def scheduler_status():
+    """Show the scheduler lease, this process's view, and the effective config."""
+    from .services import scheduler_service
+    click.echo(json.dumps(scheduler_service.status(), indent=2, default=str))
+
+
+@scheduler_cli.command("tick")
+@click.option("--force", is_flag=True,
+              help="Run the jobs even if another worker currently holds the lease.")
+def scheduler_tick(force):
+    """Run one scheduler pass now (CRL refresh for CAs whose CRL is due)."""
+    from .services import scheduler_service
+    summary = scheduler_service.tick(force=force)
+    click.echo(json.dumps(summary, indent=2, default=str))
+    if not summary["lease"]:
+        raise click.ClickException("Another worker holds the scheduler lease; use --force to run anyway.")
 
 
 profiles_cli = AppGroup("profiles", help="Certificate profile utilities (2.13.0, F1).")

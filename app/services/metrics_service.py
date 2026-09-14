@@ -249,6 +249,27 @@ class ChanceryCollector:
             "chancery_users_locked", "Currently locked user accounts.",
             value=locked or 0)
 
+        # --- scheduler (F8) -------------------------------------------------
+        from ..models.scheduler_lease import SchedulerLease
+        from . import scheduler_service
+        lease = db.session.get(SchedulerLease, scheduler_service.LEASE_NAME)
+        yield GaugeMetricFamily(
+            "chancery_scheduler_last_tick_timestamp_seconds",
+            "Unix time of the last scheduler tick that held the lease (0 = never).",
+            value=(_unix(lease.last_tick_at) if lease is not None and lease.last_tick_at else 0))
+        yield GaugeMetricFamily(
+            "chancery_scheduler_lease_expires_timestamp_seconds",
+            "Unix time at which the current scheduler lease expires (0 = none).",
+            value=(_unix(lease.expires_at) if lease is not None and lease.expires_at else 0))
+        yield GaugeMetricFamily(
+            "chancery_scheduler_lease_held",
+            "1 if the worker answering this scrape currently holds the scheduler lease.",
+            value=1 if scheduler_service.local_state()["lease_held"] else 0)
+        yield GaugeMetricFamily(
+            "chancery_scheduler_last_tick_failed",
+            "1 if the last scheduler tick recorded a job error.",
+            value=1 if lease is not None and lease.last_error else 0)
+
         # --- audit --------------------------------------------------------
         audit_total = db.session.query(func.count()).select_from(AuditLog).scalar()
         yield GaugeMetricFamily(

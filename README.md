@@ -15,6 +15,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **CSR Management**: Create or import Certificate Signing Requests, sign or reject them — the signing user is recorded and shown on the CSR and certificate
 - **Revocation**: Revoke certificates with standard reasons, generate CRLs
 - **OCSP Responder**: Built-in OCSP endpoint for real-time certificate status checks
+- **Automatic CRL refresh**: A built-in scheduler regenerates every CA's CRL before it expires (no cron needed), an expired CRL is regenerated on the fly when downloaded, and CRL responses carry proper caching headers
 - **Public Endpoints**: Unauthenticated access to CRL downloads and CA certificates
 - **Monitoring**: `/health` liveness probe and an opt-in Prometheus `/metrics` endpoint (dedicated bearer token, minimal exposure)
 - **Role-Based Access Control**: Admin and CSR User roles with enforced separation of duties
@@ -484,7 +485,8 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask certs expiring [--days N] [--json]` | List certificates and CAs expiring within N days (default `CERT_EXPIRY_WARNING_DAYS`), including already-expired ones — cron/monitoring friendly |
 | `flask certs recompute-expiry [--dry-run]` | One-time backfill of the stored `not_after` for certificates issued before 2.5.0 |
 | `flask certs backfill-issuers [--dry-run]` | One-time backfill of CSR signer / certificate issuer from the audit log (2.11.0) |
-| `flask crl refresh [--all]` | Regenerate stale CRLs (or all of them) — run from cron so no CRL passes its `nextUpdate` (`CRL_VALIDITY_DAYS`) |
+| `flask scheduler status` / `flask scheduler tick [--force]` | Show the scheduler lease and config, or run one pass now |
+| `flask crl refresh [--all]` | Regenerate stale CRLs (or all of them) by hand — the built-in scheduler does this automatically |
 | `flask profiles list` / `export` / `import <file> [--replace]` | List certificate profiles, dump them as JSON, or import (upsert by key) |
 | `flask keys check-passphrase` | Verify the running `MASTER_PASSPHRASE` opens every kind of stored ciphertext |
 | `flask keys rotate-passphrase --new-file <path\|-> [--dry-run] [--yes]` | Re-wrap every stored key and secret under a new passphrase in one transaction (see *Rotating the master passphrase*) |
@@ -494,8 +496,9 @@ Operational commands run through the Flask CLI inside the container. Run them **
 
 ```bash
 docker compose exec -u app app flask certs expiring --days 14
-# keep CRLs fresh (e.g. a daily cron job on the host)
-docker compose exec -u app app flask crl refresh
+# CRLs are kept fresh by the built-in scheduler; force a pass or a full regeneration by hand:
+docker compose exec -u app app flask scheduler tick
+docker compose exec -u app app flask crl refresh --all
 ```
 
 ## Monitoring & Metrics
@@ -556,7 +559,11 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `MIN_RSA_KEY_SIZE` | `2048` | Minimum accepted RSA key size |
 | `OCSP_KEY_CACHE_TTL_SECONDS` | `300` | In-memory TTL for the decrypted CA key used by OCSP (`0` disables) |
 | `OCSP_RESPONSE_CACHE_TTL_SECONDS` | `60` | Cache signed OCSP responses per (CA, serial, status) for this long (`0` disables); the status is part of the key, so a revoked certificate is never served `good` from cache |
-| `CRL_VALIDITY_DAYS` | `7` | `nextUpdate` window stamped into generated CRLs; run `flask crl refresh` from cron to keep them fresh |
+| `SCHEDULER_ENABLED` | `true` | Built-in scheduler that keeps CRLs fresh (one worker holds a lease; safe with any worker count) |
+| `SCHEDULER_TICK_SECONDS` | `60` | Scheduler pass interval |
+| `CRL_REFRESH_BEFORE_DAYS` | `2` | Regenerate a CRL once it expires within this many days |
+| `PUBLIC_RATE_LIMIT` | `600/minute` | Per-IP rate limit for the public CRL/OCSP endpoints |
+| `CRL_VALIDITY_DAYS` | `7` | `nextUpdate` window stamped into generated CRLs; the scheduler regenerates each CRL before it expires |
 | `CERT_EXPIRY_WARNING_DAYS` | `30` | Days before `notAfter` at which a certificate/CA is flagged *expiring soon* (dashboard counts, badges, JSON, `flask certs expiring`) |
 | `UPDATE_CHECK_ENABLED` | `true` | Show a footer "Update available" badge when a newer GitHub release exists (makes an outbound call; set `false` for an air-gapped CA) |
 | `METRICS_ENABLED` | `false` | Expose the Prometheus `/metrics` endpoint (opt-in; returns 404 until enabled) |
