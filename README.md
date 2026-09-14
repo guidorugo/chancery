@@ -222,6 +222,29 @@ openssl ocsp \
 
 Both the POST form and the RFC 6960 GET form (`GET /public/ocsp/1/<url-encoded base64 request>`, what Windows CryptoAPI uses for small requests) are served. A request that is not valid DER gets an OCSP `malformedRequest` response at HTTP 200, not an HTTP error.
 
+## Rotating the master passphrase
+
+Every stored private key and secret (software CA keys, escrowed leaf keys, the LDAP bind password, the webhook secret) is wrapped under `MASTER_PASSPHRASE`. To move to a new passphrase without exporting anything:
+
+```bash
+# 1. generate the new value next to the old one (never on a command line)
+openssl rand -base64 24 > secrets/master_passphrase.new && chmod 600 secrets/master_passphrase.new
+
+# 2. re-wrap every ciphertext in one transaction (verifies the current passphrase first,
+#    and each re-wrapped blob afterwards); add --dry-run to rehearse
+docker compose exec -T -u app app flask keys rotate-passphrase --new-file - < secrets/master_passphrase.new
+
+# 3. swap the secret file and recreate the container — do this right away: between
+#    steps 2 and 3 the running app still holds the OLD passphrase and cannot decrypt
+mv secrets/master_passphrase.new secrets/master_passphrase
+docker compose up -d --force-recreate
+
+# 4. confirm
+docker compose exec -u app app flask keys check-passphrase
+```
+
+`check-passphrase` also tells you, after a restore from backup, whether the running secret matches the database. HSM-backed CA keys live in the token and are not affected by the passphrase.
+
 ## Hardware-Backed Keys (SoftHSM / PKCS#11)
 
 CA private keys are Fernet-encrypted files by default, but the **SoftHSM
@@ -463,6 +486,8 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask certs backfill-issuers [--dry-run]` | One-time backfill of CSR signer / certificate issuer from the audit log (2.11.0) |
 | `flask crl refresh [--all]` | Regenerate stale CRLs (or all of them) — run from cron so no CRL passes its `nextUpdate` (`CRL_VALIDITY_DAYS`) |
 | `flask profiles list` / `export` / `import <file> [--replace]` | List certificate profiles, dump them as JSON, or import (upsert by key) |
+| `flask keys check-passphrase` | Verify the running `MASTER_PASSPHRASE` opens every kind of stored ciphertext |
+| `flask keys rotate-passphrase --new-file <path\|-> [--dry-run] [--yes]` | Re-wrap every stored key and secret under a new passphrase in one transaction (see *Rotating the master passphrase*) |
 | `flask keys migrate-to-hsm [--ca-id N] [--dry-run] [--yes]` | Move software-backed CA keys into the SoftHSM token (one-way). `--yes` skips the prompt only together with `--ca-id`; if the token fails the post-import signing check, the token object is removed and the software key is left untouched |
 | `flask users unlock <username>` | Clear a login lockout / failed-attempt counter from the shell — for when the locked account is the only admin and nobody can unlock it from the Users page |
 | `flask metrics-token create --name <n> --expires-in-days <N>` / `list` / `revoke <name-or-id>` | Manage bearer tokens for `/metrics` |

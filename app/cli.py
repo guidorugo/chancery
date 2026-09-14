@@ -118,6 +118,87 @@ def migrate_to_hsm(ca_id, dry_run, yes):
     click.echo(f"\nDone. {migrated} CA key(s) migrated.")
 
 
+@keys_cli.command("check-passphrase")
+def check_passphrase():
+    """Confirm the running MASTER_PASSPHRASE opens every kind of stored ciphertext."""
+    from .services import passphrase_service
+    report = passphrase_service.check(current_app.config["MASTER_PASSPHRASE"])
+    failed = False
+    for entry in report:
+        if entry["ok"] is None:
+            status = "no ciphertext"
+        elif entry["ok"]:
+            status = "ok"
+        else:
+            status, failed = "FAIL", True
+        name = f"{entry['table']}.{entry['column']}"
+        click.echo(f"{name:<44} {entry['rows']:>5} row(s)  {status:<13} ({entry['kind']})")
+    if failed:
+        raise click.ClickException(
+            "MASTER_PASSPHRASE does not decrypt the database — the running secret is not the one the "
+            "data was written with (wrong file, or a rotation without the matching secret swap).")
+    click.echo("OK: the running passphrase decrypts every stored ciphertext kind.")
+
+
+@keys_cli.command("rotate-passphrase")
+@click.option("--new-file", required=True, type=click.Path(dir_okay=False, allow_dash=True),
+              help="File holding the NEW passphrase ('-' = stdin). Never pass it on the command line.")
+@click.option("--dry-run", is_flag=True, help="Verify and re-wrap in memory, then roll back.")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def rotate_passphrase(new_file, dry_run, yes):
+    """Re-wrap every stored private key and secret under a NEW master passphrase.
+
+    Procedure (Docker): write the new value to a file, run this command with
+    `--new-file -` fed from that file, replace secrets/master_passphrase with
+    it, then `docker compose up -d --force-recreate`. Between the commit and
+    the recreate the app cannot decrypt anything (issuance/OCSP fail), so do
+    the three steps back to back. `flask keys check-passphrase` afterwards
+    confirms the swap.
+    """
+    from .services import passphrase_service
+    current = current_app.config["MASTER_PASSPHRASE"]
+    if new_file == "-":
+        raw = click.get_text_stream("stdin").read()
+    else:
+        with open(new_file, "r", encoding="utf-8") as fh:
+            raw = fh.read()
+    try:
+        new = passphrase_service.validate_new_passphrase(raw, current)
+    except passphrase_service.PassphraseError as exc:
+        raise click.ClickException(str(exc))
+
+    report = passphrase_service.check(current)
+    total = sum(e["rows"] for e in report)
+    for entry in report:
+        click.echo(f"  {entry['table']}.{entry['column']}: {entry['rows']} row(s) ({entry['kind']})")
+    if any(e["ok"] is False for e in report):
+        raise click.ClickException("The current MASTER_PASSPHRASE does not decrypt the database; "
+                                   "fix that first (`flask keys check-passphrase`).")
+    click.echo(f"{total} ciphertext(s) will be re-wrapped under the new passphrase "
+               f"({'DRY RUN' if dry_run else 'one transaction'}).")
+    if not dry_run and not yes:
+        click.confirm("Proceed?", abort=True)
+
+    try:
+        stats = passphrase_service.rotate(current, new)
+    except passphrase_service.PassphraseError as exc:
+        raise click.ClickException(str(exc))
+
+    if dry_run:
+        db.session.rollback()
+        click.echo("--dry-run: every blob re-wrapped and verified in memory; nothing written.")
+        return
+    _cli_audit("rotate_passphrase", "config", details={"rewrapped": stats})
+    db.session.commit()
+    click.echo("Rotated: " + ", ".join(f"{k}={v}" for k, v in stats.items()))
+    click.echo("")
+    click.echo("NEXT, without delay — the running app still holds the OLD passphrase:")
+    click.echo("  1. replace the secret file with the new value, e.g.")
+    click.echo("       cp secrets/master_passphrase.new secrets/master_passphrase && chmod 600 secrets/master_passphrase")
+    click.echo("  2. docker compose up -d --force-recreate   (a bind-mounted secret needs the recreate)")
+    click.echo("  3. docker compose exec -u app app flask keys check-passphrase")
+
+
 certs_cli = AppGroup("certs", help="Certificate lifecycle utilities.")
 
 
