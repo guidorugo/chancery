@@ -55,6 +55,13 @@ class Config:
     MAX_CA_VALIDITY_DAYS = int(os.environ.get("MAX_CA_VALIDITY_DAYS") or "7305")
     # Minimum RSA key size accepted anywhere keys are generated/signed (B5).
     MIN_RSA_KEY_SIZE = int(os.environ.get("MIN_RSA_KEY_SIZE") or "2048")
+    # Maximum RSA key size accepted for generation and in CSRs (G7-1): keygen
+    # cost grows steeply with size and a 16384-bit request pins a worker.
+    MAX_RSA_KEY_SIZE = int(os.environ.get("MAX_RSA_KEY_SIZE") or "8192")
+    # Certificate profiles (F1). When true, every issuance must name a profile
+    # (legacy requests without one are refused instead of falling back to
+    # the unrestricted `custom` profile).
+    PROFILES_REQUIRE_SELECTION = os.environ.get("PROFILES_REQUIRE_SELECTION", "false").lower() == "true"
 
     # Cache the decrypted CA signing key in memory for this many seconds so an
     # unauthenticated OCSP flood doesn't run 600k-PBKDF2 per request (C1).

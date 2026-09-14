@@ -64,17 +64,21 @@ def create_app(config_class=Config):
         app.limiter.exempt(health_bp)
         app.limiter.exempt(metrics_bp)
 
-    from .cli import keys_cli, certs_cli, users_cli, crl_cli, metrics_cli
+    from .cli import keys_cli, certs_cli, users_cli, crl_cli, metrics_cli, profiles_cli
     app.cli.add_command(keys_cli)
     app.cli.add_command(certs_cli)
     app.cli.add_command(users_cli)
     app.cli.add_command(crl_cli)
     app.cli.add_command(metrics_cli)
+    app.cli.add_command(profiles_cli)
 
     with app.app_context():
         from . import models  # noqa: F401
         db.create_all()
         _migrate_schema()
+        # F1: the built-in certificate profiles (idempotent; operator edits survive).
+        from .services import profile_service
+        profile_service.ensure_builtins()
         _create_default_admin(app)
 
     return app
@@ -586,6 +590,11 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificate_authorities ADD COLUMN approved_at DATETIME"
             ))
+        # F1: per-CA profile allow-list (NULL = any profile).
+        if "allowed_profiles_json" not in columns:
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN allowed_profiles_json TEXT"
+            ))
         # G9-1: DB-level uniqueness for CA serials (generated serials are random
         # and imports check in code; the index closes the race). Committed first
         # and guarded so a legacy DB with a duplicate keeps booting.
@@ -613,6 +622,10 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificates ADD COLUMN issued_by INTEGER REFERENCES users(id)"
             ))
+        if "profile_id" not in columns:  # F1
+            db.session.execute(text(
+                "ALTER TABLE certificates ADD COLUMN profile_id INTEGER REFERENCES certificate_profiles(id)"
+            ))
 
     # Migrate certificate_signing_requests table
     if "certificate_signing_requests" in inspector.get_table_names():
@@ -624,6 +637,10 @@ def _migrate_schema():
         if "signed_by" not in columns:
             db.session.execute(text(
                 "ALTER TABLE certificate_signing_requests ADD COLUMN signed_by INTEGER REFERENCES users(id)"
+            ))
+        if "profile_id" not in columns:  # F1
+            db.session.execute(text(
+                "ALTER TABLE certificate_signing_requests ADD COLUMN profile_id INTEGER REFERENCES certificate_profiles(id)"
             ))
 
     # Migrate csr_user role to csr_requester

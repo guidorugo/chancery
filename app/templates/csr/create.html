@@ -87,6 +87,17 @@
                         </label>
                         <textarea class="form-control" id="san" name="san" rows="4" placeholder="One per line:&#10;example.com&#10;*.example.com&#10;IP:192.168.1.1"></textarea>
                     </div>
+                    <div class="mb-3">
+                        <label for="profile" class="form-label">Requested Profile
+                            <span class="field-info" data-bs-toggle="tooltip" title="Optional: the certificate profile you are asking for (Web Server, Client Auth, ...). The signing admin sees it preselected and may still choose another.">!</span>
+                        </label>
+                        <select class="form-select" id="profile" name="profile">
+                            <option value="">-- No preference --</option>
+                            {% for p in profiles %}
+                            <option value="{{ p.key }}">{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
             </div>
             <button type="submit" class="btn btn-primary">Generate CSR</button>
@@ -104,6 +115,17 @@
                 </label>
                 <textarea class="form-control font-monospace" id="csr_pem" name="csr_pem" rows="12"
                     placeholder="-----BEGIN CERTIFICATE REQUEST-----&#10;...&#10;-----END CERTIFICATE REQUEST-----"></textarea>
+            </div>
+            <div class="mb-3">
+                <label for="profile_upload" class="form-label">Requested Profile
+                    <span class="field-info" data-bs-toggle="tooltip" title="Optional: the certificate profile you are asking for. The signing admin may still choose another.">!</span>
+                </label>
+                <select class="form-select" id="profile_upload" name="profile">
+                    <option value="">-- No preference --</option>
+                    {% for p in profiles %}
+                    <option value="{{ p.key }}">{{ p.name }}</option>
+                    {% endfor %}
+                </select>
             </div>
             <button type="submit" class="btn btn-primary">Upload CSR</button>
             <a href="{{ url_for('csr.list_csrs') }}" class="btn btn-secondary">Cancel</a>

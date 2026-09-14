@@ -6,5 +6,6 @@ from .audit_log import AuditLog
 from .metrics_token import MetricsToken
 from .ldap_settings import LdapSettings
 from .webhook_settings import WebhookSettings
+from .certificate_profile import CertificateProfile
 
-__all__ = ["User", "CertificateAuthority", "Certificate", "CertificateSigningRequest", "AuditLog", "MetricsToken", "LdapSettings", "WebhookSettings"]
+__all__ = ["User", "CertificateAuthority", "Certificate", "CertificateSigningRequest", "AuditLog", "MetricsToken", "LdapSettings", "WebhookSettings", "CertificateProfile"]

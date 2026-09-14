@@ -37,6 +37,8 @@ class CertificateAuthority(db.Model):
     approval_status = db.Column(db.String(20), nullable=False, default="approved")  # approved/pending
     approved_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     approved_at = db.Column(db.DateTime, nullable=True)
+    # F1: JSON list of certificate_profiles.id this CA may issue under; NULL = any.
+    allowed_profiles_json = db.Column(db.Text, nullable=True)
 
     parent = db.relationship("CertificateAuthority", remote_side=[id], backref="children")
     certificates = db.relationship("Certificate", backref="ca", lazy="dynamic")
@@ -68,6 +70,22 @@ class CertificateAuthority(db.Model):
         """True only when the private key can be handed out (software + stored).
         HSM keys are non-extractable, so key/PKCS#12 export is refused."""
         return self.key_backend != "softhsm" and bool(self.private_key_enc)
+
+    @property
+    def allowed_profile_ids(self):
+        """List of allowed profile ids, or None when unrestricted (F1)."""
+        if not self.allowed_profiles_json:
+            return None
+        try:
+            import json
+            ids = json.loads(self.allowed_profiles_json)
+            return [int(i) for i in ids] if isinstance(ids, list) else None
+        except (TypeError, ValueError):
+            return None
+
+    def set_allowed_profile_ids(self, ids):
+        import json
+        self.allowed_profiles_json = json.dumps(sorted({int(i) for i in ids})) if ids else None
 
     @property
     def is_pending_approval(self):
@@ -121,6 +139,7 @@ class CertificateAuthority(db.Model):
             "is_exportable": self.is_exportable,
             "approval_status": self.approval_status,
             "created_by": self.created_by,
+            "allowed_profiles": self.allowed_profile_ids,
             "created_at": iso(self.created_at),
         }
         if detail:

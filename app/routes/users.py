@@ -6,8 +6,10 @@ from ..extensions import db
 from ..models.user import User
 from ..models.audit_log import AuditLog
 from ..responses import wants_json
+from ..models.certificate_profile import CertificateProfile
+from ..responses import api_error
 from ..services import (audit_service, auth_service, ldap_service,
-                        ldap_settings_service, webhook_service)
+                        ldap_settings_service, webhook_service, profile_service)
 
 users_bp = Blueprint("users", __name__, url_prefix="/users")
 
@@ -346,6 +348,166 @@ def webhook_settings_reset():
     flash("Saved webhook settings removed — the environment configuration "
           "(WEBHOOK_* variables) is in effect again.", "success")
     return redirect(url_for("users.webhook_settings"))
+
+
+# ---------------------------------------------------------------------------
+# Certificate profiles (F1, 2.13.0)
+# ---------------------------------------------------------------------------
+
+KU_LABELS = (
+    ("digital_signature", "Digital Signature"), ("key_encipherment", "Key Encipherment"),
+    ("content_commitment", "Content Commitment"), ("data_encipherment", "Data Encipherment"),
+    ("key_agreement", "Key Agreement"),
+)
+EKU_LABELS = (
+    ("serverAuth", "Server Auth (TLS)"), ("clientAuth", "Client Auth"),
+    ("codeSigning", "Code Signing"), ("emailProtection", "Email Protection"),
+    ("timeStamping", "Time Stamping"), ("ocspSigning", "OCSP Signing"),
+)
+SAN_LABELS = (("dns", "DNS"), ("ip", "IP"), ("email", "Email"))
+
+
+def _profile_form_to_fields(form, existing=None):
+    """Translate the profile form into the dict profile_service.validate/apply take."""
+    def text(name):
+        return (form.get(name) or "").strip()
+
+    is_custom = existing is not None and existing.is_custom
+    fields = {
+        "name": text("name"),
+        "description": text("description"),
+        "include_ocsp_aia": form.get("include_ocsp_aia") == "on",
+        "default_validity_days": text("default_validity_days") or "365",
+        "max_validity_days": text("max_validity_days"),
+        "min_rsa_bits": text("min_rsa_bits"),
+        "max_rsa_bits": text("max_rsa_bits"),
+        "require_san": form.get("require_san") == "on",
+        "cn_in_san": form.get("cn_in_san") == "on",
+        "enabled": form.get("enabled") == "on",
+    }
+    if not is_custom:
+        fields["key_usage"] = {f: form.get(f"ku_{f}") == "on" for f, _ in KU_LABELS}
+        fields["extended_key_usage"] = [n for n, _ in EKU_LABELS if form.get(f"eku_{n}") == "on"]
+    types = [t for t in profile_service.KEY_TYPES if form.get(f"kt_{t}") == "on"]
+    fields["allowed_key_types"] = types if types else None
+    ec = [s for s in profile_service.EC_SIZES if form.get(f"ec_{s}") == "on"]
+    fields["allowed_ec_sizes"] = ec if ec else None
+    san = [t for t, _ in SAN_LABELS if form.get(f"san_{t}") == "on"]
+    fields["allowed_san_types"] = san if san else None
+    return fields
+
+
+def _render_profile_form(profile=None, fields=None):
+    return render_template("users/profile_form.html", profile=profile, fields=fields or {},
+                           ku_labels=KU_LABELS, eku_labels=EKU_LABELS, san_labels=SAN_LABELS,
+                           key_types=profile_service.KEY_TYPES, ec_sizes=profile_service.EC_SIZES)
+
+
+@users_bp.route("/profiles")
+@admin_required
+def profiles():
+    rows = profile_service.list_profiles()
+    if wants_json():
+        return jsonify([p.to_dict() for p in rows])
+    usage = {p.id: profile_service.usage_counts(p) for p in rows}
+    return render_template("users/profiles.html", profiles=rows, usage=usage)
+
+
+@users_bp.route("/profiles/new", methods=["GET", "POST"])
+@admin_required
+def profile_new():
+    if request.method == "GET":
+        return _render_profile_form(fields={"enabled": True, "include_ocsp_aia": True,
+                                            "default_validity_days": 365})
+    fields = _profile_form_to_fields(request.form)
+    try:
+        row = profile_service.create(fields, updated_by=current_user.id)
+    except ValueError as e:
+        if wants_json():
+            return api_error(str(e), 400)
+        flash(str(e), "danger")
+        return _render_profile_form(fields=fields)
+    audit_service.log_action("create_profile", target_type="profile", target_id=row.id,
+                             details={"key": row.key, "name": row.name})
+    db.session.commit()
+    if wants_json():
+        return jsonify(row.to_dict()), 201
+    flash(f"Profile '{row.name}' created.", "success")
+    return redirect(url_for("users.profiles"))
+
+
+@users_bp.route("/profiles/<int:profile_id>/edit", methods=["GET", "POST"])
+@admin_required
+def profile_edit(profile_id):
+    row = db.session.get(CertificateProfile, profile_id)
+    if not row:
+        if wants_json():
+            return api_error("Profile not found.", 404)
+        flash("Profile not found.", "danger")
+        return redirect(url_for("users.profiles"))
+    if request.method == "GET":
+        return _render_profile_form(profile=row, fields=row.to_dict())
+    fields = _profile_form_to_fields(request.form, existing=row)
+    try:
+        profile_service.update(row, fields, updated_by=current_user.id)
+    except ValueError as e:
+        if wants_json():
+            return api_error(str(e), 400)
+        flash(str(e), "danger")
+        return _render_profile_form(profile=row, fields=fields)
+    audit_service.log_action("update_profile", target_type="profile", target_id=row.id,
+                             details={"key": row.key, "name": row.name})
+    db.session.commit()
+    if wants_json():
+        return jsonify(row.to_dict())
+    flash(f"Profile '{row.name}' updated.", "success")
+    return redirect(url_for("users.profiles"))
+
+
+@users_bp.route("/profiles/<int:profile_id>/toggle", methods=["POST"])
+@admin_required
+def profile_toggle(profile_id):
+    row = db.session.get(CertificateProfile, profile_id)
+    if not row:
+        if wants_json():
+            return api_error("Profile not found.", 404)
+        flash("Profile not found.", "danger")
+        return redirect(url_for("users.profiles"))
+    row.enabled = not row.enabled
+    row.updated_by = current_user.id
+    audit_service.log_action("toggle_profile", target_type="profile", target_id=row.id,
+                             details={"key": row.key, "enabled": row.enabled})
+    db.session.commit()
+    if wants_json():
+        return jsonify(row.to_dict())
+    flash(f"Profile '{row.name}' {'enabled' if row.enabled else 'disabled'}.", "success")
+    return redirect(url_for("users.profiles"))
+
+
+@users_bp.route("/profiles/<int:profile_id>/delete", methods=["POST"])
+@admin_required
+def profile_delete(profile_id):
+    row = db.session.get(CertificateProfile, profile_id)
+    if not row:
+        if wants_json():
+            return api_error("Profile not found.", 404)
+        flash("Profile not found.", "danger")
+        return redirect(url_for("users.profiles"))
+    key, name = row.key, row.name
+    try:
+        profile_service.delete(row)
+    except ValueError as e:
+        if wants_json():
+            return api_error(str(e), 409)
+        flash(str(e), "danger")
+        return redirect(url_for("users.profiles"))
+    audit_service.log_action("delete_profile", target_type="profile", target_id=profile_id,
+                             details={"key": key, "name": name})
+    db.session.commit()
+    if wants_json():
+        return jsonify({"deleted": profile_id})
+    flash(f"Profile '{name}' deleted.", "success")
+    return redirect(url_for("users.profiles"))
 
 
 @users_bp.route("/audit-log")
