@@ -82,6 +82,7 @@ EVENT_CATALOG = {
         ("basic_auth_failed", "Basic Auth failed (can be noisy)"),
         ("ldap_user_provisioned", "LDAP user provisioned"),
         ("ldap_role_synced", "LDAP role re-synced"),
+        ("unlock_user", "User lockout cleared (CLI)"),
     ],
     "Configuration": [
         ("update_ldap_settings", "LDAP settings saved"),
@@ -93,6 +94,12 @@ EVENT_CATALOG = {
         ("toggle_profile", "Certificate profile enabled/disabled"),
         ("delete_profile", "Certificate profile deleted"),
         ("update_ca_profiles", "CA allowed profiles changed"),
+        ("import_profiles", "Profiles imported (CLI)"),
+        ("rotate_passphrase", "Master passphrase rotated (CLI)"),
+    ],
+    "Scheduled": [
+        ("crl_refreshed", "CRL refreshed (scheduler, lazy serve, or CLI)"),
+        ("crl_refresh_failed", "Scheduled CRL refresh failed"),
     ],
 }
 

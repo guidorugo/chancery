@@ -39,6 +39,10 @@ services:
       # DoS-1: per-IP rate limiting (on by default; needs the bundled
       # Flask-Limiter). Set false to disable, or RATE_LIMIT_DEFAULT to tune.
       - RATE_LIMIT_ENABLED=${RATE_LIMIT_ENABLED:-true}
+      # F8: in-app scheduler keeps CRLs fresh (no cron needed). Regenerates a
+      # CRL once it expires within CRL_REFRESH_BEFORE_DAYS (default 2).
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
+      - CRL_REFRESH_BEFORE_DAYS=${CRL_REFRESH_BEFORE_DAYS:-}
       # --- SoftHSM key backend (finding A1) — enabled by default ----------------
       # CA signing keys can live in a PKCS#11 token (non-exportable, never in app
       # memory). The image bundles softhsm2 (BSD-licensed); the entrypoint
