@@ -8,6 +8,7 @@ from ..extensions import db
 from ..models.csr import CertificateSigningRequest
 from .crypto_utils import encrypt_private_key
 from .policy import build_subject, enforce_key_strength
+from . import san
 
 
 def _generate_key(key_type: str, key_size: int):
@@ -23,21 +24,8 @@ def _generate_key(key_type: str, key_size: int):
 
 
 def _build_san_extensions(san_list):
-    import ipaddress
-    names = []
-    for san in san_list:
-        san = san.strip()
-        if not san:
-            continue
-        if san.startswith("IP:"):
-            names.append(x509.IPAddress(ipaddress.ip_address(san[3:])))
-        elif san.startswith("EMAIL:"):
-            names.append(x509.RFC822Name(san[6:]))
-        else:
-            if san.startswith("DNS:"):
-                san = san[4:]
-            names.append(x509.DNSName(san))
-    return names
+    # F4: shared syntax (DNS/IP/EMAIL/URI/UPN), unknown prefixes refused (G4-4).
+    return san.build_general_names(san_list)
 
 
 def create_csr(subject_attrs, san_list=None, key_type="RSA", key_size=2048, passphrase=None,
@@ -92,13 +80,9 @@ def parse_csr(csr_pem):
     san_list = []
     try:
         san_ext = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName)
-        for name in san_ext.value:
-            if isinstance(name, x509.DNSName):
-                san_list.append(f"DNS:{name.value}")
-            elif isinstance(name, x509.IPAddress):
-                san_list.append(f"IP:{name.value}")
-            elif isinstance(name, x509.RFC822Name):
-                san_list.append(f"EMAIL:{name.value}")
+        # F4: DNS/IP/EMAIL/URI/UPN are carried; directoryName/registeredID and
+        # other otherNames are dropped (they are never issued either).
+        san_list = san.extension_to_strings(san_ext.value)
     except x509.ExtensionNotFound:
         pass
 

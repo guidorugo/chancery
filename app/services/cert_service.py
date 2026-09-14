@@ -13,7 +13,7 @@ from .crypto_utils import encrypt_private_key, decrypt_private_key
 from .policy import (enforce_key_strength, enforce_public_key_strength,
                      bounded_not_after, build_subject)
 from .keybackend import backend_for_ca
-from . import profile_service
+from . import profile_service, san
 
 
 def _generate_key(key_type: str, key_size: int):
@@ -26,23 +26,10 @@ def _generate_key(key_type: str, key_size: int):
     raise ValueError(f"Unsupported key type: {key_type}")
 
 
-def _build_san(san_list: list) -> x509.SubjectAlternativeName:
-    names = []
-    for san in san_list:
-        san = san.strip()
-        if not san:
-            continue
-        if san.startswith("IP:"):
-            import ipaddress
-            names.append(x509.IPAddress(ipaddress.ip_address(san[3:])))
-        elif san.startswith("EMAIL:"):
-            names.append(x509.RFC822Name(san[6:]))
-        else:
-            # Remove DNS: prefix if present
-            if san.startswith("DNS:"):
-                san = san[4:]
-            names.append(x509.DNSName(san))
-    return x509.SubjectAlternativeName(names) if names else None
+def _build_san(san_list):
+    """F4: SAN syntax lives in `services.san` (DNS/IP/EMAIL/URI/UPN; unknown
+    prefixes are refused instead of becoming DNS names — G4-4)."""
+    return san.build_extension(san_list)
 
 
 def _get_hash_algorithm(key):

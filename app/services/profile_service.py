@@ -14,12 +14,13 @@ from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
 from ..models.certificate_profile import CertificateProfile
+from . import san as san_module
 
 KU_FIELDS = ("digital_signature", "key_encipherment", "content_commitment",
              "data_encipherment", "key_agreement")
 EKU_NAMES = ("serverAuth", "clientAuth", "codeSigning", "emailProtection",
              "timeStamping", "ocspSigning")
-SAN_TYPES = ("dns", "ip", "email")
+SAN_TYPES = san_module.TYPES  # dns, ip, email, uri, upn (F4)
 KEY_TYPES = ("RSA", "EC")
 EC_SIZES = (256, 384, 521)
 
@@ -142,20 +143,13 @@ def resolve(value, ca=None):
 # --- enforcement --------------------------------------------------------------
 
 def san_type(entry):
-    value = (entry or "").strip()
-    if value.upper().startswith("IP:"):
-        return "ip"
-    if value.upper().startswith("EMAIL:"):
-        return "email"
-    return "dns"
+    parsed = san_module.parse_entry(entry)
+    return parsed[0] if parsed else None
 
 
 def _san_value(entry):
-    value = (entry or "").strip()
-    for prefix in ("DNS:", "IP:", "EMAIL:"):
-        if value.upper().startswith(prefix):
-            return value[len(prefix):]
-    return value
+    parsed = san_module.parse_entry(entry)
+    return parsed[1] if parsed else ""
 
 
 def enforce(profile, *, key_type, key_size, validity_days, san_list, common_name=None,
@@ -192,10 +186,10 @@ def enforce(profile, *, key_type, key_size, validity_days, san_list, common_name
     allowed_san = profile.allowed_san_types
     if allowed_san:
         for entry in sans:
-            kind = san_type(entry)
+            kind = san_type(entry)  # raises for an unknown prefix (G4-4)
             if kind not in allowed_san:
-                raise ValueError(f"Profile '{name}' does not allow {kind.upper()} SANs "
-                                 f"('{entry}'); allowed: {', '.join(t.upper() for t in allowed_san)}.")
+                raise ValueError(f"Profile '{name}' does not allow {san_module.label(kind)} SANs "
+                                 f"('{entry}'); allowed: {', '.join(san_module.label(t) for t in allowed_san)}.")
     if profile.cn_in_san and common_name:
         dns_values = {_san_value(s).lower() for s in sans if san_type(s) == "dns"}
         if common_name.strip().lower() not in dns_values:
