@@ -496,7 +496,7 @@ resolve, always deny loopback and link-local, deny the CA's own addresses, allow
 test URI; require re-entering the LDAP bind password when the test URI differs from
 the saved one.
 
-## F15. List search, filter and pagination (2.13.0, S)
+## F15. List search, filter and pagination (shipped as v2.15.0, PR #133)
 
 **Current state.** `list_certs` (`app/routes/certificates.py:29-41`), CSR and CA lists
 accept no query parameters and return everything; only the audit log paginates.
