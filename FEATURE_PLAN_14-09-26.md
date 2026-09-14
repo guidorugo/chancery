@@ -128,7 +128,7 @@ import (G7-1 regression test).
 working until the 3.0 flip.
 
 **Assessment links.** G7-1 (the ceiling and allow-list; the missing
-`enforce_key_strength` call in `csr_service` is patched in 2.12.4). G4-4: the default
+`enforce_key_strength` call in `csr_service` is patched in 2.12.6). G4-4: the default
 Key Usage comes from the profile and is keyed by key type, so EC and Ed leaves no
 longer get `keyEncipherment`.
 
@@ -275,7 +275,7 @@ responder cert; parametrise existing OCSP tests on delegated/direct; revoked-sta
 cache key still honoured; expired responder falls back and is renewed by the tick.
 
 **Assessment links.** Builds on the G8-2 patch (malformedRequest at 200, GET form)
-from 2.12.4; the delegated path must serve both request forms.
+from 2.12.6; the delegated path must serve both request forms.
 
 ## F8. In-app scheduler (2.14.0, M) — closes G4-1
 
@@ -653,7 +653,7 @@ corroboration material for a finding, not a plan item.
 | G17-1 unpinned CI tooling | Low | **2.12.6** |
 | G18-1 base image one openssl patch behind | Low | Dependabot digest bump |
 | G20-1 README exec examples | Low | **2.12.6** |
-| G22-1 test gaps | Low | Each 2.12.4 item lands with its negative test; OCSP test flipped to `MALFORMED_REQUEST` |
+| G22-1 test gaps | Low | Each 2.12.6 item lands with its negative test; OCSP test flipped to `MALFORMED_REQUEST` |
 | G4-6 intermediate under an expired parent | Info | **2.12.6** (same guard as G4-2) |
 | G5-1 PIN strength unchecked, no SO PIN rotation path | Info | **2.12.6** (startup warning); re-key procedure documented with **F11** |
 | G16-1 secret strength unchecked beyond the literal defaults | Info | **2.12.6** (startup warning) + **F18** (rotation) |
