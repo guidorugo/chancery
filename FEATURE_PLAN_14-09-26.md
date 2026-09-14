@@ -171,7 +171,7 @@ and inherited by every leaf it issues (optionally overridden per F1 profile). Sh
 CA and certificate detail pages and in `to_dict()`. Tests: OID and CPS URI round-trip,
 inheritance, invalid OID refused.
 
-## F4. URI and UPN SAN types (2.13.0, S)
+## F4. URI and UPN SAN types (shipped as v2.14.0, PR #131)
 
 **Current state.** `_build_san` (`app/services/cert_service.py:28-44`) and the CSR
 parser (`app/services/csr_service.py:30-36, 89-95`) handle DNS, IP and email only.
