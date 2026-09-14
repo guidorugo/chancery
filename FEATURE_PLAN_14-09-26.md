@@ -356,7 +356,7 @@ CSR row is linked (`csrs.certificate_id`).
 **Tests.** `tests/test_renewal.py`: both paths, key reuse vs rekey, SAN/KU/EKU
 equality, chain of renewals, revoke-old reason on CRL, dual-control refusals, JSON.
 
-## F10. Time-based webhook events (2.14.0, S, needs F8)
+## F10. Time-based webhook events (shipped as v2.18.0, PR #139)
 
 New "Scheduled" group in `EVENT_CATALOG`: `certificate_expiring`,
 `certificate_expired`, `ca_expiring`, `crl_refreshed`, `crl_refresh_failed`,
