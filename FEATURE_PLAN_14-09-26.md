@@ -33,7 +33,7 @@ and PostgreSQL are large but not breaking; they do not force a major on their ow
 | Release | Theme | Features | Size |
 |---|---|---|---|
 | 2.12.6 | Assessment fixes | **Shipped 2026-09-14 (PR #127).** Patch batch from §4.2 (G4-2, G8-1, G8-2, G8-3 code half, G7-2/3/4/5, G6-2/3, G10-1, …); no features | M |
-| 2.13.0 | Policy | F1 server-side profiles (+ G7-1 max key size), F4 URI/UPN SANs, F15 list search/filter, F18 passphrase rotation | L |
+| 2.13.0 | Policy | **Shipped 2026-09-14 (PR #129).** F1 server-side profiles (+ G7-1 max key size). F4 URI/UPN SANs, F15 list search/filter and F18 passphrase rotation follow as their own minors (see the numbering note) | L |
 | 2.14.0 | Lifecycle | F8 in-app scheduler (closes G4-1), F10 time-based webhook events, F9 renew/re-key | L |
 | 2.15.0 | Algorithms | F5 Ed25519/Ed448, F6 hash-by-curve (flag) + RSA-3072, F2 Name Constraints, F3 Certificate Policies | L |
 | 2.16.0 | Trust ops | F7 delegated OCSP responder (flag), F11 CA re-issue & cross-sign | L |
@@ -42,6 +42,8 @@ and PostgreSQL are large but not breaking; they do not force a major on their ow
 | 3.0.0 | Defaults | F17 PostgreSQL, the three default flips, compose hardening (G14-2), UPGRADE guide | L |
 
 Sizes: S ≤ 200 lines + tests, M 200–600, L 600–1500, XL > 1500 (app code only).
+
+Numbering (decided 2026-09-14): **one minor release per feature**, in the order the rows list them; the theme rows group related work, but the version numbers advance per feature (2.13.0 = F1, next minor = F4, then F15, F18, F8, ...). The 3.0 rationale in §1 is unchanged.
 
 Dependencies: F10 needs F8. F13 should land after F12 (a TOTP user must have a
 non-password API path). F14 needs F1 (issuance profile per CA), F8 (order/nonce
