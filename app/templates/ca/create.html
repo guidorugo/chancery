@@ -155,6 +155,27 @@
                 </div>
             </div>
 
+            <div class="card mb-3">
+                <div class="card-header">Allowed Certificate Profiles</div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="restrict_profiles_gen" name="restrict_profiles">
+                        <label class="form-check-label" for="restrict_profiles_gen">Restrict this CA to selected profiles</label>
+                    </div>
+                    <div class="row">
+                        {% for p in profiles %}
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="allowed_profiles" value="{{ p.id }}" id="ap_gen_{{ p.id }}">
+                                <label class="form-check-label" for="ap_gen_{{ p.id }}">{{ p.name }}</label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="form-text">Off = any profile may be used. On = only the ticked profiles can issue from this CA (enforced server-side, including the API). Changeable later on the CA page.</div>
+                </div>
+            </div>
+
             <button type="submit" class="btn btn-primary">Create CA</button>
             <a href="{{ url_for('ca.list_cas') }}" class="btn btn-secondary">Cancel</a>
         </form>
@@ -273,6 +294,27 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Allowed Certificate Profiles</div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="restrict_profiles_up" name="restrict_profiles">
+                        <label class="form-check-label" for="restrict_profiles_up">Restrict this CA to selected profiles</label>
+                    </div>
+                    <div class="row">
+                        {% for p in profiles %}
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="allowed_profiles" value="{{ p.id }}" id="ap_up_{{ p.id }}">
+                                <label class="form-check-label" for="ap_up_{{ p.id }}">{{ p.name }}</label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="form-text">Off = any profile may be used. On = only the ticked profiles can issue from this CA (enforced server-side, including the API). Changeable later on the CA page.</div>
                 </div>
             </div>
 

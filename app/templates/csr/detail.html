@@ -35,6 +35,9 @@
                             {% endif %}
                         </td>
                     </tr>
+                    {% if csr.profile %}
+                    <tr><th>Requested Profile</th><td>{{ csr.profile.name }}</td></tr>
+                    {% endif %}
                     {% if csr.ca %}
                     <tr><th>Issuing CA</th><td><a href="{{ url_for('ca.detail', ca_id=csr.ca.id) }}">{{ csr.ca.name }}</a></td></tr>
                     {% endif %}

@@ -90,6 +90,31 @@
                 </table>
             </div>
         </div>
+        <div class="card mb-3">
+            <div class="card-header">Allowed Certificate Profiles</div>
+            <div class="card-body">
+                {% set allowed = ca.allowed_profile_ids %}
+                <form method="POST" action="{{ url_for('ca.set_profiles', ca_id=ca.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="restrict_profiles" name="restrict_profiles" {% if allowed %}checked{% endif %}>
+                        <label class="form-check-label" for="restrict_profiles">Restrict this CA to selected profiles</label>
+                    </div>
+                    <div class="row">
+                        {% for p in profiles %}
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="allowed_profiles" value="{{ p.id }}" id="ap_{{ p.id }}" {% if allowed and p.id in allowed %}checked{% endif %}>
+                                <label class="form-check-label" for="ap_{{ p.id }}">{{ p.name }}{% if not p.enabled %} <span class="badge bg-secondary">disabled</span>{% endif %}</label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="form-text mb-2">{% if allowed %}Only the ticked profiles can issue from this CA.{% else %}Any profile may be used with this CA.{% endif %}</div>
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+                </form>
+            </div>
+        </div>
     </div>
     <div class="col-md-6">
         <div class="card mb-3">

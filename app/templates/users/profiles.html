@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Certificate Profiles - Chancery{% endblock %}
+{% block content %}
+{% set active_tab = 'profiles' %}
+{% include "users/_tabs.html" %}
+<div class="d-flex justify-content-between align-items-center">
+    <h2>Certificate Profiles</h2>
+    <a href="{{ url_for('users.profile_new') }}" class="btn btn-primary">New Profile</a>
+</div>
+<p class="text-body-secondary mt-2">
+    A profile fixes the Key Usage / Extended Key Usage of the certificates issued under it and can
+    bound validity, key type and size, and SAN types. It is enforced server-side, for the forms and
+    the API alike. <em>Custom</em> carries no restriction beyond the global policy. Built-in profiles
+    can be edited and disabled but not deleted; each CA may additionally restrict which profiles it
+    issues under (on the CA page).
+</p>
+
+<table class="table mt-3 align-middle">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Key</th>
+            <th>Key Usage / EKU</th>
+            <th>Validity</th>
+            <th>Bounds</th>
+            <th>Status</th>
+            <th>Used by</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for p in profiles %}
+        {% set certs, csrs = usage[p.id] %}
+        <tr>
+            <td>{{ p.name }}{% if p.is_builtin %} <span class="badge bg-secondary">built-in</span>{% endif %}
+                {% if p.description %}<div class="small text-body-secondary">{{ p.description }}</div>{% endif %}</td>
+            <td><code>{{ p.key }}</code></td>
+            <td class="small">
+                {% if p.is_custom %}<span class="text-body-secondary">from the request</span>
+                {% else %}
+                {% set ku = p.key_usage or {} %}
+                {% for f, on in ku.items() if on %}{{ f | replace('_', ' ') }}{% if not loop.last %}, {% endif %}{% endfor %}
+                <br><span class="text-body-secondary">{{ (p.extended_key_usage or []) | join(', ') or '—' }}</span>
+                {% endif %}
+            </td>
+            <td class="small">default {{ p.default_validity_days }}d{% if p.max_validity_days %}<br>max {{ p.max_validity_days }}d{% endif %}</td>
+            <td class="small">
+                {% if p.allowed_key_types %}{{ p.allowed_key_types | join('/') }}{% else %}RSA/EC{% endif %}
+                {% if p.min_rsa_bits or p.max_rsa_bits %}<br>RSA {{ p.min_rsa_bits or '' }}–{{ p.max_rsa_bits or '' }}{% endif %}
+                {% if p.allowed_ec_sizes %}<br>EC {{ p.allowed_ec_sizes | join('/') }}{% endif %}
+                {% if p.allowed_san_types %}<br>SAN {{ p.allowed_san_types | join('/') | upper }}{% endif %}
+                {% if p.require_san %}<br>SAN required{% endif %}{% if p.cn_in_san %}<br>CN in SAN{% endif %}
+                {% if not p.include_ocsp_aia %}<br>no AIA{% endif %}
+            </td>
+            <td>{% if p.enabled %}<span class="badge bg-success">Enabled</span>{% else %}<span class="badge bg-secondary">Disabled</span>{% endif %}</td>
+            <td class="small">{{ certs }} cert{{ 's' if certs != 1 }}<br>{{ csrs }} CSR{{ 's' if csrs != 1 }}</td>
+            <td class="text-nowrap">
+                <a href="{{ url_for('users.profile_edit', profile_id=p.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                <form method="POST" action="{{ url_for('users.profile_toggle', profile_id=p.id) }}" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm {% if p.enabled %}btn-outline-warning{% else %}btn-outline-success{% endif %}">{{ 'Disable' if p.enabled else 'Enable' }}</button>
+                </form>
+                {% if not p.is_builtin and certs == 0 and csrs == 0 %}
+                <form method="POST" action="{{ url_for('users.profile_delete', profile_id=p.id) }}" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+    {% else %}
+        <tr><td colspan="8" class="text-body-secondary text-center">No profiles.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+<p class="small text-body-secondary">CLI: <code>flask profiles list|export|import &lt;file&gt; [--replace]</code>.
+    Set <code>PROFILES_REQUIRE_SELECTION=true</code> to refuse issuance requests that name no profile.</p>
+{% endblock %}

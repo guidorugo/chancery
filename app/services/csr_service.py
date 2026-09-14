@@ -40,7 +40,8 @@ def _build_san_extensions(san_list):
     return names
 
 
-def create_csr(subject_attrs, san_list=None, key_type="RSA", key_size=2048, passphrase=None, created_by=None):
+def create_csr(subject_attrs, san_list=None, key_type="RSA", key_size=2048, passphrase=None,
+               created_by=None, profile_id=None):
     key = _generate_key(key_type, key_size)
     subject = build_subject(subject_attrs)
 
@@ -73,6 +74,7 @@ def create_csr(subject_attrs, san_list=None, key_type="RSA", key_size=2048, pass
         csr_pem=csr_pem,
         san_json=json.dumps(san_list) if san_list else None,
         created_by=created_by,
+        profile_id=profile_id,
     )
     db.session.add(csr_model)
     db.session.commit()
@@ -103,7 +105,7 @@ def parse_csr(csr_pem):
     return subject_attrs, san_list
 
 
-def import_csr(csr_pem, created_by=None):
+def import_csr(csr_pem, created_by=None, profile_id=None):
     subject_attrs, san_list = parse_csr(csr_pem)
     cn = subject_attrs.get("commonName", subject_attrs.get("CN", "Unknown"))
 
@@ -113,6 +115,7 @@ def import_csr(csr_pem, created_by=None):
         csr_pem=csr_pem if isinstance(csr_pem, str) else csr_pem.decode(),
         san_json=json.dumps(san_list) if san_list else None,
         created_by=created_by,
+        profile_id=profile_id,
     )
     db.session.add(csr_model)
     db.session.commit()

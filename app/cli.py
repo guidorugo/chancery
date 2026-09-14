@@ -309,6 +309,51 @@ def crl_refresh(refresh_all):
     click.echo(f"Done. {refreshed} CRL(s) refreshed.")
 
 
+profiles_cli = AppGroup("profiles", help="Certificate profile utilities (2.13.0, F1).")
+
+
+@profiles_cli.command("list")
+def list_profiles():
+    """List certificate profiles."""
+    from .services import profile_service
+    rows = profile_service.list_profiles()
+    if not rows:
+        click.echo("No profiles.")
+        return
+    for p in rows:
+        certs, csrs = profile_service.usage_counts(p)
+        flags = ("builtin " if p.is_builtin else "") + ("" if p.enabled else "DISABLED ")
+        click.echo(f"[{p.id}] {p.key:<16} {p.name:<24} {flags}certs={certs} csrs={csrs}")
+
+
+@profiles_cli.command("export")
+def export_profiles():
+    """Print every profile as JSON (importable with `profiles import`)."""
+    from .services import profile_service
+    click.echo(json.dumps(profile_service.export_all(), indent=2))
+
+
+@profiles_cli.command("import")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+@click.option("--replace", is_flag=True, help="Overwrite profiles whose key already exists.")
+def import_profiles(path, replace):
+    """Import profiles from a JSON file produced by `profiles export`."""
+    from .services import profile_service
+    with open(path, encoding="utf-8") as fh:
+        items = json.load(fh)
+    if not isinstance(items, list):
+        raise click.ClickException("Expected a JSON list of profiles.")
+    try:
+        created, updated = profile_service.import_profiles(items, replace=replace)
+    except ValueError as exc:
+        db.session.rollback()
+        raise click.ClickException(str(exc))
+    _cli_audit("import_profiles", "config", details={"created": created, "updated": updated,
+                                                     "replace": replace, "file": path})
+    db.session.commit()
+    click.echo(f"Imported: {created} created, {updated} updated.")
+
+
 metrics_cli = AppGroup("metrics-token", help="Prometheus /metrics bearer-token management (2.7.0).")
 
 

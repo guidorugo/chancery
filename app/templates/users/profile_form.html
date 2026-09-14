@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if profile else 'New' }} Profile - Chancery{% endblock %}
+{% block content %}
+{% set active_tab = 'profiles' %}
+{% include "users/_tabs.html" %}
+<h2>{% if profile %}Edit Profile: {{ profile.name }}{% else %}New Certificate Profile{% endif %}</h2>
+{% set f = fields %}
+{% set ku = f.get('key_usage') or {} %}
+{% set eku = f.get('extended_key_usage') or [] %}
+{% set kts = f.get('allowed_key_types') or [] %}
+{% set ecs = f.get('allowed_ec_sizes') or [] %}
+{% set sans = f.get('allowed_san_types') or [] %}
+
+<form method="POST" class="mt-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-3">
+                <div class="card-header">Identity</div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Name</label>
+                        <input type="text" class="form-control" id="name" name="name" value="{{ f.get('name', '') }}" required maxlength="100">
+                        {% if profile %}<div class="form-text">API/CLI key: <code>{{ profile.key }}</code>{% if profile.is_builtin %} (built-in){% endif %}</div>{% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <input type="text" class="form-control" id="description" name="description" value="{{ f.get('description', '') }}" maxlength="500">
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="enabled" name="enabled" {% if f.get('enabled', True) %}checked{% endif %}>
+                        <label class="form-check-label" for="enabled">Enabled (selectable for issuance)</label>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="include_ocsp_aia" name="include_ocsp_aia" {% if f.get('include_ocsp_aia', True) %}checked{% endif %}>
+                        <label class="form-check-label" for="include_ocsp_aia">Include the OCSP (AIA) extension</label>
+                    </div>
+                </div>
+            </div>
+
+            {% if profile and profile.is_custom %}
+            <div class="alert alert-info">The <strong>Custom</strong> profile takes Key Usage and Extended Key Usage from each request; only its bounds below can be edited.</div>
+            {% else %}
+            <div class="card mb-3">
+                <div class="card-header">Extensions stamped on issued certificates</div>
+                <div class="card-body">
+                    <label class="form-label">Key Usage</label>
+                    <div class="row mb-3">
+                        {% for field, label in ku_labels %}
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="ku_{{ field }}" name="ku_{{ field }}" {% if ku.get(field) %}checked{% endif %}>
+                                <label class="form-check-label" for="ku_{{ field }}">{{ label }}</label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <label class="form-label">Extended Key Usage</label>
+                    <div class="row">
+                        {% for name, label in eku_labels %}
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="eku_{{ name }}" name="eku_{{ name }}" {% if name in eku %}checked{% endif %}>
+                                <label class="form-check-label" for="eku_{{ name }}">{{ label }}</label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-md-6">
+            <div class="card mb-3">
+                <div class="card-header">Bounds (blank = unrestricted; the global policy still applies)</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="default_validity_days" class="form-label">Default validity (days)</label>
+                            <input type="number" min="1" class="form-control" id="default_validity_days" name="default_validity_days" value="{{ f.get('default_validity_days', 365) }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="max_validity_days" class="form-label">Maximum validity (days)</label>
+                            <input type="number" min="1" class="form-control" id="max_validity_days" name="max_validity_days" value="{{ f.get('max_validity_days') or '' }}">
+                        </div>
+                    </div>
+                    <label class="form-label">Allowed key types</label>
+                    <div class="mb-3">
+                        {% for t in key_types %}
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="kt_{{ t }}" name="kt_{{ t }}" {% if not kts or t in kts %}checked{% endif %}>
+                            <label class="form-check-label" for="kt_{{ t }}">{{ t }}</label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="min_rsa_bits" class="form-label">Min RSA bits</label>
+                            <input type="number" min="1024" step="1" class="form-control" id="min_rsa_bits" name="min_rsa_bits" value="{{ f.get('min_rsa_bits') or '' }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="max_rsa_bits" class="form-label">Max RSA bits</label>
+                            <input type="number" min="1024" step="1" class="form-control" id="max_rsa_bits" name="max_rsa_bits" value="{{ f.get('max_rsa_bits') or '' }}">
+                        </div>
+                    </div>
+                    <label class="form-label">Allowed EC curve sizes</label>
+                    <div class="mb-3">
+                        {% for s in ec_sizes %}
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="ec_{{ s }}" name="ec_{{ s }}" {% if not ecs or s in ecs %}checked{% endif %}>
+                            <label class="form-check-label" for="ec_{{ s }}">P-{{ s }}</label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <label class="form-label">Allowed SAN types</label>
+                    <div class="mb-3">
+                        {% for t, label in san_labels %}
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="san_{{ t }}" name="san_{{ t }}" {% if not sans or t in sans %}checked{% endif %}>
+                            <label class="form-check-label" for="san_{{ t }}">{{ label }}</label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="require_san" name="require_san" {% if f.get('require_san') %}checked{% endif %}>
+                        <label class="form-check-label" for="require_san">Require at least one SAN</label>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="cn_in_san" name="cn_in_san" {% if f.get('cn_in_san') %}checked{% endif %}>
+                        <label class="form-check-label" for="cn_in_san">Common Name must appear among the DNS SANs</label>
+                    </div>
+                    <div class="form-text mt-2">Leaving every box of a group ticked (or all blank) means "no restriction" for that group.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <button type="submit" class="btn btn-primary">{{ 'Save' if profile else 'Create Profile' }}</button>
+    <a href="{{ url_for('users.profiles') }}" class="btn btn-secondary">Cancel</a>
+</form>
+{% endblock %}

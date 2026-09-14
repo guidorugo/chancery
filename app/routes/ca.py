@@ -8,7 +8,7 @@ from ..decorators import admin_required
 from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..responses import api_error, wants_json
-from ..services import ca_service, crl_service, audit_service, dual_control_service
+from ..services import ca_service, crl_service, audit_service, dual_control_service, profile_service
 from ..services.filenames import content_disposition
 from ..services.keybackend import hsm_available
 
@@ -41,7 +41,24 @@ def _create_page_context():
         "signing_cas": CertificateAuthority.signing_capable().all(),
         "link_cas": CertificateAuthority.query.filter_by(is_revoked=False).all(),
         "hsm_available": hsm_available(),
+        "profiles": profile_service.list_profiles(enabled_only=True),
     }
+
+
+def _parse_allowed_profiles(form):
+    """F1: the CA allow-list from the form — None (any profile) unless the
+    'restrict' switch is on, in which case the ticked profile ids."""
+    if form.get("restrict_profiles") != "on":
+        return None
+    ids = []
+    for raw in form.getlist("allowed_profiles"):
+        profile = profile_service.lookup(raw)
+        if profile is None:
+            raise ValueError(f"Unknown certificate profile '{raw}'.")
+        ids.append(profile.id)
+    if not ids:
+        raise ValueError("Select at least one allowed profile, or turn the restriction off.")
+    return ids
 
 
 @ca_bp.route("/")
@@ -68,6 +85,10 @@ def create():
         # Dual control: a CA created while the mode is active starts pending
         # and must be approved by a different admin before it can sign.
         approval_status = "pending" if dual_control_service.is_active() else "approved"
+        try:
+            allowed_profile_ids = _parse_allowed_profiles(request.form)
+        except ValueError as e:
+            return _err(str(e))
 
         if mode == "upload":
             name = request.form.get("name", "").strip()
@@ -113,6 +134,7 @@ def create():
                                               created_by=current_user.id,
                                               approval_status=approval_status)
 
+                ca.set_allowed_profile_ids(allowed_profile_ids)
                 imported_parents = getattr(ca, "_imported_parents", [])
                 audit_service.log_action(
                     "import_ca", target_type="ca", target_id=ca.id,
@@ -206,8 +228,10 @@ def create():
                         backend=key_backend, created_by=current_user.id,
                         approval_status=approval_status,
                     )
+                ca.set_allowed_profile_ids(allowed_profile_ids)
                 audit_service.log_action("create_ca", target_type="ca", target_id=ca.id,
-                                         details={"approval_status": ca.approval_status})
+                                         details={"approval_status": ca.approval_status,
+                                                  "allowed_profiles": allowed_profile_ids})
                 db.session.commit()
                 if wants_json():
                     return jsonify(ca.to_dict(detail=True)), 201
@@ -251,7 +275,36 @@ def detail(ca_id):
     if wants_json():
         return jsonify(ca.to_dict(detail=True))
     chain = ca_service.get_ca_chain(ca)
-    return render_template("ca/detail.html", ca=ca, chain=chain)
+    return render_template("ca/detail.html", ca=ca, chain=chain,
+                           profiles=profile_service.list_profiles())
+
+
+@ca_bp.route("/<int:ca_id>/profiles", methods=["POST"])
+@admin_required
+def set_profiles(ca_id):
+    """F1: change the CA's profile allow-list (None = any profile)."""
+    ca = db.session.get(CertificateAuthority, ca_id)
+    if not ca:
+        if wants_json():
+            return api_error("CA not found.", 404)
+        flash("CA not found.", "danger")
+        return redirect(url_for("ca.list_cas"))
+    try:
+        ids = _parse_allowed_profiles(request.form)
+    except ValueError as e:
+        if wants_json():
+            return api_error(str(e), 400)
+        flash(str(e), "danger")
+        return redirect(url_for("ca.detail", ca_id=ca.id))
+    ca.set_allowed_profile_ids(ids)
+    audit_service.log_action("update_ca_profiles", target_type="ca", target_id=ca.id,
+                             details={"allowed_profiles": ids})
+    db.session.commit()
+    if wants_json():
+        return jsonify(ca.to_dict(detail=True))
+    flash("Allowed profiles updated." if ids else "Profile restriction removed — any profile may be used.",
+          "success")
+    return redirect(url_for("ca.detail", ca_id=ca.id))
 
 
 @ca_bp.route("/<int:ca_id>/approve", methods=["POST"])

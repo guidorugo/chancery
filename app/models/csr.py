@@ -17,9 +17,11 @@ class CertificateSigningRequest(db.Model):
     san_json = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     signed_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    profile_id = db.Column(db.Integer, db.ForeignKey("certificate_profiles.id"), nullable=True)  # F1
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     certificate = db.relationship("Certificate", backref="csr")
+    profile = db.relationship("CertificateProfile", foreign_keys=[profile_id])
     creator = db.relationship("User", backref="csrs", foreign_keys=[created_by])
     signer = db.relationship("User", foreign_keys=[signed_by])
 
@@ -32,6 +34,8 @@ class CertificateSigningRequest(db.Model):
             "certificate_id": self.certificate_id,
             "created_by": self.created_by,
             "signed_by": self.signed_by,
+            "profile_id": self.profile_id,
+            "profile": self.profile.key if self.profile else None,
             "created_at": iso(self.created_at),
         }
         if detail:

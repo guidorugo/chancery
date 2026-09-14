@@ -12,7 +12,8 @@ from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..models.csr import CertificateSigningRequest
 from ..responses import api_error, wants_json
-from ..services import csr_service, cert_service, audit_service, dual_control_service, public_url
+from ..services import (csr_service, cert_service, audit_service, dual_control_service,
+                        public_url, profile_service)
 
 logger = logging.getLogger(__name__)
 
@@ -42,17 +43,26 @@ def create():
         if wants_json():
             return api_error(message, status)
         flash(message, "danger")
-        return render_template("csr/create.html")
+        return render_template("csr/create.html", **_csr_create_context())
 
     if request.method == "POST":
         mode = request.form.get("mode", "generate")
+
+        # F1: an optional requested profile, carried on the CSR to the sign
+        # page (the signer may still change it). Enforcement happens at signing.
+        try:
+            requested_profile = _requested_profile(request.form.get("profile"))
+        except ValueError as e:
+            return _err(str(e))
+        profile_id = requested_profile.id if requested_profile else None
 
         if mode == "upload":
             csr_pem = request.form.get("csr_pem", "").strip()
             if not csr_pem:
                 return _err("CSR PEM data is required.")
             try:
-                csr_model = csr_service.import_csr(csr_pem, created_by=current_user.id)
+                csr_model = csr_service.import_csr(csr_pem, created_by=current_user.id,
+                                                   profile_id=profile_id)
                 audit_service.log_action("import_csr", target_type="csr", target_id=csr_model.id)
                 db.session.commit()
                 if wants_json():
@@ -93,7 +103,7 @@ def create():
             try:
                 csr_model, key_pem, _ = csr_service.create_csr(
                     subject_attrs, san_list, key_type, key_size, passphrase,
-                    created_by=current_user.id,
+                    created_by=current_user.id, profile_id=profile_id,
                 )
                 audit_service.log_action("create_csr", target_type="csr", target_id=csr_model.id)
                 db.session.commit()
@@ -119,7 +129,38 @@ def create():
                 logger.exception("Error creating CSR")
                 return _err("An unexpected error occurred while creating the CSR.", 500)
 
-    return render_template("csr/create.html")
+    return render_template("csr/create.html", **_csr_create_context())
+
+
+def _requested_profile(value):
+    """Optional profile named on a new CSR: None when blank, else an enabled
+    profile (unknown/disabled → ValueError)."""
+    if value is None or not str(value).strip():
+        return None
+    profile = profile_service.lookup(value)
+    if profile is None:
+        raise ValueError(f"Unknown certificate profile '{value}'.")
+    if not profile.enabled:
+        raise ValueError(f"Certificate profile '{profile.name}' is disabled.")
+    return profile
+
+
+def _csr_create_context():
+    return {"profiles": profile_service.list_profiles(enabled_only=True)}
+
+
+def _sign_context(csr_model):
+    cas = CertificateAuthority.signing_capable().all()
+    profiles = profile_service.list_profiles(enabled_only=True)
+    selected = (csr_model.profile.key if csr_model.profile and csr_model.profile.enabled
+                else profile_service.default_key(profiles))
+    return {
+        "csr": csr_model, "cas": cas,
+        "ocsp_scheme": public_url.public_scheme(), "ocsp_server": public_url.public_host(),
+        "profiles": profiles, "profiles_json": profile_service.form_payload(profiles),
+        "ca_allowed_json": {str(ca.id): ca.allowed_profile_ids for ca in cas},
+        "selected_profile": selected,
+    }
 
 
 @csr_bp.route("/<int:csr_id>")
@@ -171,16 +212,11 @@ def sign(csr_id):
         return redirect(url_for("csr.detail", csr_id=csr_id))
 
     if request.method == "POST":
-        ocsp_server = public_url.public_host()
-        ocsp_scheme = public_url.public_scheme()
-
         def _err(message, status=400):
             if wants_json():
                 return api_error(message, status)
             flash(message, "danger")
-            return render_template("csr/sign.html", csr=csr_model,
-                                   cas=CertificateAuthority.signing_capable().all(),
-                                   ocsp_scheme=ocsp_scheme, ocsp_server=ocsp_server)
+            return render_template("csr/sign.html", **_sign_context(csr_model))
 
         try:
             ca_id = int(request.form.get("ca_id"))
@@ -194,6 +230,16 @@ def sign(csr_id):
 
         if ca.is_revoked:
             return _err("Cannot sign CSR with a revoked CA.")
+
+        # F1: the signer's profile choice (defaults to the one the requester
+        # asked for), checked against the CA's allow-list.
+        requested = request.form.get("profile")
+        if (requested is None or not str(requested).strip()) and csr_model.profile is not None:
+            requested = csr_model.profile.key
+        try:
+            profile = profile_service.resolve(requested, ca)
+        except ValueError as e:
+            return _err(str(e))
 
         passphrase = current_app.config["MASTER_PASSPHRASE"]
 
@@ -233,13 +279,20 @@ def sign(csr_id):
                                   if f"eku_{name}" in request.form]
 
         try:
+            requested_profile_id = csr_model.profile_id
             certificate = cert_service.sign_csr(
                 csr_model, ca, validity_days, passphrase, ocsp_url=ocsp_url,
                 key_usage=key_usage, extended_key_usage=extended_key_usage,
-                crl_dp_url=crl_dp_url, signed_by=current_user.id,
+                crl_dp_url=crl_dp_url, signed_by=current_user.id, profile=profile,
             )
-            audit_service.log_action("sign_csr", target_type="csr", target_id=csr_id,
-                                     details={"certificate_id": certificate.id})
+            details = {"certificate_id": certificate.id, "profile": profile.key}
+            if requested_profile_id is not None and requested_profile_id != profile.id:
+                requested_row = profile_service.lookup(str(requested_profile_id))
+                details["profile_changed"] = {
+                    "from": requested_row.key if requested_row else requested_profile_id,
+                    "to": profile.key,
+                }
+            audit_service.log_action("sign_csr", target_type="csr", target_id=csr_id, details=details)
             db.session.commit()
             if wants_json():
                 return jsonify(certificate.to_dict(detail=True)), 201
@@ -256,10 +309,7 @@ def sign(csr_id):
             logger.exception("Error signing CSR")
             return _err("An unexpected error occurred while signing the CSR.", 500)
 
-    cas = CertificateAuthority.signing_capable().all()
-    return render_template("csr/sign.html", csr=csr_model, cas=cas,
-                           ocsp_scheme=public_url.public_scheme(),
-                           ocsp_server=public_url.public_host())
+    return render_template("csr/sign.html", **_sign_context(csr_model))
 
 
 @csr_bp.route("/<int:csr_id>/reject", methods=["POST"])

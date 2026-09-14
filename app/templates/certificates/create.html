@@ -116,13 +116,12 @@
                     <label for="cert_profile" class="form-label">Certificate Profile
                         <span class="field-info" data-bs-toggle="tooltip" title="Preset profiles configure Key Usage and Extended Key Usage for common scenarios.">!</span>
                     </label>
-                    <select class="form-select" id="cert_profile">
-                        <option value="webServer" selected>Web Server</option>
-                        <option value="clientAuth">Client Auth</option>
-                        <option value="email">Email / S-MIME</option>
-                        <option value="codeSigning">Code Signing</option>
-                        <option value="custom">Custom</option>
+                    <select class="form-select" id="cert_profile" name="profile">
+                        {% for p in profiles %}
+                        <option value="{{ p.key }}" {% if p.key == selected_profile %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
                     </select>
+                    <div class="form-text" id="profile_hint"></div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Key Usage</label>
@@ -222,39 +221,49 @@ function updateKeySizes() {
     }
 }
 
-var profiles = {
-    webServer:   { ku: ['ku_digital_signature', 'ku_key_encipherment'], eku: ['eku_serverAuth', 'eku_clientAuth'] },
-    clientAuth:  { ku: ['ku_digital_signature'], eku: ['eku_clientAuth'] },
-    email:       { ku: ['ku_digital_signature', 'ku_key_encipherment', 'ku_content_commitment'], eku: ['eku_emailProtection'] },
-    codeSigning: { ku: ['ku_digital_signature'], eku: ['eku_codeSigning'] },
-};
+// F1: profiles come from the database (Preferences -> Profiles). A named
+// profile fixes Key Usage / EKU (checkboxes locked); "custom" leaves them
+// editable. A CA's allow-list greys out the profiles it may not use.
+var profiles = {{ profiles_json|tojson }};
+var caAllowedProfiles = {{ ca_allowed_json|tojson }};
 
-function applyProfile() {
-    var p = document.getElementById('cert_profile').value;
-    if (p === 'custom') return;
-    var cfg = profiles[p];
-    document.querySelectorAll('.ku-check').forEach(function(cb) { cb.checked = cfg.ku.indexOf(cb.id) !== -1; });
-    document.querySelectorAll('.eku-check').forEach(function(cb) { cb.checked = cfg.eku.indexOf(cb.id) !== -1; });
+function profileByKey(key) {
+    for (var i = 0; i < profiles.length; i++) { if (profiles[i].key === key) return profiles[i]; }
+    return null;
 }
 
-function syncProfile() {
+function applyProfile() {
     var sel = document.getElementById('cert_profile');
-    var kuState = [];
-    document.querySelectorAll('.ku-check:checked').forEach(function(cb) { kuState.push(cb.id); });
-    var ekuState = [];
-    document.querySelectorAll('.eku-check:checked').forEach(function(cb) { ekuState.push(cb.id); });
-    kuState.sort(); ekuState.sort();
-    var matched = false;
-    for (var name in profiles) {
-        var pk = profiles[name].ku.slice().sort();
-        var pe = profiles[name].eku.slice().sort();
-        if (JSON.stringify(pk) === JSON.stringify(kuState) && JSON.stringify(pe) === JSON.stringify(ekuState)) {
-            sel.value = name;
-            matched = true;
-            break;
-        }
-    }
-    if (!matched) sel.value = 'custom';
+    var p = profileByKey(sel.value);
+    var custom = !p || p.custom;
+    document.querySelectorAll('.ku-check').forEach(function(cb) {
+        cb.disabled = !custom;
+        if (!custom) cb.checked = p.ku.indexOf(cb.id) !== -1;
+    });
+    document.querySelectorAll('.eku-check').forEach(function(cb) {
+        cb.disabled = !custom;
+        if (!custom) cb.checked = p.eku.indexOf(cb.id) !== -1;
+    });
+    var validity = document.getElementById('validity_days');
+    if (p && !custom && validity && !validity.dataset.touched) validity.value = p.default_validity_days;
+    var hint = document.getElementById('profile_hint');
+    if (hint) hint.textContent = custom
+        ? 'Custom: Key Usage and Extended Key Usage come from the checkboxes below.'
+        : 'Key Usage and Extended Key Usage are fixed by this profile.';
+}
+
+function filterProfilesForCa() {
+    var caSel = document.getElementById('ca_id');
+    var allowed = caSel ? caAllowedProfiles[caSel.value] : null;
+    var sel = document.getElementById('cert_profile');
+    var firstEnabled = null;
+    Array.prototype.forEach.call(sel.options, function(opt) {
+        var p = profileByKey(opt.value);
+        opt.disabled = !!(allowed && p && allowed.indexOf(p.id) === -1);
+        if (!opt.disabled && firstEnabled === null) firstEnabled = opt.value;
+    });
+    if (sel.selectedOptions.length && sel.selectedOptions[0].disabled && firstEnabled !== null) sel.value = firstEnabled;
+    applyProfile();
 }
 
 function updateCrlDp() {
@@ -276,8 +285,8 @@ document.getElementById('advancedSettings').addEventListener('hide.bs.collapse',
 // TMPL-1: event bindings moved off inline on* handlers (CSP nonce, no unsafe-inline).
 document.getElementById('key_type').addEventListener('change', updateKeySizes);
 document.getElementById('cert_profile').addEventListener('change', applyProfile);
-document.querySelectorAll('.ku-check, .eku-check').forEach(function(cb) {
-    cb.addEventListener('change', syncProfile);
-});
+document.getElementById('ca_id').addEventListener('change', filterProfilesForCa);
+document.getElementById('validity_days').addEventListener('input', function() { this.dataset.touched = '1'; });
+document.addEventListener('DOMContentLoaded', filterProfilesForCa);
 </script>
 {% endblock %}

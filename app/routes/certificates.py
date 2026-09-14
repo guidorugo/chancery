@@ -12,7 +12,8 @@ from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..models.certificate import Certificate
 from ..responses import api_error, wants_json
-from ..services import cert_service, crl_service, audit_service, dual_control_service, public_url
+from ..services import (cert_service, crl_service, audit_service, dual_control_service,
+                        public_url, profile_service)
 from ..services.filenames import content_disposition
 
 logger = logging.getLogger(__name__)
@@ -69,16 +70,11 @@ def create():
         locality = request.form.get("locality", "").strip()
         key_type = request.form.get("key_type", "RSA")
 
-        ocsp_server = public_url.public_host()
-        ocsp_scheme = public_url.public_scheme()
-
         def _err(message, status=400):
             if wants_json():
                 return api_error(message, status)
             flash(message, "danger")
-            return render_template("certificates/create.html",
-                                   cas=CertificateAuthority.signing_capable().all(),
-                                   ocsp_scheme=ocsp_scheme, ocsp_server=ocsp_server)
+            return render_template("certificates/create.html", **_create_context())
 
         try:
             ca_id = int(request.form.get("ca_id"))
@@ -97,6 +93,13 @@ def create():
 
         if ca.is_revoked:
             return _err("Cannot issue certificates from a revoked CA.")
+
+        # F1: the profile is resolved server-side (absent → the unrestricted
+        # `custom` profile) and checked against the CA's allow-list.
+        try:
+            profile = profile_service.resolve(request.form.get("profile"), ca)
+        except ValueError as e:
+            return _err(str(e))
 
         subject_attrs = {
             "CN": cn, "O": org, "OU": ou,
@@ -146,9 +149,10 @@ def create():
                 ca, subject_attrs, san_list, validity_days, passphrase,
                 key_type=key_type, key_size=key_size, ocsp_url=ocsp_url,
                 key_usage=key_usage, extended_key_usage=extended_key_usage,
-                crl_dp_url=crl_dp_url, issued_by=current_user.id,
+                crl_dp_url=crl_dp_url, issued_by=current_user.id, profile=profile,
             )
-            audit_service.log_action("create_certificate", target_type="certificate", target_id=certificate.id)
+            audit_service.log_action("create_certificate", target_type="certificate",
+                                     target_id=certificate.id, details={"profile": profile.key})
             db.session.commit()
             if wants_json():
                 return jsonify(certificate.to_dict(detail=True)), 201
@@ -162,10 +166,22 @@ def create():
             logger.exception("Error creating certificate")
             return _err("An unexpected error occurred while creating the certificate.", 500)
 
+    return render_template("certificates/create.html", **_create_context())
+
+
+def _create_context():
+    """Template context shared by the create form and its error re-render."""
     cas = CertificateAuthority.signing_capable().all()
-    return render_template("certificates/create.html", cas=cas,
-                           ocsp_scheme=public_url.public_scheme(),
-                           ocsp_server=public_url.public_host())
+    profiles = profile_service.list_profiles(enabled_only=True)
+    return {
+        "cas": cas,
+        "ocsp_scheme": public_url.public_scheme(),
+        "ocsp_server": public_url.public_host(),
+        "profiles": profiles,
+        "profiles_json": profile_service.form_payload(profiles),
+        "ca_allowed_json": {str(ca.id): ca.allowed_profile_ids for ca in cas},
+        "selected_profile": profile_service.default_key(profiles),
+    }
 
 
 @certificates_bp.route("/<int:cert_id>")

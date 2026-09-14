@@ -45,6 +45,9 @@
                         <td><a href="{{ url_for('ca.detail', ca_id=cert.ca_id) }}">{{ cert.ca.name }}</a></td>
                     </tr>
                     <tr><th>Key Type</th><td>{{ cert.key_type }} {{ cert.key_size }}</td></tr>
+                    {% if cert.profile %}
+                    <tr><th>Profile</th><td>{{ cert.profile.name }}{% if cert.profile.is_custom %} <span class="text-body-secondary">(unrestricted)</span>{% endif %}</td></tr>
+                    {% endif %}
                     <tr><th>Valid From</th><td>{{ cert.not_before.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
                     <tr><th>Valid Until</th><td>{{ cert.not_after.strftime('%Y-%m-%d %H:%M UTC') }}{{ expiry_badge(cert) }}</td></tr>
                     <tr>

@@ -88,6 +88,11 @@ EVENT_CATALOG = {
         ("reset_ldap_settings", "LDAP settings reset"),
         ("update_webhook_settings", "Webhook settings saved"),
         ("reset_webhook_settings", "Webhook settings reset"),
+        ("create_profile", "Certificate profile created"),
+        ("update_profile", "Certificate profile updated"),
+        ("toggle_profile", "Certificate profile enabled/disabled"),
+        ("delete_profile", "Certificate profile deleted"),
+        ("update_ca_profiles", "CA allowed profiles changed"),
     ],
 }
 

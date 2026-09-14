@@ -13,6 +13,7 @@ from .crypto_utils import encrypt_private_key, decrypt_private_key
 from .policy import (enforce_key_strength, enforce_public_key_strength,
                      bounded_not_after, build_subject)
 from .keybackend import backend_for_ca
+from . import profile_service
 
 
 def _generate_key(key_type: str, key_size: int):
@@ -102,9 +103,17 @@ def _release_csr(csr_model):
         pass
 
 
+def _csr_key_info(public_key):
+    if isinstance(public_key, rsa.RSAPublicKey):
+        return "RSA", public_key.key_size
+    if isinstance(public_key, ec.EllipticCurvePublicKey):
+        return "EC", public_key.key_size
+    return "Unknown", 0
+
+
 def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
              key_usage=None, extended_key_usage=None, ocsp_url=None,
-             crl_dp_url=None, signed_by=None):
+             crl_dp_url=None, signed_by=None, profile=None):
     if not ca.has_signing_key:
         raise ValueError("This CA was imported without its private key and cannot issue certificates.")
     if ca.approval_status == "pending":
@@ -118,11 +127,23 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
         raise ValueError("CSR signature is invalid (proof-of-possession failed); refusing to sign.")
     enforce_public_key_strength(csr.public_key())  # B5
 
+    # F1: bound the request by the profile (key from the CSR, SANs as they
+    # will be issued) before claiming the CSR.
+    effective_san = san_list
+    if not effective_san and csr_model.san_json:
+        effective_san = json.loads(csr_model.san_json)
+    key_type, key_size = _csr_key_info(csr.public_key())
+    key_usage, extended_key_usage, include_aia = profile_service.enforce(
+        profile, key_type=key_type, key_size=key_size, validity_days=validity_days,
+        san_list=effective_san, common_name=csr_model.common_name,
+        key_usage=key_usage, extended_key_usage=extended_key_usage)
+
     _claim_csr(csr_model)
     try:
         return _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
                                  san_list, key_usage, extended_key_usage, ocsp_url,
-                                 crl_dp_url, signed_by)
+                                 crl_dp_url, signed_by, include_aia=include_aia,
+                                 profile_id=profile.id if profile is not None else None)
     except Exception:
         _release_csr(csr_model)
         raise
@@ -130,7 +151,7 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
 
 def _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
                       san_list, key_usage, extended_key_usage, ocsp_url,
-                      crl_dp_url, signed_by):
+                      crl_dp_url, signed_by, include_aia=True, profile_id=None):
     now = datetime.now(timezone.utc)
     # PKI-4: refuse issuance from an expired (but not-yet-revoked) CA with a
     # clear error, rather than an opaque 500 or a silently ultra-short cert.
@@ -224,8 +245,8 @@ def _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
         if san_ext:
             builder = builder.add_extension(san_ext, critical=False)
 
-    # OCSP AIA extension
-    if ocsp_url:
+    # OCSP AIA extension (a profile may opt out of AIA)
+    if ocsp_url and include_aia:
         builder = builder.add_extension(
             x509.AuthorityInformationAccess([
                 x509.AccessDescription(
@@ -286,6 +307,7 @@ def _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
         extended_key_usage_json=json.dumps(extended_key_usage) if extended_key_usage else None,
         requested_by=csr_model.created_by,
         issued_by=signed_by,
+        profile_id=profile_id,
     )
     db.session.add(certificate)
     db.session.flush()
@@ -302,12 +324,19 @@ def _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
 def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
                        key_type="RSA", key_size=2048, key_usage=None,
                        extended_key_usage=None, ocsp_url=None,
-                       crl_dp_url=None, issued_by=None):
+                       crl_dp_url=None, issued_by=None, profile=None):
     if not ca.has_signing_key:
         raise ValueError("This CA was imported without its private key and cannot issue certificates.")
     if ca.approval_status == "pending":
         raise ValueError("This CA is awaiting dual-control approval and cannot issue certificates yet.")
     ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
+
+    # F1: the profile is policy — for a named profile the Key Usage / EKU are
+    # its own, and the request is bounded by it before any key is generated.
+    key_usage, extended_key_usage, include_aia = profile_service.enforce(
+        profile, key_type=key_type, key_size=key_size, validity_days=validity_days,
+        san_list=san_list, common_name=subject_attrs.get("CN"),
+        key_usage=key_usage, extended_key_usage=extended_key_usage)
 
     key = _generate_key(key_type, key_size)
     subject = build_subject(subject_attrs)
@@ -402,8 +431,8 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
         if san_ext:
             builder = builder.add_extension(san_ext, critical=False)
 
-    # OCSP AIA extension
-    if ocsp_url:
+    # OCSP AIA extension (a profile may opt out of AIA)
+    if ocsp_url and include_aia:
         builder = builder.add_extension(
             x509.AuthorityInformationAccess([
                 x509.AccessDescription(
@@ -449,6 +478,7 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
         key_usage_json=json.dumps(key_usage) if key_usage else None,
         extended_key_usage_json=json.dumps(extended_key_usage) if extended_key_usage else None,
         issued_by=issued_by,
+        profile_id=profile.id if profile is not None else None,
     )
     db.session.add(certificate)
     db.session.commit()

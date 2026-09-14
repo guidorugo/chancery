@@ -9,7 +9,8 @@ A web-based X.509 Certificate Authority management application built with Python
 - **CA Management**: Create root and intermediate Certificate Authorities with RSA or EC keys, or import existing ones — PEM (single certificate or full chain), PKCS#12 bundles, encrypted private keys, and certificate-only imports for offline roots — and export them back out (chain bundle, private key, password-protected PKCS#12)
 - **Certificate Issuance**: Generate certificates with SANs, key usage, extended key usage, and CRL Distribution Points
 - **Certificate Detail View**: Full certificate details including Key Usage, Extended Key Usage, subject DN fields, requester, issuer (who signed/created it), and SANs
-- **Advanced Certificate Settings**: Collapsible UI with certificate profile presets (Web Server, Client Auth, Email/S-MIME, Code Signing), Key Usage and Extended Key Usage checkboxes, and editable CRL Distribution Points (auto-populated from hostname, user-overridable)
+- **Certificate profiles**: Stored, server-enforced issuance policies (Preferences → Profiles). A profile fixes Key Usage / Extended Key Usage and can bound validity, key type and size, and SAN types; the built-ins (Web Server, Client Auth, Email/S-MIME, Code Signing, Custom) are editable, requesters can ask for one on a CSR, and each CA can be restricted to a set of profiles. Enforced for the API as well as the forms
+- **Advanced Certificate Settings**: Collapsible UI with the profile selector, Key Usage and Extended Key Usage checkboxes (editable for the Custom profile), and editable CRL Distribution Points (auto-populated from hostname, user-overridable)
 - **CSR Management**: Create or import Certificate Signing Requests, sign or reject them — the signing user is recorded and shown on the CSR and certificate
 - **Revocation**: Revoke certificates with standard reasons, generate CRLs
 - **OCSP Responder**: Built-in OCSP endpoint for real-time certificate status checks
@@ -440,6 +441,7 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask certs recompute-expiry [--dry-run]` | One-time backfill of the stored `not_after` for certificates issued before 2.5.0 |
 | `flask certs backfill-issuers [--dry-run]` | One-time backfill of CSR signer / certificate issuer from the audit log (2.11.0) |
 | `flask crl refresh [--all]` | Regenerate stale CRLs (or all of them) — run from cron so no CRL passes its `nextUpdate` (`CRL_VALIDITY_DAYS`) |
+| `flask profiles list` / `export` / `import <file> [--replace]` | List certificate profiles, dump them as JSON, or import (upsert by key) |
 | `flask keys migrate-to-hsm [--ca-id N] [--dry-run] [--yes]` | Move software-backed CA keys into the SoftHSM token (one-way). `--yes` skips the prompt only together with `--ca-id`; if the token fails the post-import signing check, the token object is removed and the software key is left untouched |
 | `flask users unlock <username>` | Clear a login lockout / failed-attempt counter from the shell — for when the locked account is the only admin and nobody can unlock it from the Users page |
 | `flask metrics-token create --name <n> --expires-in-days <N>` / `list` / `revoke <name-or-id>` | Manage bearer tokens for `/metrics` |
@@ -503,6 +505,8 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `MAX_CONTENT_LENGTH_BYTES` | `1048576` | Maximum request body size |
 | `MAX_CERT_VALIDITY_DAYS` | `825` | Cap on issued leaf-cert validity (also clamped to the CA's expiry) |
 | `MAX_CA_VALIDITY_DAYS` | `7305` | Cap on issued CA validity |
+| `MAX_RSA_KEY_SIZE` | `8192` | Largest RSA key accepted for generation and in CSRs |
+| `PROFILES_REQUIRE_SELECTION` | `false` | Refuse issuance requests that name no certificate profile (otherwise they use the unrestricted `custom` profile) |
 | `MIN_RSA_KEY_SIZE` | `2048` | Minimum accepted RSA key size |
 | `OCSP_KEY_CACHE_TTL_SECONDS` | `300` | In-memory TTL for the decrypted CA key used by OCSP (`0` disables) |
 | `OCSP_RESPONSE_CACHE_TTL_SECONDS` | `60` | Cache signed OCSP responses per (CA, serial, status) for this long (`0` disables); the status is part of the key, so a revoked certificate is never served `good` from cache |

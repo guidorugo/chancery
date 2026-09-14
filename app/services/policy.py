@@ -20,11 +20,14 @@ def _cfg(key, default):
 
 
 def enforce_key_strength(key_type, key_size):
-    """Reject weak key parameters before generating a key (B5)."""
+    """Reject weak — or absurdly large (G7-1) — key parameters before generating a key (B5)."""
     if key_type == "RSA":
         minimum = _cfg("MIN_RSA_KEY_SIZE", 2048)
         if key_size < minimum:
             raise ValueError(f"RSA key size must be at least {minimum} bits (got {key_size}).")
+        maximum = _cfg("MAX_RSA_KEY_SIZE", 8192)
+        if key_size > maximum:
+            raise ValueError(f"RSA key size must be at most {maximum} bits (got {key_size}).")
     elif key_type == "EC":
         if key_size not in (256, 384, 521):
             raise ValueError("EC key size must be one of 256, 384, or 521.")
@@ -39,6 +42,11 @@ def enforce_public_key_strength(public_key):
         if public_key.key_size < minimum:
             raise ValueError(
                 f"Public key is too weak: RSA {public_key.key_size} bits (minimum {minimum})."
+            )
+        maximum = _cfg("MAX_RSA_KEY_SIZE", 8192)
+        if public_key.key_size > maximum:
+            raise ValueError(
+                f"Public key is too large: RSA {public_key.key_size} bits (maximum {maximum})."
             )
     elif isinstance(public_key, ec.EllipticCurvePublicKey):
         if public_key.curve.key_size not in (256, 384, 521):

@@ -15,4 +15,8 @@
         <a class="nav-link {% if active_tab == 'webhooks' %}active{% endif %}"
            href="{{ url_for('users.webhook_settings') }}">Webhooks</a>
     </li>
+    <li class="nav-item">
+        <a class="nav-link {% if active_tab == 'profiles' %}active{% endif %}"
+           href="{{ url_for('users.profiles') }}">Profiles</a>
+    </li>
 </ul>
