@@ -13,27 +13,60 @@ from ..models.ca import CertificateAuthority
 from ..models.csr import CertificateSigningRequest
 from ..responses import api_error, wants_json
 from ..services import (csr_service, cert_service, audit_service, dual_control_service,
-                        public_url, profile_service)
+                        public_url, profile_service, listing)
 
 logger = logging.getLogger(__name__)
 
 csr_bp = Blueprint("csr", __name__, url_prefix="/csr")
 
 
+CSR_STATUS_FILTERS = ("pending", "approved", "rejected")
+
+
+def _filter_csrs(query, lq):
+    """F15: q (CN / SAN substring), status, ca_id, profile."""
+    q = lq.text("q")
+    if q:
+        query = query.filter(db.or_(
+            listing.contains(CertificateSigningRequest.common_name, q),
+            listing.contains(CertificateSigningRequest.san_json, q),
+        ))
+    status = lq.choice("status", CSR_STATUS_FILTERS)
+    if status:
+        query = query.filter(CertificateSigningRequest.status == status)
+    ca_id = lq.integer("ca_id")
+    if ca_id is not None:
+        query = query.filter(CertificateSigningRequest.ca_id == ca_id)
+    profile = lq.text("profile")
+    if profile:
+        row = profile_service.lookup(profile)
+        if row is None:
+            raise ValueError(f"Unknown certificate profile '{profile}'.")
+        query = query.filter(CertificateSigningRequest.profile_id == row.id)
+    return query
+
+
 @csr_bp.route("/")
 @login_required
 def list_csrs():
-    if current_user.is_admin:
-        csrs = CertificateSigningRequest.query.order_by(
-            CertificateSigningRequest.created_at.desc()
-        ).all()
-    else:
-        csrs = CertificateSigningRequest.query.filter_by(
-            created_by=current_user.id
-        ).order_by(CertificateSigningRequest.created_at.desc()).all()
+    query = CertificateSigningRequest.query
+    if not current_user.is_admin:
+        query = query.filter_by(created_by=current_user.id)  # ownership first (META-1)
+    lq = listing.ListQuery(html=not wants_json())
+    try:
+        query = _filter_csrs(query, lq)
+    except ValueError as e:
+        if wants_json():
+            return api_error(str(e), 400)
+        flash(str(e), "danger")
+        return redirect(url_for("csr.list_csrs"))
+    csrs = lq.apply(query.order_by(CertificateSigningRequest.created_at.desc()))
     if wants_json():
-        return jsonify([c.to_dict() for c in csrs])
-    return render_template("csr/list.html", csrs=csrs)
+        return lq.json(csrs, lambda c: c.to_dict())
+    return render_template("csr/list.html", csrs=csrs, listing=lq,
+                           status_filters=CSR_STATUS_FILTERS,
+                           cas=CertificateAuthority.query.order_by(CertificateAuthority.name).all(),
+                           profiles=profile_service.list_profiles())
 
 
 @csr_bp.route("/create", methods=["GET", "POST"])

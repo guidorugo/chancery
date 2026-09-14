@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import expiry_badge, status_badge %}
+{% from "_macros.html" import expiry_badge, status_badge, pager %}
 {% block title %}Certificates - Chancery{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center">
@@ -8,6 +8,40 @@
     <a href="{{ url_for('certificates.create') }}" class="btn btn-primary">Create Certificate</a>
     {% endif %}
 </div>
+
+<form method="GET" class="row g-2 mt-2 align-items-end" id="cert-filters">
+    <div class="col-md-4">
+        <label for="q" class="form-label small mb-0">Search</label>
+        <input type="search" class="form-control form-control-sm" id="q" name="q" value="{{ listing.filters.get('q', '') }}" placeholder="Common name, serial or SAN">
+    </div>
+    <div class="col-md-2">
+        <label for="status" class="form-label small mb-0">Status</label>
+        <select class="form-select form-select-sm" id="status" name="status">
+            <option value="">Any</option>
+            {% for s in status_filters %}<option value="{{ s }}" {% if listing.filters.get('status') == s %}selected{% endif %}>{{ s | capitalize }}</option>{% endfor %}
+        </select>
+    </div>
+    {% if current_user.is_admin %}
+    <div class="col-md-2">
+        <label for="ca_id" class="form-label small mb-0">Issuing CA</label>
+        <select class="form-select form-select-sm" id="ca_id" name="ca_id">
+            <option value="">Any</option>
+            {% for ca in cas %}<option value="{{ ca.id }}" {% if listing.filters.get('ca_id') == ca.id|string %}selected{% endif %}>{{ ca.name }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label for="profile" class="form-label small mb-0">Profile</label>
+        <select class="form-select form-select-sm" id="profile" name="profile">
+            <option value="">Any</option>
+            {% for p in profiles %}<option value="{{ p.key }}" {% if listing.filters.get('profile') == p.key %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+        </select>
+    </div>
+    {% endif %}
+    <div class="col-md-2 d-flex gap-1">
+        <button type="submit" class="btn btn-sm btn-outline-primary">Filter</button>
+        {% if listing.filters %}<a href="{{ url_for('certificates.list_certs') }}" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
+    </div>
+</form>
 
 <table class="table mt-3">
     <thead>
@@ -38,8 +72,9 @@
             </td>
         </tr>
     {% else %}
-        <tr><td colspan="6" class="text-muted text-center">No certificates found.</td></tr>
+        <tr><td colspan="6" class="text-body-secondary text-center">No certificates found.</td></tr>
     {% endfor %}
     </tbody>
 </table>
+{{ pager(listing) }}
 {% endblock %}

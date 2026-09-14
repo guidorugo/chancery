@@ -7,44 +7,44 @@
 {% if current_user.is_admin %}
 <div class="row row-cols-2 row-cols-lg-5 g-3 mt-1">
     <div class="col">
-        <div class="card text-bg-primary h-100">
+        <a href="{{ url_for('ca.list_cas', status='active') }}" class="card text-bg-primary h-100 text-decoration-none">
             <div class="card-body">
                 <h5 class="card-title">Active CAs</h5>
                 <p class="card-text display-6">{{ stats.ca_count }}</p>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col">
-        <div class="card text-bg-success h-100">
+        <a href="{{ url_for('certificates.list_certs', status='active') }}" class="card text-bg-success h-100 text-decoration-none">
             <div class="card-body">
                 <h5 class="card-title">Active Certificates</h5>
                 <p class="card-text display-6">{{ stats.cert_active }}</p>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col">
-        <div class="card text-bg-warning h-100">
+        <a href="{{ url_for('certificates.list_certs', status='expiring') }}" class="card text-bg-warning h-100 text-decoration-none">
             <div class="card-body">
                 <h5 class="card-title">Expiring Soon</h5>
                 <p class="card-text display-6">{{ stats.cert_expiring_soon }}</p>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col">
-        <div class="card text-bg-danger h-100">
+        <a href="{{ url_for('certificates.list_certs', status='revoked') }}" class="card text-bg-danger h-100 text-decoration-none">
             <div class="card-body">
                 <h5 class="card-title">Revoked Certificates</h5>
                 <p class="card-text display-6">{{ stats.cert_revoked }}</p>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col">
-        <div class="card text-bg-warning h-100">
+        <a href="{{ url_for('csr.list_csrs', status='pending') }}" class="card text-bg-warning h-100 text-decoration-none">
             <div class="card-body">
                 <h5 class="card-title">Pending CSRs</h5>
                 <p class="card-text display-6">{{ stats.csr_pending }}</p>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 
@@ -116,28 +116,28 @@
 {# CSR User view #}
 <div class="row mt-4">
     <div class="col-md-4">
-        <div class="card text-bg-warning mb-3">
+        <a href="{{ url_for('csr.list_csrs', status='pending') }}" class="card text-bg-warning mb-3 text-decoration-none">
             <div class="card-body">
                 <h5 class="card-title">Your Pending CSRs</h5>
                 <p class="card-text display-6">{{ stats.csr_pending }}</p>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-4">
-        <div class="card text-bg-success mb-3">
+        <a href="{{ url_for('csr.list_csrs', status='approved') }}" class="card text-bg-success mb-3 text-decoration-none">
             <div class="card-body">
                 <h5 class="card-title">Your Approved CSRs</h5>
                 <p class="card-text display-6">{{ stats.csr_approved }}</p>
             </div>
-        </div>
+        </a>
     </div>
     <div class="col-md-4">
-        <div class="card text-bg-primary mb-3">
+        <a href="{{ url_for('csr.list_csrs') }}" class="card text-bg-primary mb-3 text-decoration-none">
             <div class="card-body">
                 <h5 class="card-title">Your Total CSRs</h5>
                 <p class="card-text display-6">{{ stats.csr_total }}</p>
             </div>
-        </div>
+        </a>
     </div>
 </div>
 

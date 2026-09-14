@@ -8,6 +8,7 @@ A web-based X.509 Certificate Authority management application built with Python
 
 - **CA Management**: Create root and intermediate Certificate Authorities with RSA or EC keys, or import existing ones — PEM (single certificate or full chain), PKCS#12 bundles, encrypted private keys, and certificate-only imports for offline roots — and export them back out (chain bundle, private key, password-protected PKCS#12)
 - **Certificate Issuance**: Generate certificates with SANs (DNS, IP, email, URI, and Microsoft UPN), key usage, extended key usage, and CRL Distribution Points
+- **Search, filter and pagination**: The certificate, CSR and CA lists take a search box and status/CA/profile filters (CAs: type and key protection), page 50 rows at a time, and the dashboard counters link straight into the matching filtered view; the JSON API accepts the same `q`, `status`, `ca_id`, `profile`, `page` and `per_page` parameters
 - **Certificate Detail View**: Full certificate details including Key Usage, Extended Key Usage, subject DN fields, requester, issuer (who signed/created it), and SANs
 - **Certificate profiles**: Stored, server-enforced issuance policies (Preferences → Profiles). A profile fixes Key Usage / Extended Key Usage and can bound validity, key type and size, and SAN types; the built-ins (Web Server, Client Auth, Email/S-MIME, Code Signing, Custom) are editable, requesters can ask for one on a CSR, and each CA can be restricted to a set of profiles. Enforced for the API as well as the forms
 - **Advanced Certificate Settings**: Collapsible UI with the profile selector, Key Usage and Extended Key Usage checkboxes (editable for the Custom profile), and editable CRL Distribution Points (auto-populated from hostname, user-overridable)
@@ -349,6 +350,26 @@ openssl ocsp \
 ### Authenticated Endpoints
 
 All authenticated endpoints support HTTP Basic Auth or session cookies (see [Authentication](#authentication) above). CSRF tokens are required for session-based POST requests but are not needed when using Basic Auth.
+
+#### Listing: search, filter, pagination
+
+The three list endpoints (`GET /ca/`, `GET /certificates/`, `GET /csr/`) accept the same query parameters as the pages:
+
+| Parameter | Applies to | Values |
+|-----------|------------|--------|
+| `q` | all | substring of common name / serial / SAN (CAs: name / common name / serial) |
+| `status` | certificates | `active`, `revoked`, `expiring`, `expired` |
+| `status` | CSRs | `pending`, `approved`, `rejected` |
+| `status` | CAs | `active`, `revoked`, `expired`, `pending`, `cert-only` |
+| `ca_id`, `profile` | certificates, CSRs | issuing CA id; profile key or id |
+| `type`, `backend` | CAs | `root`/`intermediate`; `software`/`softhsm` |
+| `page`, `per_page` | all | pagination (default 50 per page, max 500) |
+
+Without `page`/`per_page` the JSON response stays a bare array (unchanged for existing scripts); with either, it is `{"items": [...], "page": 1, "per_page": 50, "total": 123, "pages": 3}`.
+
+```bash
+curl -u admin:PASSWORD "http://localhost:5000/certificates/?status=expiring&page=1&per_page=25"
+```
 
 #### CA Management (admin only)
 
