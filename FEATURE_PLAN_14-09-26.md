@@ -279,7 +279,7 @@ cache key still honoured; expired responder falls back and is renewed by the tic
 **Assessment links.** Builds on the G8-2 patch (malformedRequest at 200, GET form)
 from 2.12.6; the delegated path must serve both request forms.
 
-## F8. In-app scheduler (2.14.0, M) — closes G4-1
+## F8. In-app scheduler (shipped as v2.17.0, PR #137) — closes G4-1
 
 **Current state.** CRLs are refreshed only by `flask crl refresh` (`app/cli.py:237`)
 and by revocation; no scheduler. gunicorn runs 2 sync workers without `--preload`
