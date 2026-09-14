@@ -32,7 +32,7 @@ and PostgreSQL are large but not breaking; they do not force a major on their ow
 
 | Release | Theme | Features | Size |
 |---|---|---|---|
-| 2.12.6 | Assessment fixes | Patch batch from §4.2 (G4-2, G8-1, G8-2, G8-3 code half, G7-2/3/4/5, G6-2/3, G10-1, …); no features | M |
+| 2.12.6 | Assessment fixes | **Shipped 2026-09-14 (PR #127).** Patch batch from §4.2 (G4-2, G8-1, G8-2, G8-3 code half, G7-2/3/4/5, G6-2/3, G10-1, …); no features | M |
 | 2.13.0 | Policy | F1 server-side profiles (+ G7-1 max key size), F4 URI/UPN SANs, F15 list search/filter, F18 passphrase rotation | L |
 | 2.14.0 | Lifecycle | F8 in-app scheduler (closes G4-1), F10 time-based webhook events, F9 renew/re-key | L |
 | 2.15.0 | Algorithms | F5 Ed25519/Ed448, F6 hash-by-curve (flag) + RSA-3072, F2 Name Constraints, F3 Certificate Policies | L |
