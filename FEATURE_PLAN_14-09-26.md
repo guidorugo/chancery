@@ -553,7 +553,7 @@ UPGRADE guide changes shape (choose an engine, migrate) and the default flips fr
 ride along. Compose hardening rides along too (G14-2): `read_only: true` with tmpfs
 for `/tmp` and the SoftHSM lock directory, and gunicorn's access log to stdout.
 
-## F18. Master-passphrase rotation CLI (2.13.0, S) — G13-2, G16-1
+## F18. Master-passphrase rotation CLI (shipped as v2.16.0, PR #135) — G13-2, G16-1
 
 **Current state.** No rotation tooling. Four ciphertext columns are wrapped under
 `MASTER_PASSPHRASE` today (`crypto_utils.encrypt_private_key` / `encrypt_secret`,
