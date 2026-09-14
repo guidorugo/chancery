@@ -364,7 +364,7 @@ EKU_LABELS = (
     ("codeSigning", "Code Signing"), ("emailProtection", "Email Protection"),
     ("timeStamping", "Time Stamping"), ("ocspSigning", "OCSP Signing"),
 )
-SAN_LABELS = (("dns", "DNS"), ("ip", "IP"), ("email", "Email"))
+SAN_LABELS = (("dns", "DNS"), ("ip", "IP"), ("email", "Email"), ("uri", "URI"), ("upn", "UPN"))
 
 
 def _profile_form_to_fields(form, existing=None):

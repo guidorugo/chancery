@@ -7,7 +7,7 @@ A web-based X.509 Certificate Authority management application built with Python
 ## Features
 
 - **CA Management**: Create root and intermediate Certificate Authorities with RSA or EC keys, or import existing ones — PEM (single certificate or full chain), PKCS#12 bundles, encrypted private keys, and certificate-only imports for offline roots — and export them back out (chain bundle, private key, password-protected PKCS#12)
-- **Certificate Issuance**: Generate certificates with SANs, key usage, extended key usage, and CRL Distribution Points
+- **Certificate Issuance**: Generate certificates with SANs (DNS, IP, email, URI, and Microsoft UPN), key usage, extended key usage, and CRL Distribution Points
 - **Certificate Detail View**: Full certificate details including Key Usage, Extended Key Usage, subject DN fields, requester, issuer (who signed/created it), and SANs
 - **Certificate profiles**: Stored, server-enforced issuance policies (Preferences → Profiles). A profile fixes Key Usage / Extended Key Usage and can bound validity, key type and size, and SAN types; the built-ins (Web Server, Client Auth, Email/S-MIME, Code Signing, Custom) are editable, requesters can ask for one on a CSR, and each CA can be restricted to a set of profiles. Enforced for the API as well as the forms
 - **Advanced Certificate Settings**: Collapsible UI with the profile selector, Key Usage and Extended Key Usage checkboxes (editable for the Custom profile), and editable CRL Distribution Points (auto-populated from hostname, user-overridable)
