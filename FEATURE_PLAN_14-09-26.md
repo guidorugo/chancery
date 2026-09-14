@@ -1,6 +1,6 @@
 # Chancery feature plan — 14-09-26
 
-Baseline: v2.12.3 (`db182cd`), 7.8k lines of app code, 616 tests. Each plan below is
+Baseline: v2.12.3 (`db182cd`; v2.12.4 and v2.12.5 since then are dependency-only patch releases and change nothing below), 7.8k lines of app code, 616 tests. Each plan below is
 grounded in the current code (file:line references are against that commit).
 Nothing here is implemented yet; this document is the tracking artifact, the same
 way `SECURITY_ASSESSMENT_29-08-26.md` tracks findings.
@@ -24,7 +24,7 @@ note:
 | Delegated OCSP responder on by default | Responder ID / signer in OCSP responses changes for every CA |
 | Hash matched to curve on by default | New signatures from P-384/P-521 CAs change algorithm |
 
-Recommendation: ship the assessment fixes as a **2.12.4 patch** first (§4.2), then the
+Recommendation: ship the assessment fixes as a **2.12.6 patch** first (§4.2), then the
 sequence of minors in §2, then decide at 2.18 whether the flips are worth a 3.0. ACME
 and PostgreSQL are large but not breaking; they do not force a major on their own.
 
@@ -32,7 +32,7 @@ and PostgreSQL are large but not breaking; they do not force a major on their ow
 
 | Release | Theme | Features | Size |
 |---|---|---|---|
-| 2.12.4 | Assessment fixes | Patch batch from §4.2 (G4-2, G8-1, G8-2, G8-3 code half, G7-2/3/4/5, G6-2/3, G10-1, …); no features | M |
+| 2.12.6 | Assessment fixes | Patch batch from §4.2 (G4-2, G8-1, G8-2, G8-3 code half, G7-2/3/4/5, G6-2/3, G10-1, …); no features | M |
 | 2.13.0 | Policy | F1 server-side profiles (+ G7-1 max key size), F4 URI/UPN SANs, F15 list search/filter, F18 passphrase rotation | L |
 | 2.14.0 | Lifecycle | F8 in-app scheduler (closes G4-1), F10 time-based webhook events, F9 renew/re-key | L |
 | 2.15.0 | Algorithms | F5 Ed25519/Ed448, F6 hash-by-curve (flag) + RSA-3072, F2 Name Constraints, F3 Certificate Policies | L |
@@ -47,7 +47,7 @@ Dependencies: F10 needs F8. F13 should land after F12 (a TOTP user must have a
 non-password API path). F14 needs F1 (issuance profile per CA), F8 (order/nonce
 cleanup) and realistically the TLS overlay. F7 renewal of responder certs needs F8.
 F16 anchoring needs F8 + webhooks. F18 needs the encrypted-column registry, and F7 and
-F13 register their new ciphertext columns with it. The 2.12.4 batch goes first because
+F13 register their new ciphertext columns with it. The 2.12.6 batch goes first because
 several features build on its guards: F9 on the revoked/expired-parent checks (G4-2,
 G4-6), F7 on the OCSP malformed/GET handling (G8-2), F9 and F14 on the CSR single-flight
 guard (G7-4).
@@ -128,7 +128,7 @@ import (G7-1 regression test).
 working until the 3.0 flip.
 
 **Assessment links.** G7-1 (the ceiling and allow-list; the missing
-`enforce_key_strength` call in `csr_service` is patched in 2.12.4). G4-4: the default
+`enforce_key_strength` call in `csr_service` is patched in 2.12.6). G4-4: the default
 Key Usage comes from the profile and is keyed by key type, so EC and Ed leaves no
 longer get `keyEncipherment`.
 
@@ -275,7 +275,7 @@ responder cert; parametrise existing OCSP tests on delegated/direct; revoked-sta
 cache key still honoured; expired responder falls back and is renewed by the tick.
 
 **Assessment links.** Builds on the G8-2 patch (malformedRequest at 200, GET form)
-from 2.12.4; the delegated path must serve both request forms.
+from 2.12.6; the delegated path must serve both request forms.
 
 ## F8. In-app scheduler (2.14.0, M) — closes G4-1
 
@@ -621,7 +621,7 @@ approver; break-glass exempt; nothing changes while the mode is inactive. README
 ## 4. Assessment findings folded into the plan
 
 Every code-level finding in `SECURITY_ASSESSMENT_29-08-26.md` now has a home in one
-of two buckets: the **2.12.4 patch batch** of small fixes that ships before any
+of two buckets: the **2.12.6 patch batch** of small fixes that ships before any
 feature, and **feature-bound** items that are cheaper to do inside the feature
 touching the same code. Findings that describe the state of a particular
 installation rather than the code are out of scope for this plan: an installation is
@@ -632,51 +632,51 @@ corroboration material for a finding, not a plan item.
 | Finding | Sev | Disposition |
 |---|---|---|
 | G4-1 CRLs expire with no in-app refresh | High | **F8** (lazy refresh + scheduler) |
-| G4-2 sub-CA under a revoked parent | Med | **2.12.4** |
-| G7-1 unbounded CSR keygen | Med | **2.12.4** (missing `enforce_key_strength` call) + **F1** (ceiling, allow-list) |
-| G8-1 non-latin-1 filenames | Med | **2.12.4** |
-| G8-3 Host-derived AIA/CDP | Med | Refuse-loopback guard and shared hostname helper in **2.12.4**; helper reused by F14 |
+| G4-2 sub-CA under a revoked parent | Med | **2.12.6** |
+| G7-1 unbounded CSR keygen | Med | **2.12.6** (missing `enforce_key_strength` call) + **F1** (ceiling, allow-list) |
+| G8-1 non-latin-1 filenames | Med | **2.12.6** |
+| G8-3 Host-derived AIA/CDP | Med | Refuse-loopback guard and shared hostname helper in **2.12.6**; helper reused by F14 |
 | G3-1 dual-control bypass via user management | Med (cond.) | **F19** |
 | G4-3 non-RSA/EC CSR keys accepted | Low | **F5** (explicit allow-list + `else: raise`) |
 | G4-4 curve by size, EC keyEncipherment, SAN prefixes | Low | **F6** (curve identity), **F1** (KU by key type), **F4** (prefix rejection) |
-| G6-2 admin-set passwords bypass policy | Low | **2.12.4** |
-| G6-3 `next` never honoured | Low | **2.12.4** |
+| G6-2 admin-set passwords bypass policy | Low | **2.12.6** |
+| G6-3 `next` never honoured | Low | **2.12.6** |
 | G6-4 no session invalidation | Low | **F13** (session versioning) |
-| G7-2 ValueError → 500 in csr routes | Low | **2.12.4** |
-| G7-3 negative path_length, free-text reason | Low | **2.12.4** |
-| G8-2 OCSP malformed → 500, no GET form | Low | **2.12.4** (F7 builds on it) |
-| G2-1 `SECRET_KEY`/`ADMIN_PASSWORD` as env literals in the reference compose | Low | **2.12.4** (compose, `.env.example`, README move both to `_FILE` secrets) |
-| G10-1 audit row lost on CRL-refresh failure | Low | **2.12.4** |
+| G7-2 ValueError → 500 in csr routes | Low | **2.12.6** |
+| G7-3 negative path_length, free-text reason | Low | **2.12.6** |
+| G8-2 OCSP malformed → 500, no GET form | Low | **2.12.6** (F7 builds on it) |
+| G2-1 `SECRET_KEY`/`ADMIN_PASSWORD` as env literals in the reference compose | Low | **2.12.6** (compose, `.env.example`, README move both to `_FILE` secrets) |
+| G10-1 audit row lost on CRL-refresh failure | Low | **2.12.6** |
 | G10-2 CLI mutations unaudited | Low | **F8** (system actor) |
-| G13-1 migrate-to-hsm `--yes`, orphan object | Low | **2.12.4** (orphan cleanup, `--yes` needs `--ca-id`); audit via F8 |
+| G13-1 migrate-to-hsm `--yes`, orphan object | Low | **2.12.6** (orphan cleanup, `--yes` needs `--ca-id`); audit via F8 |
 | G13-2 no passphrase rotation | Low | **F18** |
-| G17-1 unpinned CI tooling | Low | **2.12.4** |
+| G17-1 unpinned CI tooling | Low | **2.12.6** |
 | G18-1 base image one openssl patch behind | Low | Dependabot digest bump |
-| G20-1 README exec examples | Low | **2.12.4** |
-| G22-1 test gaps | Low | Each 2.12.4 item lands with its negative test; OCSP test flipped to `MALFORMED_REQUEST` |
-| G4-6 intermediate under an expired parent | Info | **2.12.4** (same guard as G4-2) |
-| G5-1 PIN strength unchecked, no SO PIN rotation path | Info | **2.12.4** (startup warning); re-key procedure documented with **F11** |
-| G16-1 secret strength unchecked beyond the literal defaults | Info | **2.12.4** (startup warning) + **F18** (rotation) |
+| G20-1 README exec examples | Low | **2.12.6** |
+| G22-1 test gaps | Low | Each 2.12.6 item lands with its negative test; OCSP test flipped to `MALFORMED_REQUEST` |
+| G4-6 intermediate under an expired parent | Info | **2.12.6** (same guard as G4-2) |
+| G5-1 PIN strength unchecked, no SO PIN rotation path | Info | **2.12.6** (startup warning); re-key procedure documented with **F11** |
+| G16-1 secret strength unchecked beyond the literal defaults | Info | **2.12.6** (startup warning) + **F18** (rotation) |
 | G15-1 reference compose is plain HTTP by design | Info | Deployment choice; TLS overlay already shipped; not in the plan |
-| G4-7 import parent not signature-verified | Info | **2.12.4** |
-| G4-8 revoked CA's own CRL expires | Info | **2.12.4** (final CRL with `nextUpdate` = CA `notAfter`) |
+| G4-7 import parent not signature-verified | Info | **2.12.6** |
+| G4-8 revoked CA's own CRL expires | Info | **2.12.6** (final CRL with `nextUpdate` = CA `notAfter`) |
 | G5-2 HSM backend nits | Info | **F5 / F6** |
 | G5-3 SHA-256 on P-384/P-521 | Info | **F6** |
 | G6-5 Basic cache after password change | Info | **F13** with G6-4 |
-| G7-4 CSR double-issue race | Info | **2.12.4** (single-flight guard; F9 and F14 rely on it) |
-| G7-5 empty `parent_id` silently creates a root | Info | **2.12.4** |
+| G7-4 CSR double-issue race | Info | **2.12.6** (single-flight guard; F9 and F14 rely on it) |
+| G7-5 empty `parent_id` silently creates a root | Info | **2.12.6** |
 | G7-6 SSRF via admin-configured URLs | Info | **F14** (`net_policy`, shared with webhooks and LDAP test) |
 | G8-4 CRL cache headers, public rate limit | Info | **F8** |
-| G9-1 CA serial has no DB uniqueness | Info | **2.12.4** (unique index) |
+| G9-1 CA serial has no DB uniqueness | Info | **2.12.6** (unique index) |
 | G10-3 audit growth / retention | Info | **F16** (`AUDIT_RETENTION_DAYS` with checkpoint) |
-| G12-1 `ocsp_server` without `tojson` | Info | **2.12.4** |
+| G12-1 `ocsp_server` without `tojson` | Info | **2.12.6** |
 | G14-2 writable rootfs, no access log | Info | **3.0.0** compose hardening |
-| G17-2 Trivy only on release tags | Info | **2.12.4** (weekly report-only rescan of the published image) |
-| G18-2 stale regeneration comment | Info | **2.12.4** |
-| G19-2 no key globs in `.gitignore` | Info | **2.12.4** (no tracked `.pem`/`.key`/`.p12` files exist, so the globs are safe) |
+| G17-2 Trivy only on release tags | Info | **2.12.6** (weekly report-only rescan of the published image) |
+| G18-2 stale regeneration comment | Info | **2.12.6** |
+| G19-2 no key globs in `.gitignore` | Info | **2.12.6** (no tracked `.pem`/`.key`/`.p12` files exist, so the globs are safe) |
 | G1-1 per-worker limiter, G1-2 CDN in CSP, G1-3 bare-metal boot race, G2-2 update check, G6-6 `Sec-Fetch-Site`, G11-1, G14-1 PIN on cmdline, G19-1 untracked scripts, G23-1 history blob | Info | Accepted or owner decision; not in the plan (F13 renders its QR inline, so no new CDN origin is added) |
 
-### 4.2 The 2.12.4 patch batch (fixes only, one PR)
+### 4.2 The 2.12.6 patch batch (fixes only, one PR)
 
 1. **G4-2, G4-6.** `create_intermediate_ca` refuses a revoked or expired parent
    (`ca_service.py:147-150` gains both checks); `ca.create` (`ca.py:186-199`) and
@@ -731,7 +731,7 @@ corroboration material for a finding, not a plan item.
     `SECRET_KEY` is shorter than the generator's output, and the entrypoint warns when a
     PIN file is; warnings only, so no existing deployment fails to boot.
 
-Every item ships with its negative test (G22-1). Version bump to 2.12.4, patch
+Every item ships with its negative test (G22-1). Version bump to 2.12.6, patch
 release.
 
 ## Not planned now
