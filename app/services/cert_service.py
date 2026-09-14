@@ -58,6 +58,50 @@ EKU_MAP = {
 }
 
 
+class CsrAlreadyProcessed(ValueError):
+    """The CSR is no longer pending: already signed or rejected, or a concurrent
+    request is signing it right now (G7-4)."""
+
+
+def _claim_csr(csr_model):
+    """G7-4: atomically move the CSR from `pending` to `signing` so two workers
+    cannot both issue from one CSR (the route's status check is check-then-act).
+    Committed immediately so the claim is visible to the other worker."""
+    from sqlalchemy import update
+    from ..models.csr import CertificateSigningRequest
+
+    result = db.session.execute(
+        update(CertificateSigningRequest)
+        .where(CertificateSigningRequest.id == csr_model.id,
+               CertificateSigningRequest.status == "pending")
+        .values(status="signing")
+    )
+    if result.rowcount != 1:
+        db.session.rollback()
+        raise CsrAlreadyProcessed("This CSR has already been processed.")
+    db.session.commit()
+    db.session.refresh(csr_model)
+
+
+def _release_csr(csr_model):
+    """Undo a claim after a signing failure so the CSR can be retried."""
+    from sqlalchemy import update
+    from ..models.csr import CertificateSigningRequest
+
+    db.session.rollback()
+    db.session.execute(
+        update(CertificateSigningRequest)
+        .where(CertificateSigningRequest.id == csr_model.id,
+               CertificateSigningRequest.status == "signing")
+        .values(status="pending")
+    )
+    db.session.commit()
+    try:
+        db.session.refresh(csr_model)
+    except Exception:
+        pass
+
+
 def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
              key_usage=None, extended_key_usage=None, ocsp_url=None,
              crl_dp_url=None, signed_by=None):
@@ -74,6 +118,19 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
         raise ValueError("CSR signature is invalid (proof-of-possession failed); refusing to sign.")
     enforce_public_key_strength(csr.public_key())  # B5
 
+    _claim_csr(csr_model)
+    try:
+        return _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
+                                 san_list, key_usage, extended_key_usage, ocsp_url,
+                                 crl_dp_url, signed_by)
+    except Exception:
+        _release_csr(csr_model)
+        raise
+
+
+def _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
+                      san_list, key_usage, extended_key_usage, ocsp_url,
+                      crl_dp_url, signed_by):
     now = datetime.now(timezone.utc)
     # PKI-4: refuse issuance from an expired (but not-yet-revoked) CA with a
     # clear error, rather than an opaque 500 or a silently ultra-short cert.

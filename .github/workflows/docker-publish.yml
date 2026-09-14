@@ -37,19 +37,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends softhsm2 libffi-dev
 
-      - name: Install dependencies (hash-locked)
+      - name: Install dependencies (hash-locked, CI tooling included — G17-1)
         run: |
-          python -m pip install --upgrade pip
           pip install --require-hashes -r requirements.txt
-          pip install pytest
+          pip install --require-hashes -r requirements-ci.txt
 
       - name: Run test suite
         run: python -m pytest tests/ -q
 
       - name: Dependency vulnerability audit (pip-audit, I2)
-        run: |
-          pip install pip-audit
-          pip-audit --requirement requirements.txt --desc
+        run: pip-audit --requirement requirements.txt --desc
+
+  image-rescan:
+    # G17-2: the weekly schedule re-scans the PUBLISHED image, not just the
+    # pins, so newly disclosed base-image CVEs surface between releases.
+    # Report-only, like the release-time scan.
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Trivy rescan of the published image (report-only)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
 
   build-and-push:
     needs: test

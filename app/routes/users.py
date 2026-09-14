@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
+from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import current_user
 
 from ..decorators import admin_required
@@ -41,8 +41,16 @@ def create_user():
             flash("Username already exists.", "danger")
             return render_template("users/create.html")
 
+        min_len = current_app.config.get("MIN_PASSWORD_LENGTH", 12)
+        if len(password) < min_len:  # G6-2: same floor as self-service changes
+            flash(f"Password must be at least {min_len} characters.", "danger")
+            return render_template("users/create.html")
+
         user = User(username=username, role=role)
         user.set_password(password)
+        # G6-2: an admin-chosen password is a bootstrap credential — the user
+        # picks their own on first login, exactly like the seeded admin.
+        user.must_change_password = True
         db.session.add(user)
         db.session.flush()
         audit_service.log_action("create_user", target_type="user", target_id=user.id,
@@ -134,8 +142,13 @@ def reset_password(user_id):
         if not new_password:
             flash("Password is required.", "danger")
             return render_template("users/reset_password.html", user=user)
+        min_len = current_app.config.get("MIN_PASSWORD_LENGTH", 12)
+        if len(new_password) < min_len:  # G6-2
+            flash(f"Password must be at least {min_len} characters.", "danger")
+            return render_template("users/reset_password.html", user=user)
 
         user.set_password(new_password)
+        user.must_change_password = True  # G6-2: rotate on first login
         # AUTH-4: a password reset should also lift any brute-force lockout so
         # the account is immediately usable again.
         auth_service.clear_lockout(user)

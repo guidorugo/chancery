@@ -213,6 +213,17 @@ class Pkcs11Backend(KeyBackend):
             session.create_object(template)
         return label
 
+    def destroy_key(self, label):
+        """Remove every token object carrying `label` — cleanup after a failed
+        migration (G13-1) so no orphaned private object stays in the token.
+        Returns the number of objects destroyed."""
+        from pkcs11 import Attribute
+        with pkcs11_session.session_scope() as session:
+            objects = list(session.get_objects({Attribute.LABEL: label}))
+            for obj in objects:
+                obj.destroy()
+            return len(objects)
+
     def load_public_key(self, ca):
         return x509.load_pem_x509_certificate(ca.certificate_pem.encode()).public_key()
 

@@ -34,7 +34,17 @@ def refresh_crl(ca, passphrase):
     return generate_crl(ca, passphrase)
 
 
-def revoke_certificate(cert_id, reason="unspecified", passphrase=None):
+def revoke_certificate(cert_id, reason="unspecified", passphrase=None, *,
+                       commit=True, refresh=True):
+    """Mark a certificate revoked.
+
+    G10-1: the routes pass commit=False/refresh=False so the audit row lands in
+    the same transaction as the state change, and run the CRL refresh
+    themselves afterwards (a refresh failure must not lose the audit row or
+    turn an already-persisted revocation into a 500).
+    """
+    if reason not in REVOCATION_REASONS:
+        raise ValueError("Invalid revocation reason.")
     certificate = db.session.get(Certificate, cert_id)
     if not certificate:
         raise ValueError("Certificate not found")
@@ -44,16 +54,51 @@ def revoke_certificate(cert_id, reason="unspecified", passphrase=None):
     certificate.is_revoked = True
     certificate.revoked_at = datetime.now(timezone.utc)
     certificate.revocation_reason = reason
-    db.session.commit()
+    if commit:
+        db.session.commit()
 
     # B2: publish the revocation immediately by regenerating the issuing CA's
     # CRL, instead of serving a stale cached CRL until a manual regeneration.
-    if passphrase is not None:
+    if refresh and passphrase is not None:
         refresh_crl(certificate.ca, passphrase)
     return certificate
 
 
-def revoke_ca(ca_id, reason="unspecified", passphrase=None):
+def _revoked_subtree(ca):
+    """`ca` plus every revoked descendant, depth-first."""
+    out = [ca]
+    for child in ca.children:
+        if child.is_revoked:
+            out.extend(_revoked_subtree(child))
+    return out
+
+
+def publish_final_crl(ca, passphrase):
+    """G4-8: a revoked CA can never regenerate its CRL again (the UI, CLI and
+    scheduler all skip revoked CAs), so its last CRL must stay valid until the
+    CA certificate itself expires — otherwise validators of an old leaf see
+    "CRL expired" instead of "revoked". No-op for keyless/pending/expired CAs.
+    """
+    if not ca or not ca.has_signing_key or ca.approval_status == "pending":
+        return None
+    not_after = ca.not_after if ca.not_after.tzinfo else ca.not_after.replace(tzinfo=timezone.utc)
+    if not_after <= datetime.now(timezone.utc):
+        return None
+    return generate_crl(ca, passphrase, next_update=not_after)
+
+
+def publish_revocation_crls(ca, passphrase):
+    """CRL publication after `revoke_ca`: the parent's CRL now lists the revoked
+    intermediate (B3), and every CA in the revoked subtree publishes a final CRL
+    covering its now-revoked leaves (G4-8)."""
+    refresh_crl(ca.parent, passphrase)
+    for rca in _revoked_subtree(ca):
+        publish_final_crl(rca, passphrase)
+
+
+def revoke_ca(ca_id, reason="unspecified", passphrase=None, *, commit=True, refresh=True):
+    if reason not in REVOCATION_REASONS:
+        raise ValueError("Invalid revocation reason.")
     ca = db.session.get(CertificateAuthority, ca_id)
     if not ca:
         raise ValueError("CA not found")
@@ -88,18 +133,17 @@ def revoke_ca(ca_id, reason="unspecified", passphrase=None):
                 _revoke_ca_recursive(child_ca)
 
     _revoke_ca_recursive(ca)
-    db.session.commit()
+    if commit:
+        db.session.commit()
 
-    if passphrase is not None:
-        # B3: the parent's CRL must now list the revoked intermediate.
-        refresh_crl(ca.parent, passphrase)
-        # Publish each revoked CA's own CRL (its now-revoked leaf certs).
-        for rca in revoked_cas:
-            refresh_crl(rca, passphrase)
+    if refresh and passphrase is not None:
+        publish_revocation_crls(ca, passphrase)
     return ca, certs_revoked, sub_cas_revoked
 
 
-def generate_crl(ca, passphrase, validity_days=None):
+def generate_crl(ca, passphrase, validity_days=None, next_update=None):
+    """Sign and cache a fresh CRL. `next_update` (aware datetime) overrides the
+    `validity_days` window — used for a revoked CA's final CRL (G4-8)."""
     if not ca.has_signing_key:
         raise ValueError("This CA was imported without its private key and cannot sign CRLs.")
     if ca.approval_status == "pending":
@@ -114,6 +158,8 @@ def generate_crl(ca, passphrase, validity_days=None):
     ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
 
     now = datetime.now(timezone.utc)
+    if next_update is None:
+        next_update = now + timedelta(days=validity_days)
     # F3: atomic increment so concurrent workers can't mint duplicate CRL numbers.
     db.session.query(CertificateAuthority).filter(
         CertificateAuthority.id == ca.id
@@ -127,7 +173,7 @@ def generate_crl(ca, passphrase, validity_days=None):
         x509.CertificateRevocationListBuilder()
         .issuer_name(ca_cert.subject)
         .last_update(now)
-        .next_update(now + timedelta(days=validity_days))
+        .next_update(next_update)
         .add_extension(
             x509.CRLNumber(ca.crl_number),
             critical=False,

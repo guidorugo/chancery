@@ -341,7 +341,9 @@ def test_migrate_to_hsm_cli(app, db, hsm_config):
         assert ca.key_backend == "software" and ca.private_key_enc != b""
         ca_id = ca.id
 
-        result = app.test_cli_runner().invoke(args=["keys", "migrate-to-hsm", "--yes"])
+        # G13-1: --yes only together with --ca-id (bulk migrations stay interactive).
+        result = app.test_cli_runner().invoke(
+            args=["keys", "migrate-to-hsm", "--ca-id", str(ca_id), "--yes"])
         assert result.exit_code == 0, result.output
 
         migrated = db.session.get(ca_service.CertificateAuthority, ca_id)
@@ -355,6 +357,50 @@ def test_migrate_to_hsm_cli(app, db, hsm_config):
         x509.load_pem_x509_certificate(cert.certificate_pem.encode()).verify_directly_issued_by(ca_cert)
         # and export is now refused
         assert migrated.is_exportable is False
+
+
+def test_migrate_to_hsm_failed_verification_cleans_up(app, db, hsm_config, monkeypatch):
+    """G13-1: when the post-import verification fails, the CA is left untouched
+    (software-backed, key intact), the imported token object is destroyed
+    instead of orphaned, and the failure is audited."""
+    import app.cli as cli_module
+    from app.models.audit_log import AuditLog
+    from app.services.keybackend import pkcs11_session
+    from pkcs11 import Attribute
+
+    with app.app_context():
+        ca = ca_service.create_root_ca(
+            name="Fail Verify", subject_attrs={"CN": "Fail Verify"},
+            key_type="RSA", key_size=2048, validity_days=3650,
+            passphrase=PASSPHRASE, backend="software")
+        ca_id, enc_before = ca.id, ca.private_key_enc
+        label = "orphan-test-" + ca.serial_number[:8]
+
+        monkeypatch.setattr(cli_module, "_key_label", lambda: label)
+
+        def refuse(self, _ca):
+            raise RuntimeError("token refused the test signature")
+
+        monkeypatch.setattr(Pkcs11Backend, "verify_signing_key", refuse)
+        result = app.test_cli_runner().invoke(
+            args=["keys", "migrate-to-hsm", "--ca-id", str(ca_id), "--yes"])
+        assert result.exit_code != 0
+        assert "Verification failed" in result.output
+
+        db.session.expire_all()
+        again = db.session.get(ca_service.CertificateAuthority, ca_id)
+        assert again.key_backend == "software"
+        assert again.private_key_enc == enc_before
+        assert again.key_label is None
+
+        with pkcs11_session.session_scope() as session:
+            assert list(session.get_objects({Attribute.LABEL: label})) == []
+
+        assert AuditLog.query.filter_by(action="migrate_to_hsm_failed", target_id=ca_id).count() == 1
+        # the CA still works with its software key
+        cert = cert_service.create_certificate(
+            again, {"CN": "still-software"}, [], 30, PASSPHRASE, key_type="RSA", key_size=2048)
+        assert cert.id
 
 
 def test_create_ca_route_selects_hsm_backend(client, admin_user, app, db, hsm_config):

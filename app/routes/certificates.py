@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 
 from flask import (
     Blueprint, render_template, redirect, url_for, flash,
@@ -13,17 +12,26 @@ from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..models.certificate import Certificate
 from ..responses import api_error, wants_json
-from ..services import cert_service, crl_service, audit_service, dual_control_service
+from ..services import cert_service, crl_service, audit_service, dual_control_service, public_url
+from ..services.filenames import content_disposition
 
 logger = logging.getLogger(__name__)
 
 
-def _safe_filename(name, extension):
-    """Sanitize user-provided name for Content-Disposition header."""
-    safe = re.sub(r'[^\w.\-]', '_', name)
-    return f'attachment; filename="{safe}.{extension}"'
-
 certificates_bp = Blueprint("certificates", __name__, url_prefix="/certificates")
+
+
+def _crl_refresh_warning(refresh):
+    """G10-1: run the post-revocation CRL refresh; a failure becomes a warning
+    string (the revocation and its audit row are already committed)."""
+    try:
+        refresh()
+        return None
+    except Exception as exc:
+        logger.exception("CRL refresh after revocation failed")
+        db.session.rollback()
+        return (f"Revoked, but the CRL refresh failed: {exc}. "
+                "Regenerate the CRL from the CA page.")
 
 
 @certificates_bp.route("/")
@@ -61,10 +69,8 @@ def create():
         locality = request.form.get("locality", "").strip()
         key_type = request.form.get("key_type", "RSA")
 
-        ocsp_server = current_app.config.get("SERVER_NAME_FOR_OCSP", "localhost:5000")
-        if ocsp_server == "localhost:5000":
-            ocsp_server = request.host
-        ocsp_scheme = current_app.config.get("OCSP_URL_SCHEME", "http")
+        ocsp_server = public_url.public_host()
+        ocsp_scheme = public_url.public_scheme()
 
         def _err(message, status=400):
             if wants_json():
@@ -99,11 +105,12 @@ def create():
         san_list = [s.strip() for s in san_raw.split("\n") if s.strip()] if san_raw else []
         passphrase = current_app.config["MASTER_PASSPHRASE"]
 
-        # Build OCSP URL and CRL DP URL
-        ocsp_url = f"{ocsp_scheme}://{ocsp_server}/public/ocsp/{ca_id}"
-        crl_dp_url = request.form.get("crl_dp_url", "").strip()
-        if not crl_dp_url:
-            crl_dp_url = f"{ocsp_scheme}://{ocsp_server}/public/crl/{ca_id}.crl"
+        # Build OCSP URL and CRL DP URL (G8-3: a loopback hostname is refused —
+        # it would be baked into the certificate for life).
+        try:
+            ocsp_url, crl_dp_url = public_url.issuance_urls(ca_id, request.form.get("crl_dp_url"))
+        except ValueError as e:
+            return _err(str(e))
 
         # Parse Key Usage and Extended Key Usage from checkboxes
         # If no ku_* fields are present at all (e.g. API call), use service defaults
@@ -156,12 +163,9 @@ def create():
             return _err("An unexpected error occurred while creating the certificate.", 500)
 
     cas = CertificateAuthority.signing_capable().all()
-    server = current_app.config.get("SERVER_NAME_FOR_OCSP", "localhost:5000")
-    if server == "localhost:5000":
-        server = request.host
-    scheme = current_app.config.get("OCSP_URL_SCHEME", "http")
     return render_template("certificates/create.html", cas=cas,
-                           ocsp_scheme=scheme, ocsp_server=server)
+                           ocsp_scheme=public_url.public_scheme(),
+                           ocsp_server=public_url.public_host())
 
 
 @certificates_bp.route("/<int:cert_id>")
@@ -218,21 +222,44 @@ def revoke(cert_id):
 
     if request.method == "POST":
         reason = request.form.get("reason", "unspecified")
+        if reason not in crl_service.REVOCATION_REASONS:  # G7-3
+            if wants_json():
+                return api_error("Invalid revocation reason.", 400)
+            flash("Invalid revocation reason.", "danger")
+            return redirect(url_for("certificates.revoke", cert_id=cert_id))
+        passphrase = current_app.config["MASTER_PASSPHRASE"]
         try:
-            crl_service.revoke_certificate(
-                cert_id, reason, passphrase=current_app.config["MASTER_PASSPHRASE"])
+            # G10-1: the state change and its audit row commit together; the
+            # CRL refresh runs afterwards and cannot lose either.
+            crl_service.revoke_certificate(cert_id, reason, passphrase=passphrase,
+                                           commit=False, refresh=False)
             audit_service.log_action("revoke_certificate", target_type="certificate", target_id=cert_id,
                                      details={"reason": reason})
             db.session.commit()
+        except ValueError as e:
+            db.session.rollback()
             if wants_json():
-                return jsonify(certificate.to_dict(detail=True))
-            flash(f"Certificate '{certificate.common_name}' revoked.", "success")
+                return api_error(str(e), 409 if "already revoked" in str(e) else 400)
+            flash(str(e), "danger")
             return redirect(url_for("certificates.detail", cert_id=cert_id))
         except Exception:
+            db.session.rollback()
             logger.exception("Error revoking certificate")
             if wants_json():
                 return api_error("An unexpected error occurred while revoking the certificate.", 500)
             flash("An unexpected error occurred while revoking the certificate.", "danger")
+        else:
+            warning = _crl_refresh_warning(
+                lambda: crl_service.refresh_crl(certificate.ca, passphrase))
+            if wants_json():
+                payload = certificate.to_dict(detail=True)
+                if warning:
+                    payload["warning"] = warning
+                return jsonify(payload)
+            flash(f"Certificate '{certificate.common_name}' revoked.", "success")
+            if warning:
+                flash(warning, "warning")
+            return redirect(url_for("certificates.detail", cert_id=cert_id))
 
     return render_template("certificates/revoke.html", cert=certificate)
 
@@ -267,7 +294,7 @@ def download(cert_id):
         return Response(
             data,
             mimetype="application/x-x509-ca-cert",
-            headers={"Content-Disposition": _safe_filename(certificate.common_name, "der")},
+            headers={"Content-Disposition": content_disposition(certificate.common_name, "der", fallback=f"certificate-{certificate.id}")},
         )
     elif fmt == "pkcs12":
         passphrase = current_app.config["MASTER_PASSPHRASE"]
@@ -277,7 +304,7 @@ def download(cert_id):
             return Response(
                 data,
                 mimetype="application/x-pkcs12",
-                headers={"Content-Disposition": _safe_filename(certificate.common_name, "p12")},
+                headers={"Content-Disposition": content_disposition(certificate.common_name, "p12", fallback=f"certificate-{certificate.id}")},
             )
         except ValueError as e:
             flash(str(e), "danger")
@@ -288,7 +315,7 @@ def download(cert_id):
         return Response(
             data,
             mimetype="application/x-pem-file",
-            headers={"Content-Disposition": _safe_filename(f"{certificate.common_name}-fullchain", "pem")},
+            headers={"Content-Disposition": content_disposition(f"{certificate.common_name}-fullchain", "pem", fallback=f"certificate-{certificate.id}")},
         )
     elif fmt == "chain":
         # issuing CA chain only (no leaf); public material, GET is fine.
@@ -296,14 +323,14 @@ def download(cert_id):
         return Response(
             data,
             mimetype="application/x-pem-file",
-            headers={"Content-Disposition": _safe_filename(f"{certificate.common_name}-chain", "pem")},
+            headers={"Content-Disposition": content_disposition(f"{certificate.common_name}-chain", "pem", fallback=f"certificate-{certificate.id}")},
         )
     else:
         data = cert_service.export_certificate_pem(certificate)
         return Response(
             data,
             mimetype="application/x-pem-file",
-            headers={"Content-Disposition": _safe_filename(certificate.common_name, "pem")},
+            headers={"Content-Disposition": content_disposition(certificate.common_name, "pem", fallback=f"certificate-{certificate.id}")},
         )
 
 
@@ -334,5 +361,5 @@ def download_key(cert_id):
     return Response(
         key_pem,
         mimetype="application/x-pem-file",
-        headers={"Content-Disposition": _safe_filename(certificate.common_name, "key")},
+        headers={"Content-Disposition": content_disposition(certificate.common_name, "key", fallback=f"certificate-{certificate.id}")},
     )

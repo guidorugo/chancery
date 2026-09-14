@@ -231,11 +231,21 @@ def _setup_basic_auth(app):
     def _redirect_to_login():
         from flask import flash, redirect, url_for
         flash("Please log in to access this page.", "warning")
-        return redirect(url_for(login_manager.login_view, next=request.url))
+        # G6-3: pass a path-only target — `_is_safe_url` (rightly) rejects the
+        # absolute URL that was passed before, so `next` was never honoured.
+        target = request.full_path if request.query_string else request.path
+        return redirect(url_for(login_manager.login_view, next=target))
+
+
+# G16-1: scripts/init-secrets.sh generates a 64-char SECRET_KEY and a 32-char
+# MASTER_PASSPHRASE. Values well below that are warned about at startup (never
+# refused — nothing may stop booting over this).
+MIN_RECOMMENDED_SECRET_KEY_LEN = 32
+MIN_RECOMMENDED_PASSPHRASE_LEN = 20
 
 
 def _check_security(app):
-    """Reject insecure defaults in production."""
+    """Reject insecure defaults in production; warn about weak-looking secrets."""
     if app.config.get("TESTING"):
         return
     if app.debug:
@@ -265,6 +275,20 @@ def _check_security(app):
         print("FATAL: MASTER_PASSPHRASE is unset, blank, or the insecure default. "
               "Set a strong MASTER_PASSPHRASE.", file=sys.stderr)
         sys.exit(1)
+
+    # G16-1: no strength check existed beyond the two literal defaults, so a
+    # deployment that predates the secret generator (or typed its own values)
+    # ran unnoticed. Warn only.
+    if len(secret) < MIN_RECOMMENDED_SECRET_KEY_LEN:
+        print(f"WARNING: SECRET_KEY is only {len(secret)} characters "
+              "(scripts/init-secrets.sh generates 64). A guessable SECRET_KEY lets an "
+              "attacker forge admin sessions — rotate it (active sessions drop once).",
+              file=sys.stderr)
+    if len(passphrase) < MIN_RECOMMENDED_PASSPHRASE_LEN:
+        print(f"WARNING: MASTER_PASSPHRASE is only {len(passphrase)} characters "
+              "(scripts/init-secrets.sh generates 32). Every software CA key and escrowed "
+              "leaf key is wrapped under it; a short value is crackable offline from a "
+              "stolen data/ directory.", file=sys.stderr)
 
     # NOTE: the ADMIN_PASSWORD insecure-default guard lives in
     # _create_default_admin — it only matters when the seed actually creates the
@@ -562,6 +586,21 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificate_authorities ADD COLUMN approved_at DATETIME"
             ))
+        # G9-1: DB-level uniqueness for CA serials (generated serials are random
+        # and imports check in code; the index closes the race). Committed first
+        # and guarded so a legacy DB with a duplicate keeps booting.
+        db.session.commit()
+        try:
+            db.session.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_certificate_authorities_serial "
+                "ON certificate_authorities (serial_number)"
+            ))
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not create the unique index on certificate_authorities.serial_number: %s", exc)
 
     # Migrate certificates table
     if "certificates" in inspector.get_table_names():

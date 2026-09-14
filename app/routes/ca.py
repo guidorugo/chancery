@@ -1,5 +1,4 @@
 import logging
-import re
 from datetime import datetime, timezone
 
 from flask import Blueprint, Response, render_template, redirect, url_for, flash, request, current_app, jsonify
@@ -10,6 +9,7 @@ from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..responses import api_error, wants_json
 from ..services import ca_service, crl_service, audit_service, dual_control_service
+from ..services.filenames import content_disposition
 from ..services.keybackend import hsm_available
 
 logger = logging.getLogger(__name__)
@@ -28,12 +28,6 @@ def _get_pem_input(req, textarea_field, file_field):
             raise ValueError(f"Uploaded file exceeds 64KB size limit.")
         return data.decode("utf-8").strip()
     return req.form.get(textarea_field, "").strip()
-
-
-def _safe_filename(name, extension):
-    """Sanitize user-provided name for Content-Disposition header."""
-    safe = re.sub(r'[^\w.\-]', '_', name)
-    return f'attachment; filename="{safe}.{extension}"'
 
 
 def _create_page_context():
@@ -175,6 +169,10 @@ def create():
 
             if not name or not cn:
                 return _err("Name and Common Name are required.")
+            if path_length is not None and path_length < 0:  # G7-3
+                return _err("Path length must be zero or greater.")
+            if ca_type == "intermediate" and not (parent_id or "").strip():  # G7-5
+                return _err("A parent CA is required for an intermediate CA.")
 
             subject_attrs = {
                 "CN": cn, "O": org, "OU": ou,
@@ -188,9 +186,13 @@ def create():
                         parent_ca_id = int(parent_id)
                     except ValueError:
                         return _err("Invalid parent CA ID.")
-                    parent_ca = db.session.get(CertificateAuthority, parent_ca_id)
+                    # G4-2: resolve through signing_capable() so a revoked,
+                    # pending or keyless parent is refused server-side too
+                    # (the dropdown only hides them).
+                    parent_ca = CertificateAuthority.signing_capable().filter_by(id=parent_ca_id).first()
                     if not parent_ca:
-                        return _err("Parent CA not found.")
+                        return _err("Parent CA not found, or it cannot sign (revoked, awaiting "
+                                    "approval, or without a private key).")
                     ca = ca_service.create_intermediate_ca(
                         name, parent_ca, subject_attrs, key_type, key_size,
                         validity_days, passphrase, path_length=path_length,
@@ -327,7 +329,7 @@ def download(ca_id):
         return Response(
             ca_service.get_ca_chain(ca),
             mimetype="application/x-pem-file",
-            headers={"Content-Disposition": _safe_filename(f"{ca.name}-chain", "pem")},
+            headers={"Content-Disposition": content_disposition(f"{ca.name}-chain", "pem", fallback=f"ca-{ca.id}-chain")},
         )
 
     if fmt == "key":
@@ -341,7 +343,7 @@ def download(ca_id):
         return Response(
             key_pem,
             mimetype="application/x-pem-file",
-            headers={"Content-Disposition": _safe_filename(ca.name, "key")},
+            headers={"Content-Disposition": content_disposition(ca.name, "key", fallback=f"ca-{ca.id}")},
         )
 
     if fmt == "pkcs12":
@@ -358,13 +360,13 @@ def download(ca_id):
         return Response(
             data,
             mimetype="application/x-pkcs12",
-            headers={"Content-Disposition": _safe_filename(ca.name, "p12")},
+            headers={"Content-Disposition": content_disposition(ca.name, "p12", fallback=f"ca-{ca.id}")},
         )
 
     return Response(
         ca.certificate_pem,
         mimetype="application/x-pem-file",
-        headers={"Content-Disposition": _safe_filename(ca.name, "pem")},
+        headers={"Content-Disposition": content_disposition(ca.name, "pem", fallback=f"ca-{ca.id}")},
     )
 
 
@@ -386,33 +388,63 @@ def revoke(ca_id):
 
     if request.method == "POST":
         reason = request.form.get("reason", "unspecified")
+        if reason not in crl_service.REVOCATION_REASONS:  # G7-3
+            if wants_json():
+                return api_error("Invalid revocation reason.", 400)
+            flash("Invalid revocation reason.", "danger")
+            return redirect(url_for("ca.revoke", ca_id=ca.id))
+        passphrase = current_app.config["MASTER_PASSPHRASE"]
         try:
+            # G10-1: the state change and its audit row commit together; the
+            # CRL refresh runs afterwards and cannot lose either.
             _, certs_revoked, sub_cas_revoked = crl_service.revoke_ca(
-                ca_id, reason, passphrase=current_app.config["MASTER_PASSPHRASE"])
+                ca_id, reason, passphrase=passphrase, commit=False, refresh=False)
             audit_service.log_action("revoke_ca", target_type="ca", target_id=ca_id,
                                      details={"reason": reason, "certs_revoked": certs_revoked,
                                               "sub_cas_revoked": sub_cas_revoked})
             db.session.commit()
+        except Exception:
+            db.session.rollback()
+            logger.exception("Error revoking CA")
+            if wants_json():
+                return api_error("An unexpected error occurred while revoking the CA.", 500)
+            flash("An unexpected error occurred while revoking the CA.", "danger")
+        else:
+            warning = _crl_refresh_warning(
+                lambda: crl_service.publish_revocation_crls(ca, passphrase))
             msg = f"CA '{ca.name}' revoked."
             if certs_revoked:
                 msg += f" {certs_revoked} certificate(s) revoked."
             if sub_cas_revoked:
                 msg += f" {sub_cas_revoked} sub-CA(s) revoked."
             if wants_json():
-                return jsonify(ca.to_dict(detail=True))
+                payload = ca.to_dict(detail=True)
+                if warning:
+                    payload["warning"] = warning
+                return jsonify(payload)
             flash(msg, "success")
+            if warning:
+                flash(warning, "warning")
             return redirect(url_for("ca.detail", ca_id=ca.id))
-        except Exception:
-            logger.exception("Error revoking CA")
-            if wants_json():
-                return api_error("An unexpected error occurred while revoking the CA.", 500)
-            flash("An unexpected error occurred while revoking the CA.", "danger")
 
     # Count affected items for the confirmation page
     from ..models.certificate import Certificate
     cert_count = Certificate.query.filter_by(ca_id=ca.id, is_revoked=False).count()
     sub_ca_count = _count_active_sub_cas(ca)
     return render_template("ca/revoke.html", ca=ca, cert_count=cert_count, sub_ca_count=sub_ca_count)
+
+
+def _crl_refresh_warning(refresh):
+    """G10-1: run the post-revocation CRL refresh; a failure becomes a warning
+    string (the revocation and its audit row are already committed)."""
+    try:
+        refresh()
+        return None
+    except Exception as exc:
+        logger.exception("CRL refresh after revocation failed")
+        db.session.rollback()
+        return (f"Revoked, but the CRL refresh failed: {exc}. "
+                "Regenerate the CRL from the CA page.")
 
 
 def _count_active_sub_cas(ca):

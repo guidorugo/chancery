@@ -240,6 +240,9 @@ class TestPublicEndpointErrorDisclosure:
         assert b"Traceback" not in resp.data
 
     def test_ocsp_error_generic_message(self, client, app):
+        # G8-2: garbage is answered with an OCSP malformedRequest (HTTP 200);
+        # nothing about the failure leaks into the body either way.
+        from cryptography.x509 import ocsp
         with app.app_context():
             ca_id = self._make_dummy_ca("Test CA OCSP")
 
@@ -248,29 +251,33 @@ class TestPublicEndpointErrorDisclosure:
             data=b"invalid-ocsp-request",
             content_type="application/ocsp-request",
         )
-        assert resp.status_code == 500
-        assert b"Internal server error" in resp.data
+        assert resp.status_code == 200
         assert b"OCSP error:" not in resp.data
+        assert b"Traceback" not in resp.data
+        assert (ocsp.load_der_ocsp_response(resp.data).response_status
+                == ocsp.OCSPResponseStatus.MALFORMED_REQUEST)
 
 
 class TestContentDispositionSanitization:
-    """Content-Disposition filenames are sanitized."""
+    """Content-Disposition filenames are sanitized (shared helper since G8-1)."""
 
-    def test_safe_filename_helper_certificates(self):
-        from app.routes.certificates import _safe_filename
-        result = _safe_filename('test"cert;evil\nname', "pem")
-        assert '"' not in result.split("filename=")[1].strip('"').rstrip('"')
+    def test_injection_characters_never_reach_the_header(self):
+        from app.services.filenames import content_disposition
+        result = content_disposition('test"cert;evil\nname', "pem")
+        ascii_part = result.split("; filename*=")[0]
+        assert ascii_part == 'attachment; filename="test_cert_evil_name.pem"'
         assert "\n" not in result
-        assert ";" not in result.split("filename=")[1]
+        result.encode("ascii")  # the whole header value is ASCII
 
-    def test_safe_filename_helper_public(self):
-        from app.routes.public import _safe_filename
-        result = _safe_filename("my ca; rm -rf /", "crl")
-        assert result == 'attachment; filename="my_ca__rm_-rf__.crl"'
+    def test_shell_metacharacters_replaced(self):
+        from app.services.filenames import content_disposition
+        result = content_disposition("my ca; rm -rf /", "crl")
+        assert result.startswith('attachment; filename="my_ca__rm_-rf__.crl"')
+        assert "filename*=UTF-8''my%20ca%3B%20rm%20-rf%20%2F.crl" in result
 
-    def test_safe_filename_normal_name(self):
-        from app.routes.certificates import _safe_filename
-        result = _safe_filename("example.com", "pem")
+    def test_normal_name_unchanged_without_extended_parameter(self):
+        from app.services.filenames import content_disposition
+        result = content_disposition("example.com", "pem")
         assert result == 'attachment; filename="example.com.pem"'
 
 

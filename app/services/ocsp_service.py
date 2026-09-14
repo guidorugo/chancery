@@ -13,6 +13,19 @@ from .keybackend import backend_for_ca, OcspResponseSpec
 OCSP_RESPONSE_VALIDITY_HOURS = 24
 
 
+class MalformedOcspRequest(ValueError):
+    """The request body is not a DER OCSPRequest (G8-2). The public route
+    answers with an OCSP-level `malformedRequest` at HTTP 200 (RFC 6960
+    §4.2.1) instead of a 500."""
+
+
+def malformed_response() -> bytes:
+    """DER-encoded unsigned OCSPResponse with status malformedRequest."""
+    return ocsp.OCSPResponseBuilder.build_unsuccessful(
+        ocsp.OCSPResponseStatus.MALFORMED_REQUEST
+    ).public_bytes(serialization.Encoding.DER)
+
+
 class _OcspResponseCache:
     """Short-TTL cache of signed OCSP responses (PKI-2).
 
@@ -105,7 +118,10 @@ def build_ocsp_response(ocsp_request_der: bytes, ca, passphrase: str) -> bytes:
     # C1: parse the request and look up the subject BEFORE decrypting the CA
     # key. The key decryption (600k PBKDF2) only runs once we know we have a
     # real subject to sign a response about.
-    ocsp_req = ocsp.load_der_ocsp_request(ocsp_request_der)
+    try:
+        ocsp_req = ocsp.load_der_ocsp_request(ocsp_request_der)
+    except ValueError as exc:
+        raise MalformedOcspRequest(str(exc)) from exc
     serial_hex = format(ocsp_req.serial_number, "x")
     algorithm = _request_hash_algorithm(ocsp_req)
 

@@ -10,7 +10,7 @@ class CertificateAuthority(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), unique=True, nullable=False)
     common_name = db.Column(db.String(200), nullable=False)
-    serial_number = db.Column(db.String(100), nullable=False)
+    serial_number = db.Column(db.String(100), nullable=False, unique=True)  # G9-1
     certificate_pem = db.Column(db.Text, nullable=False)
     private_key_enc = db.Column(db.LargeBinary, nullable=False)
     parent_id = db.Column(db.Integer, db.ForeignKey("certificate_authorities.id"), nullable=True)

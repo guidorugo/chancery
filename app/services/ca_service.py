@@ -148,6 +148,15 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
         raise ValueError("Parent CA was imported without its private key and cannot sign a new intermediate CA.")
     if parent_ca.approval_status == "pending":
         raise ValueError("The parent CA is awaiting dual-control approval and cannot sign a new intermediate CA yet.")
+    # G4-2 / G4-6: a revoked or expired parent must not be able to grow the
+    # hierarchy — the route's dropdown hides such parents, but the server
+    # accepted any parent_id.
+    if parent_ca.is_revoked:
+        raise ValueError("The parent CA is revoked and cannot sign a new intermediate CA.")
+    _parent_not_after = (parent_ca.not_after if parent_ca.not_after.tzinfo
+                         else parent_ca.not_after.replace(tzinfo=timezone.utc))
+    if _parent_not_after <= datetime.now(timezone.utc):
+        raise ValueError("The parent CA has expired and cannot sign a new intermediate CA.")
     enforce_key_strength(key_type, key_size)  # B5
 
     # The child key lives in the child's chosen backend; the parent's backend
@@ -259,12 +268,18 @@ def get_ca_chain(ca):
 
 
 def _find_parent_by_issuer(cert):
-    """Find an existing CA whose subject matches cert's issuer. Returns id or None."""
-    for candidate in CertificateAuthority.query.all():
+    """Find an existing, non-revoked CA that actually issued `cert`.
+
+    G4-7: subject-name equality alone is not proof of issuance — the candidate
+    must also verify the certificate's signature. Returns the CA id or None.
+    """
+    for candidate in CertificateAuthority.query.filter_by(is_revoked=False).all():
         try:
             candidate_cert = x509.load_pem_x509_certificate(candidate.certificate_pem.encode())
-            if candidate_cert.subject == cert.issuer:
-                return candidate.id
+            if candidate_cert.subject != cert.issuer:
+                continue
+            cert.verify_directly_issued_by(candidate_cert)
+            return candidate.id
         except Exception:
             continue
     return None
@@ -379,6 +394,18 @@ def _import_ca_object(name, cert, private_key, passphrase, parent_id=None):
         parent_ca = db.session.get(CertificateAuthority, int(parent_id))
         if not parent_ca:
             raise ValueError("Specified parent CA not found.")
+        # G4-2: never link a new CA under a revoked parent.
+        if parent_ca.is_revoked:
+            raise ValueError("The selected parent CA is revoked; a CA cannot be linked under it.")
+        # G4-7: an explicitly chosen parent must have actually issued this
+        # certificate (issuer name match + signature), the same check bundle
+        # imports already apply.
+        parent_cert = x509.load_pem_x509_certificate(parent_ca.certificate_pem.encode())
+        try:
+            cert.verify_directly_issued_by(parent_cert)
+        except Exception as exc:
+            raise ValueError("The certificate was not issued by the selected parent CA "
+                             f"(issuer/signature check failed: {exc}).")
         resolved_parent_id = parent_ca.id
     elif not is_self_signed:
         resolved_parent_id = _find_parent_by_issuer(cert)
