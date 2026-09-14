@@ -8,7 +8,7 @@ from ..decorators import admin_required
 from ..extensions import db
 from ..models.ca import CertificateAuthority
 from ..responses import api_error, wants_json
-from ..services import ca_service, crl_service, audit_service, dual_control_service, profile_service
+from ..services import ca_service, crl_service, audit_service, dual_control_service, profile_service, listing
 from ..services.filenames import content_disposition
 from ..services.keybackend import hsm_available
 
@@ -61,13 +61,64 @@ def _parse_allowed_profiles(form):
     return ids
 
 
+CA_STATUS_FILTERS = ("active", "revoked", "expired", "pending", "cert-only")
+CA_TYPE_FILTERS = ("root", "intermediate")
+CA_BACKEND_FILTERS = ("software", "softhsm")
+
+
+def _filter_cas(query, lq):
+    """F15: q (name / CN / serial substring), status, type, backend."""
+    q = lq.text("q")
+    if q:
+        query = query.filter(db.or_(
+            listing.contains(CertificateAuthority.name, q),
+            listing.contains(CertificateAuthority.common_name, q),
+            listing.contains(CertificateAuthority.serial_number, q),
+        ))
+    status = lq.choice("status", CA_STATUS_FILTERS)
+    if status:
+        now, _soon = listing.expiry_bounds()
+        if status == "revoked":
+            query = query.filter(CertificateAuthority.is_revoked.is_(True))
+        elif status == "expired":
+            query = query.filter(CertificateAuthority.is_revoked.is_(False),
+                                 CertificateAuthority.not_after < now)
+        elif status == "pending":
+            query = query.filter(CertificateAuthority.is_revoked.is_(False),
+                                 CertificateAuthority.approval_status == "pending")
+        elif status == "cert-only":
+            query = query.filter(CertificateAuthority.key_backend != "softhsm",
+                                 CertificateAuthority.private_key_enc == b"")
+        elif status == "active":
+            query = query.filter(CertificateAuthority.is_revoked.is_(False),
+                                 CertificateAuthority.not_after >= now,
+                                 CertificateAuthority.approval_status == "approved")
+    ca_type = lq.choice("type", CA_TYPE_FILTERS)
+    if ca_type:
+        query = query.filter(CertificateAuthority.is_root.is_(ca_type == "root"))
+    backend = lq.choice("backend", CA_BACKEND_FILTERS)
+    if backend:
+        query = query.filter(CertificateAuthority.key_backend == backend)
+    return query
+
+
 @ca_bp.route("/")
 @admin_required
 def list_cas():
-    cas = CertificateAuthority.query.order_by(CertificateAuthority.created_at.desc()).all()
+    lq = listing.ListQuery(html=not wants_json())
+    try:
+        query = _filter_cas(CertificateAuthority.query, lq)
+    except ValueError as e:
+        if wants_json():
+            return api_error(str(e), 400)
+        flash(str(e), "danger")
+        return redirect(url_for("ca.list_cas"))
+    cas = lq.apply(query.order_by(CertificateAuthority.created_at.desc()))
     if wants_json():
-        return jsonify([ca.to_dict() for ca in cas])
-    return render_template("ca/list.html", cas=cas)
+        return lq.json(cas, lambda ca: ca.to_dict())
+    return render_template("ca/list.html", cas=cas, listing=lq,
+                           status_filters=CA_STATUS_FILTERS, type_filters=CA_TYPE_FILTERS,
+                           backend_filters=CA_BACKEND_FILTERS)
 
 
 @ca_bp.route("/create", methods=["GET", "POST"])

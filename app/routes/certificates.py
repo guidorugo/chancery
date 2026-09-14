@@ -13,7 +13,7 @@ from ..models.ca import CertificateAuthority
 from ..models.certificate import Certificate
 from ..responses import api_error, wants_json
 from ..services import (cert_service, crl_service, audit_service, dual_control_service,
-                        public_url, profile_service)
+                        public_url, profile_service, listing)
 from ..services.filenames import content_disposition
 
 logger = logging.getLogger(__name__)
@@ -35,18 +35,64 @@ def _crl_refresh_warning(refresh):
                 "Regenerate the CRL from the CA page.")
 
 
+CERT_STATUS_FILTERS = ("active", "revoked", "expiring", "expired")
+
+
+def _filter_certificates(query, lq):
+    """F15: q (CN / serial / SAN substring), status, ca_id, profile."""
+    q = lq.text("q")
+    if q:
+        query = query.filter(db.or_(
+            listing.contains(Certificate.common_name, q),
+            listing.contains(Certificate.serial_number, q),
+            listing.contains(Certificate.san_json, q),
+        ))
+    status = lq.choice("status", CERT_STATUS_FILTERS)
+    if status:
+        now, soon = listing.expiry_bounds()
+        if status == "revoked":
+            query = query.filter(Certificate.is_revoked.is_(True))
+        elif status == "active":
+            query = query.filter(Certificate.is_revoked.is_(False), Certificate.not_after >= now)
+        elif status == "expiring":
+            query = query.filter(Certificate.is_revoked.is_(False),
+                                 Certificate.not_after >= now, Certificate.not_after <= soon)
+        elif status == "expired":
+            query = query.filter(Certificate.is_revoked.is_(False), Certificate.not_after < now)
+    ca_id = lq.integer("ca_id")
+    if ca_id is not None:
+        query = query.filter(Certificate.ca_id == ca_id)
+    profile = lq.text("profile")
+    if profile:
+        row = profile_service.lookup(profile)
+        if row is None:
+            raise ValueError(f"Unknown certificate profile '{profile}'.")
+        query = query.filter(Certificate.profile_id == row.id)
+    return query
+
+
 @certificates_bp.route("/")
 @login_required
 def list_certs():
-    if current_user.is_admin:
-        certs = Certificate.query.order_by(Certificate.created_at.desc()).all()
-    else:
-        certs = Certificate.query.filter_by(
-            requested_by=current_user.id
-        ).order_by(Certificate.created_at.desc()).all()
+    query = Certificate.query
+    if not current_user.is_admin:
+        # Ownership scoping is applied before any filter (META-1).
+        query = query.filter_by(requested_by=current_user.id)
+    lq = listing.ListQuery(html=not wants_json())
+    try:
+        query = _filter_certificates(query, lq)
+    except ValueError as e:
+        if wants_json():
+            return api_error(str(e), 400)
+        flash(str(e), "danger")
+        return redirect(url_for("certificates.list_certs"))
+    certs = lq.apply(query.order_by(Certificate.created_at.desc()))
     if wants_json():
-        return jsonify([c.to_dict() for c in certs])
-    return render_template("certificates/list.html", certs=certs)
+        return lq.json(certs, lambda c: c.to_dict())
+    return render_template("certificates/list.html", certs=certs, listing=lq,
+                           status_filters=CERT_STATUS_FILTERS,
+                           cas=CertificateAuthority.query.order_by(CertificateAuthority.name).all(),
+                           profiles=profile_service.list_profiles())
 
 
 @certificates_bp.route("/create", methods=["GET", "POST"])

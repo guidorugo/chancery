@@ -9,6 +9,21 @@
   {%- endif -%}
 {%- endmacro %}
 
+{# Pagination controls for a list page (F15). `listing` is a services.listing.ListQuery. #}
+{% macro pager(listing) -%}
+  {%- if listing.pages and listing.pages > 1 %}
+  <nav aria-label="Pages" class="d-flex justify-content-between align-items-center mt-2">
+    <span class="text-body-secondary small">Page {{ listing.page }} of {{ listing.pages }} &middot; {{ listing.total }} total</span>
+    <div class="btn-group">
+      <a class="btn btn-sm btn-outline-secondary{% if not listing.has_prev %} disabled{% endif %}" href="{{ listing.page_url(listing.page - 1) if listing.has_prev else '#' }}">&laquo; Prev</a>
+      <a class="btn btn-sm btn-outline-secondary{% if not listing.has_next %} disabled{% endif %}" href="{{ listing.page_url(listing.page + 1) if listing.has_next else '#' }}">Next &raquo;</a>
+    </div>
+  </nav>
+  {%- elif listing.total is not none %}
+  <div class="text-body-secondary small mt-2">{{ listing.total }} result{{ 's' if listing.total != 1 }}{% if listing.filters %} (filtered){% endif %}</div>
+  {%- endif -%}
+{%- endmacro %}
+
 {# Full status badge (Revoked > Expired > Pending approval > Active) for a
    Certificate or CA. Use in a "Status" column; for the notAfter column use
    expiry_badge instead. Only CAs carry approval_status — on a Certificate the
