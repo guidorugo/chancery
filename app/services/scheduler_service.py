@@ -12,7 +12,11 @@ boot-time `create_app()` call, `flask …` CLI runs and the test suite never
 start it. `SCHEDULER_ENABLED=false` disables it entirely.
 
 Jobs must never raise out of the tick: each is wrapped and its failure is
-recorded on the lease row (and, for CRLs, in the audit log).
+recorded on the lease row (and, for CRLs, in the audit log). A job may carry a
+minimum interval (F10: `expiry_events` runs daily); its last successful run is
+kept in `scheduler_jobs`, so the cadence survives restarts and lease hand-overs.
+A tick whose job errors differ from the previous tick's audits `scheduler_error`
+(actor `scheduler`), which reaches the webhook stream like every audit row.
 """
 import logging
 import os
@@ -28,12 +32,15 @@ from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
 from ..models.ca import CertificateAuthority
-from ..models.scheduler_lease import SchedulerLease
+from ..models.certificate import Certificate
+from ..models.scheduler_lease import SchedulerJob, SchedulerLease
+from ..serialization import iso
 from . import audit_service, crl_service
 
 LEASE_NAME = "main"
 ENV_FLAG = "CHANCERY_RUN_SCHEDULER"
 ACTOR = "scheduler"
+DAILY = 24 * 3600
 
 logger = logging.getLogger(__name__)
 
@@ -191,14 +198,102 @@ def job_crl_refresh(now):
     return {"refreshed": refreshed, "failed": failed, "fresh": fresh}
 
 
-JOBS = (("crl_refresh", job_crl_refresh),)
+def _expiry_details(obj, now):
+    days_left = (obj.not_after - now).days
+    if isinstance(obj, Certificate):
+        return {"common_name": obj.common_name, "serial_number": obj.serial_number,
+                "not_after": iso(obj.not_after), "days_left": days_left, "ca_id": obj.ca_id}
+    return {"name": obj.name, "common_name": obj.common_name, "not_after": iso(obj.not_after),
+            "days_left": days_left, "is_root": obj.is_root}
+
+
+def _due_for_expiry_event(model, now, warning_days):
+    """Unrevoked rows that need an expiry event, in notAfter order:
+
+    - past notAfter and never reported as expired (`expiry_notified_at` is NULL
+      or predates notAfter — i.e. only the "expiring soon" event went out), or
+    - inside the warning window and never reported at all.
+
+    One timestamp column therefore tracks both stages: a value before notAfter
+    means "expiring" was sent, a value after it means "expired" was sent too.
+    """
+    horizon = now + timedelta(days=warning_days)
+    notified = model.expiry_notified_at
+    return (model.query
+            .filter(model.is_revoked == False)  # noqa: E712 — matches the filter_by(is_revoked=False) used app-wide
+            .filter(db.or_(
+                db.and_(model.not_after <= now,
+                        db.or_(notified.is_(None), notified < model.not_after)),
+                db.and_(model.not_after > now, model.not_after <= horizon, notified.is_(None)),
+            ))
+            .order_by(model.not_after).all())
+
+
+def job_expiry_events(now):
+    """Daily (F10): audit `certificate_expiring` / `certificate_expired` /
+    `ca_expiring` / `ca_expired` once per object as it crosses
+    CERT_EXPIRY_WARNING_DAYS and then notAfter. The audit row is what feeds the
+    webhook. Each item is committed on its own so a failure never re-sends
+    the ones before it."""
+    warning_days = int(current_app.config.get("CERT_EXPIRY_WARNING_DAYS", 30))
+    summary = {"certificate_expiring": [], "certificate_expired": [], "ca_expiring": [], "ca_expired": [],
+               "failed": []}
+    for model, prefix, target_type in ((Certificate, "certificate", "certificate"),
+                                       (CertificateAuthority, "ca", "ca")):
+        for obj in _due_for_expiry_event(model, now, warning_days):
+            action = f"{prefix}_expired" if obj.not_after <= now else f"{prefix}_expiring"
+            try:
+                audit_service.log_action(action, target_type=target_type, target_id=obj.id,
+                                         details=_expiry_details(obj, now), actor=ACTOR)
+                obj.expiry_notified_at = now
+                db.session.commit()
+                summary[action].append(obj.id)
+            except Exception:
+                db.session.rollback()
+                logger.exception("Expiry event %s for %s %s failed", action, target_type, obj.id)
+                summary["failed"].append(f"{target_type}:{obj.id}")
+    return summary
+
+
+# (name, callable, minimum seconds between successful runs; 0 = every tick)
+JOBS = (
+    ("crl_refresh", job_crl_refresh, 0),
+    ("expiry_events", job_expiry_events, DAILY),
+)
+
+
+def _job_rows():
+    """One SchedulerJob row per configured job, committed before any job runs
+    so a later rollback cannot discard them."""
+    rows = {}
+    missing = False
+    for name, _job, _interval in JOBS:
+        row = db.session.get(SchedulerJob, name)
+        if row is None:
+            row = SchedulerJob(name=name)
+            db.session.add(row)
+            missing = True
+        rows[name] = row
+    if missing:
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            rows = {name: db.session.get(SchedulerJob, name) for name, _j, _i in JOBS}
+    return rows
+
+
+def job_is_due(row, interval, now):
+    return interval <= 0 or row.last_run_at is None or (now - row.last_run_at).total_seconds() >= interval
 
 
 def tick(now=None, force=False):
-    """One scheduler pass: acquire the lease (unless `force`) and run every
-    job, each isolated from the others. Returns a summary dict."""
+    """One scheduler pass: acquire the lease and run every job that is due,
+    each isolated from the others. `force` skips both the lease and the
+    per-job intervals (the CLI's `scheduler tick --force`). Returns a summary
+    dict; `skipped` lists jobs whose interval has not elapsed."""
     now = now or _utcnow()
-    summary = {"holder": holder_id(), "at": now.isoformat(), "lease": False, "jobs": {}}
+    summary = {"holder": holder_id(), "at": now.isoformat(), "lease": False, "jobs": {}, "skipped": []}
     if force:
         _ensure_lease_row()  # a forced pass still records its outcome on the row
     elif not acquire_lease(now):
@@ -206,20 +301,41 @@ def tick(now=None, force=False):
         return summary
     summary["lease"] = True
     _state["lease_held"] = True
+    rows = _job_rows()
     errors = []
-    for name, job in JOBS:
+    for name, job, interval in JOBS:
+        row = rows[name]
+        if not force and not job_is_due(row, interval, now):
+            summary["skipped"].append(name)
+            continue
         try:
             summary["jobs"][name] = job(now)
+            row = db.session.get(SchedulerJob, name)  # the job may have rolled back
+            row.last_run_at = now
+            row.last_error = None
         except Exception as exc:
             db.session.rollback()
             logger.exception("Scheduler job %s failed", name)
             summary["jobs"][name] = {"error": exc.__class__.__name__}
-            errors.append(f"{name}: {exc.__class__.__name__}: {str(exc)[:200]}")
+            message = f"{name}: {exc.__class__.__name__}: {str(exc)[:200]}"
+            errors.append(message)
+            row = db.session.get(SchedulerJob, name)
+            row.last_error = message  # last_run_at stays: the job is retried next tick
+        db.session.commit()
     _state["last_tick"] = now
     _state["last_summary"] = summary
-    row = lease_row()
-    if row is not None:
-        row.last_error = "; ".join(errors) if errors else None
+    lease = lease_row()
+    if lease is not None:
+        joined = "; ".join(errors) if errors else None
+        if joined and joined != lease.last_error:
+            # New (or changed) failure: one audit row → webhook; a failure that
+            # persists tick after tick is not repeated (metrics show it).
+            try:
+                audit_service.log_action("scheduler_error", target_type="scheduler",
+                                         details={"errors": errors, "at": now.isoformat()}, actor=ACTOR)
+            except Exception:
+                logger.exception("Could not audit scheduler_error")
+        lease.last_error = joined
         db.session.commit()
     return summary
 
@@ -228,8 +344,22 @@ def local_state():
     return dict(_state, holder=holder_id(), thread_alive=bool(_thread and _thread.is_alive()))
 
 
+def jobs_status():
+    """Per-job interval and last successful run (from `scheduler_jobs`)."""
+    out = {}
+    for name, _job, interval in JOBS:
+        row = db.session.get(SchedulerJob, name)
+        out[name] = {
+            "interval_seconds": interval,
+            "last_run_at": row.last_run_at.isoformat() if row is not None and row.last_run_at else None,
+            "last_error": row.last_error if row is not None else None,
+        }
+    return out
+
+
 def status():
-    """Lease row + this process's view, for the CLI and metrics."""
+    """Lease row, job rows, this process's view, and the effective config —
+    for the CLI and metrics."""
     row = lease_row()
     return {
         "lease": None if row is None else {
@@ -238,10 +368,12 @@ def status():
             "last_tick_at": row.last_tick_at.isoformat() if row.last_tick_at else None,
             "last_error": row.last_error,
         },
+        "jobs": jobs_status(),
         "this_process": local_state(),
         "config": {
             "enabled": bool(current_app.config.get("SCHEDULER_ENABLED", True)),
             "tick_seconds": int(current_app.config.get("SCHEDULER_TICK_SECONDS", 60)),
             "crl_refresh_before_days": int(current_app.config.get("CRL_REFRESH_BEFORE_DAYS", 2)),
+            "cert_expiry_warning_days": int(current_app.config.get("CERT_EXPIRY_WARNING_DAYS", 30)),
         },
     }

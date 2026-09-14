@@ -30,6 +30,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **LDAP Login**: Optional LDAP/Active Directory authentication with group-to-role mapping and automatic user provisioning — configurable from the admin UI (Preferences → LDAP, with a live connection test) or via environment variables
 - **Dual control (four-eyes)**: Opt-in mode (`DUAL_CONTROL_ENABLED`) where no single admin can both request and approve issuance — direct certificate creation is disabled in favour of the CSR flow, a CSR's creator cannot sign it, and a new CA must be approved by a different admin before it can issue anything; kicks in automatically once the instance is genuinely multi-user (or LDAP is enabled), with the bootstrap `admin` account exempt from all three restrictions as break-glass (so e.g. an LDAP outage can never block issuance); a CA awaiting approval is shown as **Pending approval** rather than *Active* until a second admin approves it
 - **Webhook notifications**: POST selected audit events (certificate issued/revoked, CSR signed, CA created/approved, logins, …) as JSON to any HTTP endpoint (e.g. an n8n workflow) — configurable from the admin UI (Preferences → Webhooks, with a test button) or via `WEBHOOK_*` environment variables; optional HMAC-SHA256 body signature, fire-and-forget delivery that never blocks a request
+- **Expiry events**: A daily scheduler pass reports each certificate and CA once as it enters the `CERT_EXPIRY_WARNING_DAYS` window (`certificate_expiring` / `ca_expiring`) and once more when it expires (`certificate_expired` / `ca_expired`) — audit-logged and delivered through the webhook like any other event, so a renewal reminder needs no external cron or polling
 - **Version & update awareness**: The footer shows the running version; a cached, server-side check (on by default, disable for air-gapped deployments) flags in the footer when a newer GitHub release is available
 
 ## PKCS Standards
@@ -485,7 +486,7 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask certs expiring [--days N] [--json]` | List certificates and CAs expiring within N days (default `CERT_EXPIRY_WARNING_DAYS`), including already-expired ones — cron/monitoring friendly |
 | `flask certs recompute-expiry [--dry-run]` | One-time backfill of the stored `not_after` for certificates issued before 2.5.0 |
 | `flask certs backfill-issuers [--dry-run]` | One-time backfill of CSR signer / certificate issuer from the audit log (2.11.0) |
-| `flask scheduler status` / `flask scheduler tick [--force]` | Show the scheduler lease and config, or run one pass now |
+| `flask scheduler status` / `flask scheduler tick [--force]` | Show the scheduler lease, each job's last run and the config, or run one pass now (`--force` also runs the daily expiry-events pass regardless of when it last ran) |
 | `flask crl refresh [--all]` | Regenerate stale CRLs (or all of them) by hand — the built-in scheduler does this automatically |
 | `flask profiles list` / `export` / `import <file> [--replace]` | List certificate profiles, dump them as JSON, or import (upsert by key) |
 | `flask keys check-passphrase` | Verify the running `MASTER_PASSPHRASE` opens every kind of stored ciphertext |
@@ -560,11 +561,11 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `OCSP_KEY_CACHE_TTL_SECONDS` | `300` | In-memory TTL for the decrypted CA key used by OCSP (`0` disables) |
 | `OCSP_RESPONSE_CACHE_TTL_SECONDS` | `60` | Cache signed OCSP responses per (CA, serial, status) for this long (`0` disables); the status is part of the key, so a revoked certificate is never served `good` from cache |
 | `SCHEDULER_ENABLED` | `true` | Built-in scheduler that keeps CRLs fresh (one worker holds a lease; safe with any worker count) |
-| `SCHEDULER_TICK_SECONDS` | `60` | Scheduler pass interval |
+| `SCHEDULER_TICK_SECONDS` | `60` | Scheduler pass interval (CRL refresh runs every pass; the expiry-events job once a day) |
 | `CRL_REFRESH_BEFORE_DAYS` | `2` | Regenerate a CRL once it expires within this many days |
 | `PUBLIC_RATE_LIMIT` | `600/minute` | Per-IP rate limit for the public CRL/OCSP endpoints |
 | `CRL_VALIDITY_DAYS` | `7` | `nextUpdate` window stamped into generated CRLs; the scheduler regenerates each CRL before it expires |
-| `CERT_EXPIRY_WARNING_DAYS` | `30` | Days before `notAfter` at which a certificate/CA is flagged *expiring soon* (dashboard counts, badges, JSON, `flask certs expiring`) |
+| `CERT_EXPIRY_WARNING_DAYS` | `30` | Days before `notAfter` at which a certificate/CA is flagged *expiring soon* (dashboard counts, badges, JSON, `flask certs expiring`) and the daily `certificate_expiring` / `ca_expiring` webhook event fires |
 | `UPDATE_CHECK_ENABLED` | `true` | Show a footer "Update available" badge when a newer GitHub release exists (makes an outbound call; set `false` for an air-gapped CA) |
 | `METRICS_ENABLED` | `false` | Expose the Prometheus `/metrics` endpoint (opt-in; returns 404 until enabled) |
 | `METRICS_ALLOW_UNAUTHENTICATED` | `false` | Serve `/metrics` without a bearer token (isolated networks only) |
@@ -583,7 +584,7 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `WEBHOOK_ENABLED` | `false` | POST selected audit events as JSON to `WEBHOOK_URL`. Also configurable in the admin UI (Preferences → Webhooks) — settings saved there override all `WEBHOOK_*` variables until removed |
 | `WEBHOOK_URL` | – | Webhook POST target (e.g. an n8n webhook trigger) |
 | `WEBHOOK_SECRET` | – | Optional signing secret: requests carry `X-Chancery-Signature: sha256=<HMAC-SHA256 of the body>` (`_FILE` convention supported) |
-| `WEBHOOK_EVENTS` | – | CSV of audit action names to notify on (e.g. `sign_csr,create_ca`); empty = none, `all` = every action |
+| `WEBHOOK_EVENTS` | – | CSV of audit action names to notify on (e.g. `sign_csr,create_ca,certificate_expiring`); empty = none, `all` = every action. Time-based events: `certificate_expiring`, `certificate_expired`, `ca_expiring`, `ca_expired` (daily, once per object), `crl_refreshed`, `crl_refresh_failed`, `scheduler_error` |
 | `WEBHOOK_TIMEOUT_SECONDS` | `5` | Delivery timeout for the background POST |
 | `LDAP_ENABLED` | `false` | Enable LDAP authentication for the web login. Alternatively configure LDAP in the admin UI (Preferences → LDAP) — settings saved there override all `LDAP_*` variables until removed |
 | `LDAP_SERVER_URI` | – | LDAP server URI(s), e.g. `ldaps://dc01:636` (comma-separated for failover) |

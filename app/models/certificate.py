@@ -29,6 +29,10 @@ class Certificate(db.Model):
     # directly. NULL on legacy rows until `flask certs backfill-issuers`.
     issued_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     profile_id = db.Column(db.Integer, db.ForeignKey("certificate_profiles.id"), nullable=True)  # F1
+    # F10: when the scheduler last reported this certificate's expiry. NULL = never.
+    # A value before notAfter means only "expiring soon" went out; a value after
+    # notAfter means "expired" went out too (see scheduler_service.job_expiry_events).
+    expiry_notified_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     requester = db.relationship("User", backref="certificates", foreign_keys=[requested_by])
@@ -63,6 +67,7 @@ class Certificate(db.Model):
             "not_after": iso(self.not_after),
             "days_until_expiry": self.days_until_expiry,
             "expiry_status": self.expiry_status,
+            "expiry_notified_at": iso(self.expiry_notified_at),
             "is_revoked": self.is_revoked,
             "requested_by": self.requested_by,
             "issued_by": self.issued_by,

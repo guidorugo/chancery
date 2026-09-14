@@ -100,6 +100,11 @@ EVENT_CATALOG = {
     "Scheduled": [
         ("crl_refreshed", "CRL refreshed (scheduler, lazy serve, or CLI)"),
         ("crl_refresh_failed", "Scheduled CRL refresh failed"),
+        ("certificate_expiring", "Certificate expiring soon (daily, once per certificate)"),
+        ("certificate_expired", "Certificate expired (daily, once per certificate)"),
+        ("ca_expiring", "CA expiring soon (daily, once per CA)"),
+        ("ca_expired", "CA expired (daily, once per CA)"),
+        ("scheduler_error", "Scheduler job error (on change)"),
     ],
 }
 
