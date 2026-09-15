@@ -33,11 +33,22 @@ class Certificate(db.Model):
     # A value before notAfter means only "expiring soon" went out; a value after
     # notAfter means "expired" went out too (see scheduler_service.job_expiry_events).
     expiry_notified_at = db.Column(db.DateTime, nullable=True)
+    # F9: the certificate this one renews (NULL for a first issuance). The
+    # reverse side, `renewals`, lists its successors (oldest first).
+    renewed_from_id = db.Column(db.Integer, db.ForeignKey("certificates.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     requester = db.relationship("User", backref="certificates", foreign_keys=[requested_by])
     issuer_user = db.relationship("User", foreign_keys=[issued_by])
     profile = db.relationship("CertificateProfile", foreign_keys=[profile_id])
+    renewed_from = db.relationship(
+        "Certificate", remote_side="Certificate.id", foreign_keys=[renewed_from_id],
+        backref=db.backref("renewals", lazy="selectin", order_by="Certificate.id"))
+
+    @property
+    def superseded_by_id(self):
+        """Id of the newest renewal of this certificate, or None (F9)."""
+        return self.renewals[-1].id if self.renewals else None
 
     @property
     def days_until_expiry(self):
@@ -73,6 +84,8 @@ class Certificate(db.Model):
             "issued_by": self.issued_by,
             "profile_id": self.profile_id,
             "profile": self.profile.key if self.profile else None,
+            "renewed_from_id": self.renewed_from_id,
+            "superseded_by_id": self.superseded_by_id,
             "created_at": iso(self.created_at),
         }
         if detail:

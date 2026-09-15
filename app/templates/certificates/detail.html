@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import expiry_badge, status_badge %}
+{% from "_macros.html" import expiry_badge, status_badge, renewal_badge %}
 {% block title %}{{ cert.common_name }} #{{ cert.id }} - Chancery{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center">
@@ -25,6 +25,9 @@
             <button type="submit" class="btn btn-sm btn-outline-warning">Key</button>
         </form>
         {% endif %}
+        {% endif %}
+        {% if current_user.is_admin %}
+        <a href="{{ url_for('certificates.renew', cert_id=cert.id) }}" class="btn btn-sm btn-outline-success ms-2" title="Issue a successor with the same subject, SANs and usages">Renew</a>
         {% endif %}
         {% if current_user.is_admin and not cert.is_revoked %}
         <a href="{{ url_for('certificates.revoke', cert_id=cert.id) }}" class="btn btn-sm btn-danger ms-2">Revoke</a>
@@ -53,10 +56,16 @@
                     <tr>
                         <th>Status</th>
                         <td>
-                            {{ status_badge(cert) }}
+                            {{ status_badge(cert) }}{{ renewal_badge(cert) }}
                             {% if cert.is_revoked %} ({{ cert.revocation_reason }}, {{ cert.revoked_at.strftime('%Y-%m-%d %H:%M UTC') }}){% endif %}
                         </td>
                     </tr>
+                    {% if cert.renewed_from %}
+                    <tr><th>Renewed From</th><td><a href="{{ url_for('certificates.detail', cert_id=cert.renewed_from.id) }}">#{{ cert.renewed_from.id }}</a> (serial <code>{{ cert.renewed_from.serial_number[:16] }}…</code>)</td></tr>
+                    {% endif %}
+                    {% if cert.renewals %}
+                    <tr><th>Superseded By</th><td>{% for r in cert.renewals %}<a href="{{ url_for('certificates.detail', cert_id=r.id) }}">#{{ r.id }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
+                    {% endif %}
                     <tr><th>Private Key</th><td>{{ "Available" if cert.private_key_enc else "Not stored" }}</td></tr>
                     {% if cert.requester %}
                     <tr><th>Requested By</th><td>{{ cert.requester.username }}</td></tr>

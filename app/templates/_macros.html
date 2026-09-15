@@ -39,3 +39,9 @@
     <span class="badge bg-success">Active</span>
   {%- endif -%}
 {%- endmacro %}
+
+{# F9: "Superseded" hint for a certificate that has a renewal (CAs never have
+   `renewals`, so the macro renders nothing for them). #}
+{% macro renewal_badge(obj) -%}
+  {%- if obj.renewals %} <span class="badge bg-secondary" title="Renewed as #{{ obj.renewals[-1].id }}">Superseded</span>{% endif -%}
+{%- endmacro %}
