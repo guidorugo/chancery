@@ -102,7 +102,7 @@ class TestService:
             assert new.key_usage_json == old.key_usage_json and new.extended_key_usage_json == old.extended_key_usage_json
             assert new.profile_id == old.profile_id and new.requested_by == old.requested_by
             assert (new.not_after - new.not_before).days == 400      # default = original window
-            assert new.not_before > old.not_before
+            assert new.not_before >= old.not_before   # same second on a fast machine
             assert new.expiry_notified_at is None and not new.is_revoked and not old.is_revoked
             assert _x(new).signature != _x(old).signature
             # the successor's chain still validates against the CA
