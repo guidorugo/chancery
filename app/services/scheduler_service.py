@@ -212,15 +212,20 @@ def _due_for_expiry_event(model, now, warning_days):
 
     - past notAfter and never reported as expired (`expiry_notified_at` is NULL
       or predates notAfter — i.e. only the "expiring soon" event went out), or
-    - inside the warning window and never reported at all.
+    - inside the warning window and never reported at all;
+    superseded certificates (renewed, F9) are skipped.
 
     One timestamp column therefore tracks both stages: a value before notAfter
     means "expiring" was sent, a value after it means "expired" was sent too.
     """
     horizon = now + timedelta(days=warning_days)
     notified = model.expiry_notified_at
-    return (model.query
-            .filter(model.is_revoked == False)  # noqa: E712 — matches the filter_by(is_revoked=False) used app-wide
+    query = model.query.filter(model.is_revoked == False)  # noqa: E712 — matches the filter_by(is_revoked=False) used app-wide
+    if model is Certificate:
+        # F9: a certificate that already has a renewal is superseded — the
+        # reminder belongs to its successor.
+        query = query.filter(~model.renewals.any())
+    return (query
             .filter(db.or_(
                 db.and_(model.not_after <= now,
                         db.or_(notified.is_(None), notified < model.not_after)),

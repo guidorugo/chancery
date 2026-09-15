@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Renew {{ cert.common_name }} - Chancery{% endblock %}
+{% block content %}
+<h2>Renew Certificate</h2>
+
+<div class="card mt-3">
+    <div class="card-body">
+        <p>Issue a successor for <strong>{{ cert.common_name }}</strong> <span class="text-body-secondary">#{{ cert.id }}</span>
+            from <a href="{{ url_for('ca.detail', ca_id=cert.ca_id) }}">{{ cert.ca.name }}</a> with the same subject,
+            Subject Alternative Names, Key Usage / Extended Key Usage{% if cert.profile %} and profile
+            <em>{{ cert.profile.name }}</em>{% endif %}. The current certificate expires
+            {{ cert.not_after.strftime('%Y-%m-%d') }}.</p>
+        {% if cert.renewals %}
+        <div class="alert alert-warning">This certificate was already renewed as
+            <a href="{{ url_for('certificates.detail', cert_id=cert.renewals[-1].id) }}">#{{ cert.renewals[-1].id }}</a>.
+            Tick <em>Renew again</em> to issue another successor anyway.</div>
+        {% endif %}
+        {% if cert.is_revoked %}
+        <div class="alert alert-warning">This certificate is revoked ({{ cert.revocation_reason }}); it can only be renewed with a new key.</div>
+        {% endif %}
+
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+                <label for="validity_days" class="form-label">Validity (days)</label>
+                <input type="number" class="form-control" id="validity_days" name="validity_days" min="1"
+                       value="{{ default_validity_days }}" style="max-width:12rem">
+                <div class="form-text">Defaults to the window the certificate was issued with; capped by the profile and the issuing CA's expiry.</div>
+            </div>
+            {% if can_rekey %}
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="rekey" name="rekey" {% if cert.is_revoked %}checked{% endif %}>
+                <label class="form-check-label" for="rekey">Generate a new {{ cert.key_type }} {{ cert.key_size }} key (re-key)</label>
+                <div class="form-text">Unticked, the escrowed private key is kept so the deployed key material keeps working.</div>
+            </div>
+            {% else %}
+            <p class="form-text">This certificate was issued from a CSR: its key stays with the owner and is reused. To re-key, submit a new CSR.</p>
+            {% endif %}
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="revoke_old" name="revoke_old" {% if cert.is_revoked %}disabled{% endif %}>
+                <label class="form-check-label" for="revoke_old">Revoke the current certificate now (reason <em>superseded</em>)</label>
+                <div class="form-text">Leave unticked to keep it valid until the successor is deployed, then revoke it from its page.</div>
+            </div>
+            {% if cert.renewals %}
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="force" name="force">
+                <label class="form-check-label" for="force">Renew again although a renewal already exists</label>
+            </div>
+            {% endif %}
+            <button type="submit" class="btn btn-primary">Renew Certificate</button>
+            <a href="{{ url_for('certificates.detail', cert_id=cert.id) }}" class="btn btn-secondary">Cancel</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

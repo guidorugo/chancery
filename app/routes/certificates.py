@@ -326,6 +326,103 @@ def revoke(cert_id):
     return render_template("certificates/revoke.html", cert=certificate)
 
 
+@certificates_bp.route("/<int:cert_id>/renew", methods=["GET", "POST"])
+@admin_required
+def renew(cert_id):
+    """F9: issue a successor certificate (same subject/SANs/KU/EKU/profile).
+
+    Dual control treats a CSR-lineage renewal as signing (the requester may
+    not renew their own certificate) and an escrowed-key renewal as direct
+    creation (refused while active); the bootstrap admin is exempt from both.
+    """
+    old = db.session.get(Certificate, cert_id)
+    if not old:
+        if wants_json():
+            return api_error("Certificate not found.", 404)
+        flash("Certificate not found.", "danger")
+        return redirect(url_for("certificates.list_certs"))
+
+    csr_lineage = not old.private_key_enc
+    if dual_control_service.is_active() and not dual_control_service.is_exempt(current_user):
+        if not csr_lineage:
+            msg = ("Dual-control mode: renewing a directly issued certificate is direct creation, "
+                   "which is disabled. Create a CSR and have another admin sign it.")
+        elif old.requested_by == current_user.id:
+            msg = "Dual-control mode: a certificate must be renewed by a different admin than its requester."
+        else:
+            msg = None
+        if msg:
+            if wants_json():
+                return api_error(msg, 403)
+            flash(msg, "warning")
+            return redirect(url_for("certificates.detail", cert_id=cert_id))
+
+    context = {
+        "cert": old,
+        "default_validity_days": cert_service.original_validity_days(old),
+        "can_rekey": bool(old.private_key_enc),
+    }
+    if request.method == "GET":
+        return render_template("certificates/renew.html", **context)
+
+    def _err(message, status=400):
+        if wants_json():
+            return api_error(message, status)
+        flash(message, "danger")
+        return redirect(url_for("certificates.renew", cert_id=cert_id))
+
+    raw_days = (request.form.get("validity_days") or "").strip()
+    try:
+        validity_days = int(raw_days) if raw_days else None
+    except ValueError:
+        return _err("Validity days must be a whole number.")
+    rekey = request.form.get("rekey") in ("on", "1", "true", "yes")
+    revoke_old = request.form.get("revoke_old") in ("on", "1", "true", "yes")
+    force = request.form.get("force") in ("on", "1", "true", "yes")
+    try:
+        ocsp_url, crl_dp_url = public_url.issuance_urls(old.ca_id, request.form.get("crl_dp_url"))
+    except ValueError as e:
+        return _err(str(e))
+
+    passphrase = current_app.config["MASTER_PASSPHRASE"]
+    try:
+        new = cert_service.renew_certificate(
+            old, passphrase, validity_days=validity_days, rekey=rekey, revoke_old=revoke_old,
+            ocsp_url=ocsp_url, crl_dp_url=crl_dp_url, issued_by=current_user.id, force=force)
+        audit_service.log_action(
+            "renew_certificate", target_type="certificate", target_id=new.id,
+            details={"old_id": old.id, "new_id": new.id, "rekey": rekey, "revoked_old": revoke_old,
+                     "validity_days": cert_service.original_validity_days(new),
+                     "profile": new.profile.key if new.profile else None})
+        db.session.commit()
+    except cert_service.AlreadyRenewed as e:
+        db.session.rollback()
+        return _err(str(e), 409)
+    except ValueError as e:
+        db.session.rollback()
+        return _err(str(e))
+    except Exception:
+        db.session.rollback()
+        logger.exception("Error renewing certificate")
+        return _err("An unexpected error occurred while renewing the certificate.", 500)
+
+    warning = None
+    if revoke_old:
+        warning = _crl_refresh_warning(lambda: crl_service.refresh_crl(old.ca, passphrase))
+    if wants_json():
+        payload = new.to_dict(detail=True)
+        payload["old_id"] = old.id
+        if warning:
+            payload["warning"] = warning
+        return jsonify(payload), 201
+    flash(f"Certificate '{old.common_name}' renewed as #{new.id}"
+          f"{' with a new key' if rekey else ''}{'; the old certificate is revoked' if revoke_old else ''}.",
+          "success")
+    if warning:
+        flash(warning, "warning")
+    return redirect(url_for("certificates.detail", cert_id=new.id))
+
+
 @certificates_bp.route("/<int:cert_id>/download", methods=["GET", "POST"])
 @login_required
 def download(cert_id):
