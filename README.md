@@ -14,6 +14,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Advanced Certificate Settings**: Collapsible UI with the profile selector, Key Usage and Extended Key Usage checkboxes (editable for the Custom profile), and editable CRL Distribution Points (auto-populated from hostname, user-overridable)
 - **CSR Management**: Create or import Certificate Signing Requests, sign or reject them — the signing user is recorded and shown on the CSR and certificate
 - **Revocation**: Revoke certificates with standard reasons, generate CRLs
+- **Renewal and re-key**: One click (or `POST /certificates/<id>/renew`) issues a successor with the same subject, SANs, usages and profile — keeping the escrowed key so deployed material keeps working, or generating a fresh one; optionally revokes the old certificate as *superseded*. Successors are linked (`renewed_from_id`), the old certificate is flagged *Superseded*, and expiry reminders move to the successor
 - **OCSP Responder**: Built-in OCSP endpoint for real-time certificate status checks
 - **Automatic CRL refresh**: A built-in scheduler regenerates every CA's CRL before it expires (no cron needed), an expired CRL is regenerated on the fly when downloaded, and CRL responses carry proper caching headers
 - **Public Endpoints**: Unauthenticated access to CRL downloads and CA certificates
@@ -417,6 +418,7 @@ curl -u admin:PASSWORD "http://localhost:5000/certificates/?status=expiring&page
 | GET, POST | `/certificates/create` | Admin | Issue a new certificate (disabled while dual control is active — use the CSR flow) |
 | GET | `/certificates/<cert_id>` | Any | View certificate details (CSR users: own only) |
 | GET, POST | `/certificates/<cert_id>/revoke` | Admin | Revoke a certificate |
+| GET, POST | `/certificates/<cert_id>/renew` | Admin | Issue a successor (F9): form/JSON fields `validity_days` (default: the original window), `rekey` (escrowed-key certificates only), `revoke_old` (reason `superseded`), `force` (renew again although a renewal exists — otherwise 409); JSON answers 201 with the new certificate plus `old_id`. Under dual control a CSR-lineage renewal counts as signing (requester ≠ renewer) and an escrowed-key renewal as direct creation |
 | GET, POST | `/certificates/<cert_id>/download` | Any (own) | Download certificate: `?format=pem\|der\|fullchain\|chain` via GET (`fullchain` = leaf → intermediates → root, `chain` = issuers only); `pkcs12` is **POST-only** with a `password` form field, so key material never appears in a URL |
 | POST | `/certificates/<cert_id>/download-key` | Admin | Download the escrowed private key (PEM, **POST-only**) |
 

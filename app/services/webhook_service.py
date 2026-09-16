@@ -60,6 +60,7 @@ EVENT_CATALOG = {
     "Certificates": [
         ("create_certificate", "Certificate issued directly"),
         ("revoke_certificate", "Certificate revoked"),
+        ("renew_certificate", "Certificate renewed"),
         ("download_certificate", "Certificate downloaded"),
         ("download_private_key", "Private key downloaded"),
     ],

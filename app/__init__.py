@@ -644,6 +644,10 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificates ADD COLUMN expiry_notified_at DATETIME"
             ))
+        if "renewed_from_id" not in columns:  # F9
+            db.session.execute(text(
+                "ALTER TABLE certificates ADD COLUMN renewed_from_id INTEGER REFERENCES certificates(id)"
+            ))
 
     # Migrate certificate_signing_requests table
     if "certificate_signing_requests" in inspector.get_table_names():
