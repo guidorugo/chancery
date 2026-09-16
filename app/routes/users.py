@@ -1,5 +1,5 @@
 from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, jsonify
-from flask_login import current_user
+from flask_login import current_user, login_required
 
 from ..decorators import admin_required
 from ..extensions import db
@@ -533,3 +533,64 @@ def audit_log():
             "pages": logs.pages,
         })
     return render_template("users/audit_log.html", logs=logs)
+
+
+# --- F12: scoped API tokens ------------------------------------------------------
+
+@users_bp.route("/api-tokens", methods=["GET", "POST"])
+@login_required
+def api_tokens():
+    """Own tokens for every account; admins also see everyone's and may revoke
+    any. A new token's secret is shown once, in the response only."""
+    from ..models.api_token import SCOPES, SCOPE_LABELS
+    from ..services import api_token_service
+    if request.method == "POST":
+        scopes = [sc for sc in SCOPES if request.form.get(f"scope_{sc}") == "on"] or request.form.getlist("scopes")
+        try:
+            plaintext, row = api_token_service.create(
+                current_user, request.form.get("name"), scopes,
+                request.form.get("expires_in_days") or 30, created_by=current_user.id)
+            db.session.commit()
+        except ValueError as e:
+            db.session.rollback()
+            if wants_json():
+                return api_error(str(e), 400)
+            flash(str(e), "danger")
+            return redirect(url_for("users.api_tokens"))
+        if wants_json():
+            payload = row.to_dict()
+            payload["token"] = plaintext
+            return jsonify(payload), 201
+        return _render_api_tokens(new_token=plaintext, new_row=row)
+    if wants_json():
+        rows = api_token_service.list_all() if current_user.is_admin else api_token_service.list_for_user(current_user)
+        return jsonify([r.to_dict() for r in rows])
+    return _render_api_tokens()
+
+
+def _render_api_tokens(new_token=None, new_row=None):
+    from ..models.api_token import SCOPE_LABELS
+    from ..services import api_token_service
+    mine = api_token_service.list_for_user(current_user)
+    others = [r for r in api_token_service.list_all() if r.user_id != current_user.id] if current_user.is_admin else []
+    return render_template("users/api_tokens.html", mine=mine, others=others, scope_labels=SCOPE_LABELS,
+                           max_days=api_token_service.max_days(), new_token=new_token, new_row=new_row)
+
+
+@users_bp.route("/api-tokens/<int:token_id>/revoke", methods=["POST"])
+@login_required
+def revoke_api_token(token_id):
+    from ..models.api_token import ApiToken
+    from ..services import api_token_service
+    row = db.session.get(ApiToken, token_id)
+    if row is None or (row.user_id != current_user.id and not current_user.is_admin):
+        if wants_json():
+            return api_error("API token not found.", 404)
+        flash("API token not found.", "danger")
+        return redirect(url_for("users.api_tokens"))
+    api_token_service.revoke(row)
+    db.session.commit()
+    if wants_json():
+        return jsonify(row.to_dict())
+    flash(f"API token '{row.name}' revoked.", "success")
+    return redirect(url_for("users.api_tokens"))

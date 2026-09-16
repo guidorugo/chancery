@@ -22,6 +22,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Role-Based Access Control**: Admin and CSR User roles with enforced separation of duties
 - **Audit Logging**: Every sensitive action logged with user, timestamp, IP, and details
 - **User Management**: Admin UI for creating users, assigning roles, and managing accounts
+- **Scoped API tokens**: `Authorization: Bearer chy_api_…` credentials for scripts and automation, created per user (Preferences → API Tokens, or `flask api-token`), with a subset of scopes (`read`, `issue`, `revoke`, `admin`), a mandatory expiry and one-click revocation — never more than the owner's role. Prefer them over Basic Auth for anything automated
 - **HTTP Basic Auth**: Stateless API access via `curl -u user:pass` for scripts and automation, alongside session-based browser auth
 - **Dark Theme**: Light/dark mode toggle with OS-preference default and per-browser persistence
 - **Security**: Private keys encrypted at rest with Fernet (PBKDF2-derived key, 600k iterations), session hardening, per-IP rate limiting and per-account login lockout (both on by default), insecure-default rejection plus a startup warning for short `SECRET_KEY` / `MASTER_PASSPHRASE` / PKCS#11 PIN values
@@ -292,6 +293,8 @@ nothing else is needed — the *Create CA* form simply offers HSM per-CA.
 
 ## API Reference
 
+Authenticate programmatic clients with a **scoped API token** (`Authorization: Bearer chy_api_…`, Preferences → API Tokens) rather than Basic Auth: a token carries only the scopes it was given (`read`, `issue`, `revoke`, `admin`), expires, and can be revoked without touching the account password. Basic Auth keeps working.
+
 Chancery is a web application with form-based (HTML) endpoints. All authenticated routes use session cookies set at login. Public endpoints require no authentication.
 
 ### Authentication
@@ -469,6 +472,8 @@ curl -u admin:PASSWORD -X POST -o cert.key http://localhost:5000/certificates/1/
 | GET, POST | `/users/ldap` | View/save LDAP settings (POST `action=test` runs a live connection test) |
 | POST | `/users/ldap/reset` | Remove saved LDAP settings (revert to env config) |
 | GET, POST | `/users/webhooks` | View/save webhook notification settings (POST `action=test` sends a test event) |
+| GET, POST | `/users/api-tokens` | Any | List (admins: all) or create API tokens; a created token's secret is returned once (`token` in the JSON body) |
+| POST | `/users/api-tokens/<id>/revoke` | Any (own) / Admin | Revoke an API token |
 | POST | `/users/webhooks/reset` | Remove saved webhook settings (revert to env config) |
 
 #### Dashboard & Auth
@@ -507,6 +512,7 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask keys migrate-to-hsm [--ca-id N] [--dry-run] [--yes]` | Move software-backed CA keys into the SoftHSM token (one-way). `--yes` skips the prompt only together with `--ca-id`; if the token fails the post-import signing check, the token object is removed and the software key is left untouched |
 | `flask users unlock <username>` | Clear a login lockout / failed-attempt counter from the shell — for when the locked account is the only admin and nobody can unlock it from the Users page |
 | `flask metrics-token create --name <n> --expires-in-days <N>` / `list` / `revoke <name-or-id>` | Manage bearer tokens for `/metrics` |
+| `flask api-token create --user <u> --name <n> --scopes read,issue --expires-in-days <N>` / `list [--user <u>]` / `revoke <id> [--yes]` | Scoped API tokens (F12); the secret is printed once |
 
 ```bash
 docker compose exec -u app app flask certs expiring --days 14
@@ -561,6 +567,7 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Lock duration once the threshold is hit; cleared early by an admin or `flask users unlock <username>` |
 | `BASIC_AUTH_ENABLED` | `true` | Enable HTTP Basic Auth for programmatic access |
 | `BASIC_AUTH_REALM` | `chancery` | Basic Auth realm name in `WWW-Authenticate` header |
+| `API_TOKEN_MAX_DAYS` | `365` | Longest lifetime an API token may be given |
 | `BASIC_AUTH_CACHE_TTL_SECONDS` | `60` | In-memory cache TTL for verified Basic Auth credentials (`0` disables) |
 | `OCSP_URL_SCHEME` | `http` | URL scheme for OCSP AIA URLs in certificates (`https` recommended for production) |
 | `SESSION_COOKIE_SECURE` | `true` | Send session cookie only over HTTPS (the plain-HTTP reference compose overrides to `false`) |

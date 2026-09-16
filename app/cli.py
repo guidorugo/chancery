@@ -459,6 +459,71 @@ def ocsp_rotate_responders(ca_id, force):
     click.echo(f"Rotated {rotated} responder(s).")
 
 
+api_token_cli = AppGroup("api-token", help="Scoped API tokens (2.26.0, F12).")
+
+
+@api_token_cli.command("create")
+@click.option("--user", "username", required=True, help="Owner account (the token never exceeds its role).")
+@click.option("--name", required=True, help="Token name (unique per user).")
+@click.option("--scopes", default="read", show_default=True, help="Comma-separated: read,issue,revoke,admin.")
+@click.option("--expires-in-days", type=int, required=True, help="Lifetime in days (≤ API_TOKEN_MAX_DAYS).")
+def api_token_create(username, name, scopes, expires_in_days):
+    """Create a scoped API token; the secret is printed once."""
+    from .models.user import User
+    from .services import api_token_service
+    user = User.query.filter_by(username=username).first()
+    if user is None:
+        raise click.ClickException(f"User '{username}' not found.")
+    try:
+        plaintext, row = api_token_service.create(user, name, scopes.split(","), expires_in_days, actor="cli")
+        db.session.commit()
+    except ValueError as exc:
+        db.session.rollback()
+        raise click.ClickException(str(exc))
+    click.echo(f"Created token '{row.name}' for {user.username} (id {row.id}, scopes {','.join(row.scopes)}, "
+               f"expires {row.expires_at:%Y-%m-%d}).")
+    click.echo("Secret (shown once):")
+    click.echo(plaintext)
+
+
+@api_token_cli.command("list")
+@click.option("--user", "username", default=None, help="Only this account's tokens.")
+def api_token_list(username):
+    """List API tokens."""
+    from .models.user import User
+    from .services import api_token_service
+    if username:
+        user = User.query.filter_by(username=username).first()
+        if user is None:
+            raise click.ClickException(f"User '{username}' not found.")
+        rows = api_token_service.list_for_user(user)
+    else:
+        rows = api_token_service.list_all()
+    if not rows:
+        click.echo("No API tokens.")
+        return
+    for r in rows:
+        used = r.last_used_at.strftime("%Y-%m-%d %H:%M") if r.last_used_at else "never"
+        click.echo(f"{r.id:>3}  {r.user.username:<16} {r.name:<24} {r.status:<8} scopes={','.join(r.scopes):<22} "
+                   f"expires={r.expires_at:%Y-%m-%d} last_used={used} token_id={r.token_id}")
+
+
+@api_token_cli.command("revoke")
+@click.argument("token")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def api_token_revoke(token, yes):
+    """Revoke an API token by id or token_id."""
+    from .services import api_token_service
+    row = api_token_service.get(token)
+    if row is None:
+        raise click.ClickException(f"API token '{token}' not found.")
+    if not yes:
+        click.confirm(f"Revoke API token '{row.name}' of {row.user.username}?", abort=True)
+    api_token_service.revoke(row, actor="cli")
+    db.session.commit()
+    click.echo(f"Revoked API token '{row.name}' ({row.user.username}).")
+
+
 profiles_cli = AppGroup("profiles", help="Certificate profile utilities (2.13.0, F1).")
 
 

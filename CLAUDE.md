@@ -130,6 +130,9 @@ python -m pytest tests/ -v
 - **Last-admin guards**: Cannot deactivate or demote the last active admin user.
 - **Non-root container (H1)**: `entrypoint.sh` starts as root only to `chown` the bind-mounted `/app/data`, then drops via `su-exec` to the `app` user (**uid 1000**) which runs `entrypoint-app.sh` (token init, migration, gunicorn). Compose adds `no-new-privileges` + `cap_drop: [ALL]` (only `CHOWN`/`SETUID`/`SETGID` added back). uid 1000 must be able to read the Docker secret files (bind-mounted with host ownership).
 
+## Scoped API tokens (2.26.0, F12)
+- `app/models/api_token.py` (`ApiToken`, table `api_tokens`, `chy_api_<token_id>_<secret>`, SHA-256 hash at rest, `scopes_json`, required `expires_at` ≤ `API_TOKEN_MAX_DAYS`=365, `revoked`, `last_used_at`; unique name per user) and `app/services/api_token_service.py` (`create`/`revoke` audit `create_api_token`/`revoke_api_token` through `audit_service.log_action`, `verify` refuses expired/revoked/tampered tokens and deactivated owners, throttled `touch`, `required_scope(method, endpoint)`: GET → `read`; `certificates.create|renew`, `csr.create|sign` → `issue`; `certificates.revoke`, `ca.revoke`, `ca.generate_crl` → `revoke`; every other write → `admin`; public/health/metrics/auth/static → none). The request hook in `app/__init__.py` (`_check_api_token`, called from `check_basic_auth` for any `Authorization: Bearer`) sets the same `g.basic_auth_used`/`g.basic_auth_user` as Basic Auth (CSRF bypass, JSON errors, forced-password 403) plus `g.api_token`, audits `api_token_auth_failed` (401) and `api_token_scope_denied` (403 `"lacks the '<scope>' scope"`). Session and Basic-Auth requests are never scope-checked; role checks still apply, so a token never exceeds its owner's role. A `cmt_` metrics token is refused here and an API token is refused at `/metrics` (different prefixes). UI `GET/POST /users/api-tokens` (any logged-in user; admins see everyone's and may revoke any), `POST /users/api-tokens/<id>/revoke`; navbar link *API Tokens* + Preferences tab; CLI `flask api-token create|list|revoke`.
+
 ## HTTP Basic Auth
 - **Alternative to session auth**: Enables programmatic access via `curl -u user:pass`, scripts, and automation.
 - **Stateless**: No session cookie created — each request authenticates independently.
@@ -159,6 +162,7 @@ python -m pytest tests/ -v
 - `OCSP_RESPONSE_CACHE_TTL_SECONDS` - Cache signed OCSP responses per (CA, serial, status) this long (default: 60, 0 disables); status is in the key, so a revoked cert is never served GOOD from cache
 - `BASIC_AUTH_ENABLED` - Enable HTTP Basic Auth (default: true)
 - `BASIC_AUTH_REALM` - Basic Auth realm name (default: chancery)
+- `API_TOKEN_MAX_DAYS` - Longest lifetime of a scoped API token (default: 365; F12)
 - `BASIC_AUTH_CACHE_TTL_SECONDS` - In-memory cache TTL for verified Basic Auth credentials (default: 60, 0 disables)
 - `OCSP_URL_SCHEME` - URL scheme for OCSP AIA URLs in certificates (default: http, use https in production)
 - `SESSION_COOKIE_SECURE` - Send session cookie only over HTTPS (default: **true**; the HTTP reference compose overrides to false)

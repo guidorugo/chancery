@@ -169,6 +169,9 @@ class Config:
     METRICS_INCLUDE_CA_DETAILS = os.environ.get("METRICS_INCLUDE_CA_DETAILS", "false").lower() == "true"
 
     BASIC_AUTH_ENABLED = os.environ.get("BASIC_AUTH_ENABLED", "true").lower() == "true"
+    # F12 (2.26.0): scoped API tokens (`Authorization: Bearer chy_api_…`); the
+    # longest lifetime an operator may give a token.
+    API_TOKEN_MAX_DAYS = int(os.environ.get("API_TOKEN_MAX_DAYS") or "365")
     BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "chancery")
     # Verified Basic Auth credentials are cached in memory for this many
     # seconds to avoid an LDAP bind / password-hash check per request (0 = off)
