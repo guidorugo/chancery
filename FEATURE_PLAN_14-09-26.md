@@ -388,7 +388,7 @@ re-armed after renewal (F9 clears the column on the new cert).
 **Tests.** `openssl verify` of a leaf via both chains; SKI/AKI equality on re-issue;
 revoked alternate excluded; import of a cross-cert bundle.
 
-## F12. Scoped API tokens (2.17.0, M)
+## F12. Scoped API tokens (shipped as v2.26.0, PR #159)
 
 **Current state.** API access is Basic Auth with the user's real password
 (`app/__init__.py:136-235`, `auth_service.authenticate_basic`). The
