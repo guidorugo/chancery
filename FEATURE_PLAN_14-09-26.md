@@ -366,7 +366,7 @@ and not yet notified (columns `certificates.expiry_notified_at`,
 system actor, which fires the webhook. Tests: fired once, not re-fired next day,
 re-armed after renewal (F9 clears the column on the new cert).
 
-## F11. CA certificate re-issue and cross-signing (2.16.0, L)
+## F11. CA certificate re-issue and cross-signing (shipped as v2.25.0, PR #157)
 
 **Design.**
 
