@@ -27,6 +27,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Security**: Private keys encrypted at rest with Fernet (PBKDF2-derived key, 600k iterations), session hardening, per-IP rate limiting and per-account login lockout (both on by default), insecure-default rejection plus a startup warning for short `SECRET_KEY` / `MASTER_PASSPHRASE` / PKCS#11 PIN values
 - **Minimal hardened image**: Alpine-based (~123 MB), digest-pinned, runs as non-root with all capabilities dropped; no `pip`, `bash`, or package manager extras in the runtime — scanned clean (0 known CVEs) at the v2.8.0 release
 - **Forced first-login password change**: The bootstrap admin seeded from `ADMIN_PASSWORD` must set a new password before using the app, so the seed credential can't become permanent; the same applies to passwords an admin sets for other users (create / reset), which must also meet `MIN_PASSWORD_LENGTH`; self-service change-password for any local user
+- **Name Constraints**: A root or intermediate CA can carry an RFC 5280 Name Constraints extension (critical) — permitted and excluded subtrees as `DNS:example.com`, `IP:10.0.0.0/8`, `EMAIL:example.com`, `URI:example.com` — set at creation (Advanced) or read from an imported CA certificate. Chancery enforces them at issuance for the whole chain (SANs and a hostname-like Common Name; excluded wins), so a constrained CA can never sign a certificate that clients would reject
 - **Key algorithms**: RSA (2048–8192), EC P-256/P-384/P-521, and — new in 2.20.0 — **Ed25519 / Ed448** for CAs, certificates and CSRs, in software or in the PKCS#11 token (EdDSA). Ed25519/Ed448 are for mTLS between modern stacks (Go, OpenSSL 3, rustls), SSH-style use and code signing; browsers and Windows Schannel do not accept them for TLS server certificates, and the forms say so. Any other algorithm (DSA, other curves) is refused everywhere — generation, CSR upload, signing and CA import. Signature digests can be matched to the key (`SIGNATURE_HASH_POLICY=match-curve`: SHA-384 for P-384, SHA-512 for P-521, a configurable digest for RSA)
 - **Hardware-backed keys (SoftHSM/PKCS#11)**: Enabled by default — CA signing keys can be held in a PKCS#11 token so they never enter application memory and cannot be exported; selectable per-CA (software stays the default backend), with a one-way migration for existing CAs and a drop-in path to a real hardware HSM
 - **LDAP Login**: Optional LDAP/Active Directory authentication with group-to-role mapping and automatic user provisioning — configurable from the admin UI (Preferences → LDAP, with a live connection test) or via environment variables
@@ -403,7 +404,7 @@ curl -u admin:PASSWORD "http://localhost:5000/certificates/?status=expiring&page
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/ca/` | List all Certificate Authorities |
-| GET, POST | `/ca/create` | Create or import a CA |
+| GET, POST | `/ca/create` | Create or import a CA; `nc_permitted` / `nc_excluded` (one `DNS:`/`IP:`/`EMAIL:`/`URI:` entry per line) set Name Constraints |
 | POST | `/ca/detect-parent` | Detect parent CA for an imported certificate (JSON response) |
 | GET | `/ca/<ca_id>` | View CA details |
 | POST | `/ca/<ca_id>/approve` | Approve a pending CA (dual control); while the mode is active the approver must not be the CA's creator |

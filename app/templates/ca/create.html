@@ -95,6 +95,24 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="nc_permitted" class="form-label">Permitted names
+                                            <span class="field-info" data-bs-toggle="tooltip" title="Name constraints (RFC 5280): one entry per line — DNS:example.com, IP:10.0.0.0/8, EMAIL:example.com, URI:example.com. Once a type is listed, this CA and everything below it can only certify names inside these subtrees.">!</span>
+                                        </label>
+                                        <textarea class="form-control font-monospace" id="nc_permitted" name="nc_permitted" rows="3" placeholder="DNS:example.com&#10;IP:10.0.0.0/8"></textarea>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="nc_excluded" class="form-label">Excluded names
+                                            <span class="field-info" data-bs-toggle="tooltip" title="Names this CA and its subtree may never certify, same syntax. Excluded wins over permitted. Leave both empty for an unconstrained CA.">!</span>
+                                        </label>
+                                        <textarea class="form-control font-monospace" id="nc_excluded" name="nc_excluded" rows="3" placeholder="DNS:internal.example.com"></textarea>
+                                    </div>
+                                </div>
+                            </div>
                             {% if hsm_available %}
                             <div class="row">
                                 <div class="col-md-12">

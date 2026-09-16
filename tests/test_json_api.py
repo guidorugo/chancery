@@ -167,6 +167,7 @@ def test_ca_detail_json_has_no_key_material(auth_admin):
         "approval_status", "created_by", "approved_by", "approved_at",
         "allowed_profiles",  # F1: profile allow-list (ids), never key material
         "expiry_notified_at",  # F10: last expiry report (timestamp or null)
+        "name_constraints",  # F2: permitted/excluded subtrees (dict or null)
     }
     assert "private_key_enc" not in detail
     assert "key_label" not in detail

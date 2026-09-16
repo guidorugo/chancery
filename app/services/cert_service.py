@@ -11,7 +11,7 @@ from ..models.certificate import Certificate
 from .crypto_utils import encrypt_private_key, decrypt_private_key, generate_key, key_info
 from .policy import (enforce_public_key_strength, bounded_not_after, build_subject)
 from .keybackend import backend_for_ca
-from . import profile_service, san
+from . import name_constraints, profile_service, san
 
 
 def _build_san(san_list):
@@ -100,6 +100,7 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
         profile, key_type=key_type, key_size=key_size, validity_days=validity_days,
         san_list=effective_san, common_name=csr_model.common_name,
         key_usage=key_usage, extended_key_usage=extended_key_usage)
+    name_constraints.enforce(ca, {"CN": csr_model.common_name}, effective_san)  # F2
 
     _claim_csr(csr_model)
     try:
@@ -304,6 +305,8 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
         san_list=san_list, common_name=subject_attrs.get("CN"),
         key_usage=key_usage, extended_key_usage=extended_key_usage)
 
+    name_constraints.enforce(ca, subject_attrs, san_list)  # F2: before any key is generated
+
     key = generate_key(key_type, key_size)
     key_type, key_size = key_info(key)  # canonical (an Edwards key has a fixed size)
     subject = build_subject(subject_attrs)
@@ -415,6 +418,7 @@ def renew_certificate(old, passphrase, *, validity_days=None, rekey=False, revok
         profile, key_type=old.key_type, key_size=old.key_size, validity_days=validity_days,
         san_list=san_list, common_name=old.common_name,
         key_usage=key_usage, extended_key_usage=extended_key_usage)
+    name_constraints.enforce(ca, {"CN": old.common_name}, san_list)  # F2 (a re-imported CA may constrain)
 
     if rekey:
         key = generate_key(old.key_type, old.key_size)

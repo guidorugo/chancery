@@ -11,6 +11,7 @@ from ..responses import api_error, wants_json
 from ..services import ca_service, crl_service, audit_service, dual_control_service, profile_service, listing
 from ..services.filenames import content_disposition
 from ..services.keybackend import hsm_available
+from ..services import name_constraints
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +240,12 @@ def create():
                 path_length = int(path_length_str) if path_length_str else None
             except ValueError:
                 return _err("Key size, validity days, and path length must be valid numbers.")
+            # F2: name constraints (one DNS:/IP:/EMAIL:/URI: entry per line).
+            try:
+                constraints = name_constraints.normalise(request.form.get("nc_permitted", ""),
+                                                         request.form.get("nc_excluded", ""))
+            except ValueError as e:
+                return _err(str(e))
 
             if not name or not cn:
                 return _err("Name and Common Name are required.")
@@ -270,19 +277,20 @@ def create():
                         name, parent_ca, subject_attrs, key_type, key_size,
                         validity_days, passphrase, path_length=path_length,
                         backend=key_backend, created_by=current_user.id,
-                        approval_status=approval_status,
+                        approval_status=approval_status, constraints=constraints,
                     )
                 else:
                     ca = ca_service.create_root_ca(
                         name, subject_attrs, key_type, key_size,
                         validity_days, passphrase, path_length=path_length,
                         backend=key_backend, created_by=current_user.id,
-                        approval_status=approval_status,
+                        approval_status=approval_status, constraints=constraints,
                     )
                 ca.set_allowed_profile_ids(allowed_profile_ids)
                 audit_service.log_action("create_ca", target_type="ca", target_id=ca.id,
                                          details={"approval_status": ca.approval_status,
-                                                  "allowed_profiles": allowed_profile_ids})
+                                                  "allowed_profiles": allowed_profile_ids,
+                                                  "name_constraints": constraints})
                 db.session.commit()
                 if wants_json():
                     return jsonify(ca.to_dict(detail=True)), 201

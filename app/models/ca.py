@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 from ..extensions import db
@@ -40,6 +41,8 @@ class CertificateAuthority(db.Model):
     # F1: JSON list of certificate_profiles.id this CA may issue under; NULL = any.
     allowed_profiles_json = db.Column(db.Text, nullable=True)
     expiry_notified_at = db.Column(db.DateTime, nullable=True)  # F10, same rule as Certificate
+    # F2: {"permitted": [...], "excluded": [...]} in DNS:/IP:/EMAIL:/URI: spelling; NULL = unconstrained.
+    name_constraints_json = db.Column(db.Text, nullable=True)
 
     parent = db.relationship("CertificateAuthority", remote_side=[id], backref="children")
     certificates = db.relationship("Certificate", backref="ca", lazy="dynamic")
@@ -104,6 +107,19 @@ class CertificateAuthority(db.Model):
         )
 
     @property
+    def name_constraints(self):
+        """Stored name constraints (F2) as a dict, or None."""
+        if not self.name_constraints_json:
+            return None
+        try:
+            return json.loads(self.name_constraints_json)
+        except ValueError:
+            return None
+
+    def set_name_constraints(self, constraints):
+        self.name_constraints_json = json.dumps(constraints) if constraints else None
+
+    @property
     def days_until_expiry(self):
         """Whole days until notAfter (negative if already expired), or None."""
         return days_until(self.not_after)
@@ -142,6 +158,7 @@ class CertificateAuthority(db.Model):
             "approval_status": self.approval_status,
             "created_by": self.created_by,
             "allowed_profiles": self.allowed_profile_ids,
+            "name_constraints": self.name_constraints,
             "created_at": iso(self.created_at),
         }
         if detail:
