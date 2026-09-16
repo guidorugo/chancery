@@ -247,7 +247,7 @@ cert, CRL and OCSP response; legacy flag keeps SHA-256.
 **Assessment links.** G5-3 is this feature. G4-4 (curve accepted by size, not
 identity) lands with `hash_for_key`, which keys on the curve class.
 
-## F7. Delegated OCSP responder certificate (2.16.0, M)
+## F7. Delegated OCSP responder certificate (shipped as v2.24.0, PR #153)
 
 **Current state.** Responses are signed by the CA key itself with a byKey responder ID
 (`keybackend/software.py:86-100`, `softhsm.py:251-292`); the software backend caches
