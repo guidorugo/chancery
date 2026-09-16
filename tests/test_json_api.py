@@ -170,6 +170,7 @@ def test_ca_detail_json_has_no_key_material(auth_admin):
         "name_constraints",  # F2: permitted/excluded subtrees (dict or null)
         "certificate_policies",  # F3: [{oid, cps_uri}] or null
         "ocsp_responder",  # F7: delegated responder status (dict or null), never its key
+        "alternate_certificates",  # F11: previous / cross-signed CA certificates (public material)
     }
     assert "private_key_enc" not in detail
     assert "key_label" not in detail

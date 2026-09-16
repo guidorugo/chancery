@@ -468,21 +468,37 @@ def download(cert_id):
         except ValueError as e:
             flash(str(e), "danger")
             return redirect(url_for("certificates.detail", cert_id=cert_id))
-    elif fmt == "fullchain":
-        # leaf -> intermediates -> root; public material, GET is fine.
-        data = cert_service.export_fullchain_pem(certificate)
+    elif fmt in ("fullchain", "chain"):
+        # leaf -> intermediates -> root (fullchain) or the issuing chain only
+        # (chain); public material, GET is fine. F11: `via=<alt_id>` routes
+        # the chain through an alternate (cross-signed) CA certificate.
+        via = None
+        if request.values.get("via"):
+            from ..models.ca_certificate import CaCertificate
+            try:
+                via = db.session.get(CaCertificate, int(request.values.get("via")))
+            except (TypeError, ValueError):
+                via = None
+            if via is None:
+                if wants_json():
+                    return api_error("Unknown alternate CA certificate.", 404)
+                flash("Unknown alternate CA certificate.", "danger")
+                return redirect(url_for("certificates.detail", cert_id=cert_id))
+        try:
+            if fmt == "fullchain":
+                data = cert_service.export_fullchain_pem(certificate, via)
+            else:
+                data = cert_service.export_chain_pem(certificate, via)
+        except ValueError as e:
+            if wants_json():
+                return api_error(str(e), 400)
+            flash(str(e), "danger")
+            return redirect(url_for("certificates.detail", cert_id=cert_id))
+        suffix = f"-{fmt}-via-{via.id}" if via else f"-{fmt}"
         return Response(
             data,
             mimetype="application/x-pem-file",
-            headers={"Content-Disposition": content_disposition(f"{certificate.common_name}-fullchain", "pem", fallback=f"certificate-{certificate.id}")},
-        )
-    elif fmt == "chain":
-        # issuing CA chain only (no leaf); public material, GET is fine.
-        data = cert_service.export_chain_pem(certificate)
-        return Response(
-            data,
-            mimetype="application/x-pem-file",
-            headers={"Content-Disposition": content_disposition(f"{certificate.common_name}-chain", "pem", fallback=f"certificate-{certificate.id}")},
+            headers={"Content-Disposition": content_disposition(f"{certificate.common_name}{suffix}", "pem", fallback=f"certificate-{certificate.id}")},
         )
     else:
         data = cert_service.export_certificate_pem(certificate)

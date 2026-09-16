@@ -479,17 +479,18 @@ def export_certificate_der(certificate):
     return cert.public_bytes(serialization.Encoding.DER)
 
 
-def export_chain_pem(certificate):
+def export_chain_pem(certificate, via=None):
     """The issuing CA chain only (issuer -> ... -> root), PEM, no leaf.
 
     Suitable for a web server's `ssl_trusted_certificate` / `chain.pem`. All
-    public material, so callable over GET.
+    public material, so callable over GET. `via` (F11) routes the chain
+    through an alternate CA certificate (a cross-certificate's trust path).
     """
     from .ca_service import get_ca_chain
-    return get_ca_chain(certificate.ca)
+    return get_ca_chain(certificate.ca, via)
 
 
-def export_fullchain_pem(certificate):
+def export_fullchain_pem(certificate, via=None):
     """Leaf certificate + issuing CA chain (leaf -> intermediates -> root), PEM.
 
     The classic `fullchain.pem` that nginx/apache/haproxy expect. Public
@@ -497,7 +498,7 @@ def export_fullchain_pem(certificate):
     """
     from .ca_service import get_ca_chain
     leaf = certificate.certificate_pem.rstrip("\n")
-    return leaf + "\n" + get_ca_chain(certificate.ca)
+    return leaf + "\n" + get_ca_chain(certificate.ca, via)
 
 
 def export_pkcs12(certificate, passphrase, export_password):

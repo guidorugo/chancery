@@ -184,6 +184,7 @@ class CertificateAuthority(db.Model):
         if detail:
             from ..services import ocsp_service
             d["ocsp_responder"] = ocsp_service.responder_status(self)
+            d["alternate_certificates"] = [a.to_dict() for a in self.alternate_certificates]  # F11
             d.update({
                 "path_length": self.path_length,
                 "crl_number": self.crl_number,
