@@ -51,6 +51,10 @@
                     {% if cert.profile %}
                     <tr><th>Profile</th><td>{{ cert.profile.name }}{% if cert.profile.is_custom %} <span class="text-body-secondary">(unrestricted)</span>{% endif %}</td></tr>
                     {% endif %}
+                    {% set cps = cert.certificate_policies %}
+                    {% if cps %}
+                    <tr><th>Certificate Policies</th><td>{% for p in cps %}<div><code>{{ p.oid }}</code>{% if p.cps_uri %} <a href="{{ p.cps_uri }}" rel="noopener" target="_blank">CPS</a>{% endif %}</div>{% endfor %}</td></tr>
+                    {% endif %}
                     <tr><th>Valid From</th><td>{{ cert.not_before.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
                     <tr><th>Valid Until</th><td>{{ cert.not_after.strftime('%Y-%m-%d %H:%M UTC') }}{{ expiry_badge(cert) }}</td></tr>
                     <tr>

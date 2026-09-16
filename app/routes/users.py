@@ -384,6 +384,7 @@ def _profile_form_to_fields(form, existing=None):
         "require_san": form.get("require_san") == "on",
         "cn_in_san": form.get("cn_in_san") == "on",
         "enabled": form.get("enabled") == "on",
+        "certificate_policies": text("certificate_policies"),  # F3: "OID [CPS]" lines
     }
     if not is_custom:
         fields["key_usage"] = {f: form.get(f"ku_{f}") == "on" for f, _ in KU_LABELS}
@@ -398,7 +399,12 @@ def _profile_form_to_fields(form, existing=None):
 
 
 def _render_profile_form(profile=None, fields=None):
-    return render_template("users/profile_form.html", profile=profile, fields=fields or {},
+    fields = dict(fields or {})
+    if "certificate_policies_text" not in fields:
+        from ..services import certificate_policies
+        raw = fields.get("certificate_policies")
+        fields["certificate_policies_text"] = raw if isinstance(raw, str) else certificate_policies.to_lines(raw)
+    return render_template("users/profile_form.html", profile=profile, fields=fields,
                            ku_labels=KU_LABELS, eku_labels=EKU_LABELS, san_labels=SAN_LABELS,
                            key_types=profile_service.KEY_TYPES, ec_sizes=profile_service.EC_SIZES)
 

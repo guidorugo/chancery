@@ -88,6 +88,11 @@
                         {% if nc.excluded %}<div><span class="text-body-secondary">Excluded:</span> {% for e in nc.excluded %}<code>{{ e }}</code>{% if not loop.last %} {% endif %}{% endfor %}</div>{% endif %}
                         {% else %}None{% endif %}
                     </td></tr>
+                    {% set cps = ca.certificate_policies %}
+                    <tr><th>Certificate Policies</th><td>
+                        {% if cps %}{% for p in cps %}<div><code>{{ p.oid }}</code>{% if p.cps_uri %} <a href="{{ p.cps_uri }}" rel="noopener" target="_blank">CPS</a>{% endif %}</div>{% endfor %}
+                        {% else %}None{% endif %}
+                    </td></tr>
                     <tr><th>CRL Number</th><td>{{ ca.crl_number }}</td></tr>
                     <tr><th>Created</th><td>{{ ca.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
                     {% if ca.is_revoked %}

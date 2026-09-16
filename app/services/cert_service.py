@@ -11,7 +11,7 @@ from ..models.certificate import Certificate
 from .crypto_utils import encrypt_private_key, decrypt_private_key, generate_key, key_info
 from .policy import (enforce_public_key_strength, bounded_not_after, build_subject)
 from .keybackend import backend_for_ca
-from . import name_constraints, profile_service, san
+from . import certificate_policies, name_constraints, profile_service, san
 
 
 def _build_san(san_list):
@@ -107,14 +107,16 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
         return _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
                                  san_list, key_usage, extended_key_usage, ocsp_url,
                                  crl_dp_url, signed_by, include_aia=include_aia,
-                                 profile_id=profile.id if profile is not None else None)
+                                 profile_id=profile.id if profile is not None else None,
+                                 policies=certificate_policies.for_issuance(ca, profile))
     except Exception:
         _release_csr(csr_model)
         raise
 
 
 def _leaf_builder(ca, ca_cert, subject, public_key, validity_days, key_usage,
-                  extended_key_usage, san_list, ocsp_url, crl_dp_url, include_aia=True):
+                  extended_key_usage, san_list, ocsp_url, crl_dp_url, include_aia=True,
+                  policies=None):
     """The end-entity CertificateBuilder shared by direct issuance, CSR signing
     and renewal: BasicConstraints CA:FALSE, SKI/AKI, Key Usage (defaults:
     digitalSignature + keyEncipherment), EKU (defaults: serverAuth +
@@ -233,19 +235,23 @@ def _leaf_builder(ca, ca_cert, subject, public_key, validity_days, key_usage,
             ]),
             critical=False,
         )
+
+    # Certificate Policies (F3): the profile's list, else the issuing CA's
+    if policies:
+        builder = builder.add_extension(certificate_policies.build_extension(policies), critical=False)
     return builder, now, serial
 
 
 def _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
                       san_list, key_usage, extended_key_usage, ocsp_url,
-                      crl_dp_url, signed_by, include_aia=True, profile_id=None):
+                      crl_dp_url, signed_by, include_aia=True, profile_id=None, policies=None):
     effective_san = san_list
     if not effective_san and csr_model.san_json:
         effective_san = json.loads(csr_model.san_json)
 
     builder, now, serial = _leaf_builder(
         ca, ca_cert, csr.subject, csr.public_key(), validity_days, key_usage,
-        extended_key_usage, effective_san, ocsp_url, crl_dp_url, include_aia)
+        extended_key_usage, effective_san, ocsp_url, crl_dp_url, include_aia, policies=policies)
     cert_der = backend_for_ca(ca).sign_certificate(builder, ca, secret=passphrase)
     cert = x509.load_der_x509_certificate(cert_der)
     cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
@@ -313,7 +319,8 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
 
     builder, now, serial = _leaf_builder(
         ca, ca_cert, subject, key.public_key(), validity_days, key_usage,
-        extended_key_usage, san_list, ocsp_url, crl_dp_url, include_aia)
+        extended_key_usage, san_list, ocsp_url, crl_dp_url, include_aia,
+        policies=certificate_policies.for_issuance(ca, profile))
     cert_der = backend_for_ca(ca).sign_certificate(builder, ca, secret=passphrase)
     cert = x509.load_der_x509_certificate(cert_der)
     cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
@@ -431,7 +438,8 @@ def renew_certificate(old, passphrase, *, validity_days=None, rekey=False, revok
 
     builder, now, serial = _leaf_builder(
         ca, ca_cert, old_cert.subject, public_key, validity_days, key_usage,
-        extended_key_usage, san_list, ocsp_url, crl_dp_url, include_aia)
+        extended_key_usage, san_list, ocsp_url, crl_dp_url, include_aia,
+        policies=certificate_policies.for_issuance(ca, profile))
     cert_der = backend_for_ca(ca).sign_certificate(builder, ca, secret=passphrase)
     cert = x509.load_der_x509_certificate(cert_der)
 

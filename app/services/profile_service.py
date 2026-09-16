@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from ..extensions import db
 from ..models.certificate_profile import CertificateProfile
 from . import san as san_module
+from . import certificate_policies
 
 KU_FIELDS = ("digital_signature", "key_encipherment", "content_commitment",
              "data_encipherment", "key_agreement")
@@ -293,6 +294,12 @@ def validate(fields, existing=None):
     san = fields.get("allowed_san_types")
     if san is not None and (not isinstance(san, list) or set(san) - set(SAN_TYPES)):
         errors.append("Allowed SAN types has unknown values.")
+    policies = fields.get("certificate_policies")
+    if policies not in (None, "", []):
+        try:
+            certificate_policies.parse_entries(policies)
+        except ValueError as exc:
+            errors.append(f"Certificate policies: {exc}")
     return errors
 
 
@@ -320,6 +327,10 @@ def _apply(row, fields):
     row.allowed_san_types_json = json.dumps(san) if san else None
     row.require_san = bool(fields.get("require_san", False))
     row.cn_in_san = bool(fields.get("cn_in_san", False))
+    policies = fields.get("certificate_policies")
+    row.certificate_policies_json = (json.dumps(certificate_policies.parse_entries(policies))
+                                     if policies not in (None, "", []) and certificate_policies.parse_entries(policies)
+                                     else None)
     if "enabled" in fields:
         row.enabled = bool(fields["enabled"])
 
@@ -366,7 +377,7 @@ def delete(row):
 # --- export / import (CLI) -------------------------------------------------------
 
 EXPORT_FIELDS = ("key", "name", "description", "enabled", "key_usage", "extended_key_usage",
-                 "include_ocsp_aia", "default_validity_days", "max_validity_days",
+                 "include_ocsp_aia", "certificate_policies", "default_validity_days", "max_validity_days",
                  "allowed_key_types", "min_rsa_bits", "max_rsa_bits", "allowed_ec_sizes",
                  "allowed_san_types", "require_san", "cn_in_san")
 

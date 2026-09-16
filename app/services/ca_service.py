@@ -12,7 +12,7 @@ from .crypto_utils import encrypt_private_key, decrypt_private_key, key_info
 from .policy import (enforce_key_strength, enforce_public_key_strength,
                      bounded_not_after, build_subject)
 from .keybackend import get_backend, backend_for_ca, default_backend_name
-from . import name_constraints
+from . import certificate_policies, name_constraints
 
 
 def _key_label():
@@ -44,12 +44,15 @@ def publish_initial_crl(ca, passphrase):
 
 def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passphrase,
                    path_length=None, backend=None, created_by=None,
-                   approval_status="approved", constraints=None):
+                   approval_status="approved", constraints=None, policies=None):
     """`constraints` (F2): `{"permitted": [...], "excluded": [...]}` from
     `name_constraints.normalise()`; encoded as a critical NameConstraints
-    extension and stored on the row."""
+    extension and stored on the row. `policies` (F3): a list from
+    `certificate_policies.normalise()`, stamped as certificatePolicies and
+    inherited by every certificate this CA issues."""
     enforce_key_strength(key_type, key_size)  # B5
     nc_ext = name_constraints.build_extension(constraints)
+    cp_ext = certificate_policies.build_extension(policies)
     backend_name = backend or default_backend_name()
     kb = get_backend(backend_name)
     label = _key_label()
@@ -99,6 +102,8 @@ def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passp
     )
     if nc_ext is not None:
         builder = builder.add_extension(nc_ext, critical=True)
+    if cp_ext is not None:
+        builder = builder.add_extension(cp_ext, critical=False)
 
     # A root signs its own certificate. Build the (uncommitted) CA object first
     # so the backend can sign with it (software reads private_key_enc, HSM reads
@@ -124,6 +129,7 @@ def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passp
         approved_at=(now if approval_status == "approved" else None),
     )
     ca.set_name_constraints(constraints)
+    ca.set_certificate_policies(policies)
     cert_der = kb.sign_certificate(builder, ca, secret=passphrase)
     ca.certificate_pem = x509.load_der_x509_certificate(cert_der).public_bytes(
         serialization.Encoding.PEM).decode()
@@ -135,7 +141,8 @@ def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passp
 
 def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
                            validity_days, passphrase, path_length=None, backend=None,
-                           created_by=None, approval_status="approved", constraints=None):
+                           created_by=None, approval_status="approved", constraints=None,
+                           policies=None):
     if not parent_ca.has_signing_key:
         raise ValueError("Parent CA was imported without its private key and cannot sign a new intermediate CA.")
     if parent_ca.approval_status == "pending":
@@ -154,6 +161,7 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
     # parent chain's constraints, like any other certified name.
     name_constraints.enforce(parent_ca, subject_attrs, [])
     nc_ext = name_constraints.build_extension(constraints)
+    cp_ext = certificate_policies.build_extension(policies)
 
     # The child key lives in the child's chosen backend; the parent's backend
     # signs the child certificate (software and HSM parents/children mix freely).
@@ -224,6 +232,8 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
     )
     if nc_ext is not None:
         builder = builder.add_extension(nc_ext, critical=True)
+    if cp_ext is not None:
+        builder = builder.add_extension(cp_ext, critical=False)
 
     ca = CertificateAuthority(
         name=name,
@@ -245,6 +255,7 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
         approved_at=(now if approval_status == "approved" else None),
     )
     ca.set_name_constraints(constraints)
+    ca.set_certificate_policies(policies)
     cert_der = backend_for_ca(parent_ca).sign_certificate(
         builder, parent_ca, secret=passphrase)
     ca.certificate_pem = x509.load_der_x509_certificate(cert_der).public_bytes(
@@ -420,6 +431,7 @@ def _import_ca_object(name, cert, private_key, passphrase, parent_id=None):
         path_length=path_length,
     )
     ca.set_name_constraints(name_constraints.from_certificate(cert))  # F2: shown and enforced
+    ca.set_certificate_policies(certificate_policies.from_certificate(cert))  # F3: inherited by leaves
     db.session.add(ca)
     db.session.flush()
     return ca
