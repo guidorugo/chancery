@@ -42,7 +42,40 @@ services:
       # F8: in-app scheduler keeps CRLs fresh (no cron needed). Regenerates a
       # CRL once it expires within CRL_REFRESH_BEFORE_DAYS (default 2).
       - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
+      - SCHEDULER_TICK_SECONDS=${SCHEDULER_TICK_SECONDS:-}
       - CRL_REFRESH_BEFORE_DAYS=${CRL_REFRESH_BEFORE_DAYS:-}
+      # F6: digest for NEW signatures (certificates, CRLs, OCSP, generated CSRs).
+      # legacy = SHA-256 for every RSA/EC key (default until 3.0); match-curve =
+      # SHA-256/384/512 for P-256/P-384/P-521 and RSA_SIGNATURE_HASH
+      # (sha256|sha384|sha512) for RSA. Existing objects are untouched.
+      - SIGNATURE_HASH_POLICY=${SIGNATURE_HASH_POLICY:-legacy}
+      - RSA_SIGNATURE_HASH=${RSA_SIGNATURE_HASH:-sha256}
+      # --- tunables (every documented variable is forwarded from .env; an empty
+      # value means "app default" — see the README environment table) ----------
+      - APP_VERSION=${APP_VERSION:-}
+      - SESSION_LIFETIME_MINUTES=${SESSION_LIFETIME_MINUTES:-}
+      - MIN_PASSWORD_LENGTH=${MIN_PASSWORD_LENGTH:-}
+      - LOGIN_LOCKOUT_THRESHOLD=${LOGIN_LOCKOUT_THRESHOLD:-}
+      - LOGIN_LOCKOUT_MINUTES=${LOGIN_LOCKOUT_MINUTES:-}
+      - RATE_LIMIT_DEFAULT=${RATE_LIMIT_DEFAULT:-}
+      - PUBLIC_RATE_LIMIT=${PUBLIC_RATE_LIMIT:-}
+      - MAX_CONTENT_LENGTH_BYTES=${MAX_CONTENT_LENGTH_BYTES:-}
+      - BASIC_AUTH_ENABLED=${BASIC_AUTH_ENABLED:-true}
+      - BASIC_AUTH_REALM=${BASIC_AUTH_REALM:-chancery}
+      - OCSP_URL_SCHEME=${OCSP_URL_SCHEME:-http}
+      - OCSP_KEY_CACHE_TTL_SECONDS=${OCSP_KEY_CACHE_TTL_SECONDS:-}
+      - OCSP_RESPONSE_CACHE_TTL_SECONDS=${OCSP_RESPONSE_CACHE_TTL_SECONDS:-}
+      - CRL_VALIDITY_DAYS=${CRL_VALIDITY_DAYS:-}
+      - CERT_EXPIRY_WARNING_DAYS=${CERT_EXPIRY_WARNING_DAYS:-}
+      - MAX_CERT_VALIDITY_DAYS=${MAX_CERT_VALIDITY_DAYS:-}
+      - MAX_CA_VALIDITY_DAYS=${MAX_CA_VALIDITY_DAYS:-}
+      - MIN_RSA_KEY_SIZE=${MIN_RSA_KEY_SIZE:-}
+      - MAX_RSA_KEY_SIZE=${MAX_RSA_KEY_SIZE:-}
+      - PROFILES_REQUIRE_SELECTION=${PROFILES_REQUIRE_SELECTION:-false}
+      - UPDATE_CHECK_INTERVAL_SECONDS=${UPDATE_CHECK_INTERVAL_SECONDS:-}
+      - UPDATE_CHECK_TIMEOUT_SECONDS=${UPDATE_CHECK_TIMEOUT_SECONDS:-}
+      - WEBHOOK_TIMEOUT_SECONDS=${WEBHOOK_TIMEOUT_SECONDS:-}
+      - LDAP_ALLOW_PLAINTEXT=${LDAP_ALLOW_PLAINTEXT:-false}
       # --- SoftHSM key backend (finding A1) — enabled by default ----------------
       # CA signing keys can live in a PKCS#11 token (non-exportable, never in app
       # memory). The image bundles softhsm2 (BSD-licensed); the entrypoint
