@@ -2,12 +2,73 @@ import os
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, ed448, ed25519, rsa
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 
 
 SALT_SIZE = 16
 PBKDF2_ITERATIONS = 600_000
+
+# --- key algorithms (F5, 2.20.0) ------------------------------------------------
+#
+# The key types Chancery generates and accepts, everywhere (CA, certificate,
+# CSR, import, profiles). RSA and the three NIST curves as before; Ed25519 and
+# Ed448 are deliberate additions (assessment G4-3): they sign with EdDSA and no
+# separate hash (`hash_for_key` returns None, which is what pyca expects).
+# Anything else — DSA, other curves, unknown algorithms — is refused at every
+# entry point instead of being carried along as key_type "Unknown".
+KEY_TYPES = ("RSA", "EC", "ED25519", "ED448")
+EC_SIZES = (256, 384, 521)
+# The `key_size` stored for an Edwards key (the column is NOT NULL): the key's
+# bit length, fixed per algorithm.
+ED_KEY_SIZES = {"ED25519": 256, "ED448": 456}
+_EC_CURVES = {256: ec.SECP256R1, 384: ec.SECP384R1, 521: ec.SECP521R1}
+_ED_PRIVATE = {"ED25519": ed25519.Ed25519PrivateKey, "ED448": ed448.Ed448PrivateKey}
+_ED_PUBLIC = {ed25519.Ed25519PublicKey: "ED25519", ed448.Ed448PublicKey: "ED448"}
+
+
+def generate_key(key_type, key_size=None):
+    """Generate a private key of `key_type` after the key policy check (B5).
+    `key_size` is bits for RSA, the curve size for EC, and ignored for the
+    Edwards curves (their size is fixed)."""
+    from .policy import enforce_key_strength
+    enforce_key_strength(key_type, key_size)
+    if key_type == "RSA":
+        return rsa.generate_private_key(public_exponent=65537, key_size=key_size)
+    if key_type == "EC":
+        return ec.generate_private_key(_EC_CURVES[key_size]())
+    if key_type in _ED_PRIVATE:
+        return _ED_PRIVATE[key_type].generate()
+    raise ValueError(f"Unsupported key type: {key_type}")
+
+
+def key_info(public_key):
+    """(key_type, key_size) for a public (or private) key object, as stored on
+    CAs and certificates. Raises ValueError for an algorithm Chancery does not
+    support (G4-3) instead of returning "Unknown"."""
+    if hasattr(public_key, "public_key") and not hasattr(public_key, "public_bytes"):
+        public_key = public_key.public_key()
+    if isinstance(public_key, rsa.RSAPublicKey):
+        return "RSA", public_key.key_size
+    if isinstance(public_key, ec.EllipticCurvePublicKey):
+        return "EC", public_key.curve.key_size
+    for cls, name in _ED_PUBLIC.items():
+        if isinstance(public_key, cls):
+            return name, ED_KEY_SIZES[name]
+    raise ValueError("Unsupported key algorithm; Chancery supports RSA, EC P-256/P-384/P-521, Ed25519 and Ed448.")
+
+
+def is_ed_key(key):
+    """True for an Ed25519/Ed448 private or public key."""
+    return isinstance(key, (ed25519.Ed25519PrivateKey, ed25519.Ed25519PublicKey,
+                            ed448.Ed448PrivateKey, ed448.Ed448PublicKey))
+
+
+def hash_for_key(key):
+    """The digest to pass to a pyca `sign()` for this key: None for the
+    Edwards curves (EdDSA hashes internally), SHA-256 otherwise."""
+    return None if is_ed_key(key) else hashes.SHA256()
 
 
 def _derive_key(passphrase: str, salt: bytes) -> bytes:

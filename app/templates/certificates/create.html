@@ -25,18 +25,21 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="key_type" class="form-label">Key Type
-                                    <span class="field-info" data-bs-toggle="tooltip" title="RSA is widely compatible. EC (Elliptic Curve) offers smaller keys with equivalent security.">!</span>
+                                    <span class="field-info" data-bs-toggle="tooltip" title="RSA is widely compatible. EC (P-256/P-384/P-521) offers smaller keys with equivalent security. Ed25519/Ed448 are modern EdDSA keys for mTLS, SSH-style use and code signing (not browser TLS).">!</span>
                                 </label>
                                 <select class="form-select" id="key_type" name="key_type">
                                     <option value="RSA">RSA</option>
                                     <option value="EC">EC</option>
+                                    <option value="ED25519">Ed25519</option>
+                                    <option value="ED448">Ed448</option>
                                 </select>
+                                <div class="form-text" id="ed_note" hidden>Ed25519 / Ed448 sign with EdDSA (no key size to choose). Browsers and Windows Schannel do not accept them for TLS server certificates — use them for mTLS between modern stacks (Go, OpenSSL 3, rustls), SSH-style use and code signing.</div>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="key_size" class="form-label">Key Size
-                                    <span class="field-info" data-bs-toggle="tooltip" title="For RSA: 2048 or 4096 bits. For EC: 256 or 384 bits (curve size).">!</span>
+                                    <span class="field-info" data-bs-toggle="tooltip" title="For RSA: 2048, 3072 or 4096 bits. For EC: the curve size (256, 384 or 521). Fixed for Ed25519/Ed448.">!</span>
                                 </label>
                                 <select class="form-select" id="key_size" name="key_size">
                                     <option value="2048">2048</option>
@@ -211,14 +214,23 @@
 function updateKeySizes() {
     const keyType = document.getElementById('key_type').value;
     const keySizeSelect = document.getElementById('key_size');
+    const edNote = document.getElementById('ed_note');
     keySizeSelect.innerHTML = '';
+    keySizeSelect.disabled = false;
     if (keyType === 'RSA') {
         keySizeSelect.add(new Option('2048', '2048'));
+        keySizeSelect.add(new Option('3072', '3072'));
         keySizeSelect.add(new Option('4096', '4096'));
+    } else if (keyType === 'EC') {
+        keySizeSelect.add(new Option('256 (P-256)', '256'));
+        keySizeSelect.add(new Option('384 (P-384)', '384'));
+        keySizeSelect.add(new Option('521 (P-521)', '521'));
     } else {
-        keySizeSelect.add(new Option('256', '256'));
-        keySizeSelect.add(new Option('384', '384'));
+        // F5: Edwards curves have a fixed size; the server ignores key_size for them.
+        keySizeSelect.add(new Option(keyType === 'ED25519' ? '256 (fixed)' : '456 (fixed)', keyType === 'ED25519' ? '256' : '456'));
+        keySizeSelect.disabled = true;
     }
+    if (edNote) edNote.hidden = !(keyType === 'ED25519' || keyType === 'ED448');
 }
 
 // F1: profiles come from the database (Preferences -> Profiles). A named

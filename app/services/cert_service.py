@@ -2,38 +2,22 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.serialization import pkcs12, BestAvailableEncryption
 from cryptography.x509.oid import ExtensionOID, ExtendedKeyUsageOID
 
 from ..extensions import db
 from ..models.certificate import Certificate
-from .crypto_utils import encrypt_private_key, decrypt_private_key
-from .policy import (enforce_key_strength, enforce_public_key_strength,
-                     bounded_not_after, build_subject)
+from .crypto_utils import encrypt_private_key, decrypt_private_key, generate_key, key_info
+from .policy import (enforce_public_key_strength, bounded_not_after, build_subject)
 from .keybackend import backend_for_ca
 from . import profile_service, san
-
-
-def _generate_key(key_type: str, key_size: int):
-    enforce_key_strength(key_type, key_size)
-    if key_type == "RSA":
-        return rsa.generate_private_key(public_exponent=65537, key_size=key_size)
-    elif key_type == "EC":
-        curves = {256: ec.SECP256R1(), 384: ec.SECP384R1(), 521: ec.SECP521R1()}
-        return ec.generate_private_key(curves[key_size])
-    raise ValueError(f"Unsupported key type: {key_type}")
 
 
 def _build_san(san_list):
     """F4: SAN syntax lives in `services.san` (DNS/IP/EMAIL/URI/UPN; unknown
     prefixes are refused instead of becoming DNS names — G4-4)."""
     return san.build_extension(san_list)
-
-
-def _get_hash_algorithm(key):
-    return hashes.SHA256()
 
 
 EKU_MAP = {
@@ -90,14 +74,6 @@ def _release_csr(csr_model):
         pass
 
 
-def _csr_key_info(public_key):
-    if isinstance(public_key, rsa.RSAPublicKey):
-        return "RSA", public_key.key_size
-    if isinstance(public_key, ec.EllipticCurvePublicKey):
-        return "EC", public_key.key_size
-    return "Unknown", 0
-
-
 def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
              key_usage=None, extended_key_usage=None, ocsp_url=None,
              crl_dp_url=None, signed_by=None, profile=None):
@@ -119,7 +95,7 @@ def sign_csr(csr_model, ca, validity_days, passphrase, san_list=None,
     effective_san = san_list
     if not effective_san and csr_model.san_json:
         effective_san = json.loads(csr_model.san_json)
-    key_type, key_size = _csr_key_info(csr.public_key())
+    key_type, key_size = key_info(csr.public_key())
     key_usage, extended_key_usage, include_aia = profile_service.enforce(
         profile, key_type=key_type, key_size=key_size, validity_days=validity_days,
         san_list=effective_san, common_name=csr_model.common_name,
@@ -273,7 +249,7 @@ def _sign_claimed_csr(csr_model, csr, ca, ca_cert, validity_days, passphrase,
     cert = x509.load_der_x509_certificate(cert_der)
     cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
 
-    key_type, key_size = _csr_key_info(csr.public_key())
+    key_type, key_size = key_info(csr.public_key())
 
     subject_attrs = {}
     for attr in csr.subject:
@@ -328,7 +304,8 @@ def create_certificate(ca, subject_attrs, san_list, validity_days, passphrase,
         san_list=san_list, common_name=subject_attrs.get("CN"),
         key_usage=key_usage, extended_key_usage=extended_key_usage)
 
-    key = _generate_key(key_type, key_size)
+    key = generate_key(key_type, key_size)
+    key_type, key_size = key_info(key)  # canonical (an Edwards key has a fixed size)
     subject = build_subject(subject_attrs)
 
     builder, now, serial = _leaf_builder(
@@ -440,7 +417,7 @@ def renew_certificate(old, passphrase, *, validity_days=None, rekey=False, revok
         key_usage=key_usage, extended_key_usage=extended_key_usage)
 
     if rekey:
-        key = _generate_key(old.key_type, old.key_size)
+        key = generate_key(old.key_type, old.key_size)
         public_key = key.public_key()
         enc_key = encrypt_private_key(key, passphrase)
     else:

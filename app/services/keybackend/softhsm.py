@@ -20,14 +20,22 @@ Certificates and CRLs use the throwaway TBS-swap above. OCSP is different: pyca
 refuses to sign an OCSP response when the signing key differs from the responder
 certificate, so the response is assembled directly with asn1crypto. To reproduce
 pyca's exact CertID, the CertID is lifted from a throwaway pyca OCSP *request*
-rather than recomputed. Covers RSA + EC for certificates, CRLs, OCSP, and CA key
+rather than recomputed. Covers RSA, EC and EdDSA for certificates, CRLs, OCSP, and CA key
 generation/import.
+
+Ed25519 / Ed448 (F5, 2.20.0): the token holds a CKK_EC_EDWARDS key (CKA_EC_PARAMS
+= the curve OID, 1.3.101.112 / 1.3.101.113) and signs the raw TBS bytes with
+CKM_EDDSA — no digest, exactly like pyca's `sign(key, None)`. EdDSA is
+deterministic, so certificates and CRLs are byte-identical to the software
+backend, like RSA. The throwaway key is cached per algorithm for the process
+(G5-2), and both objects of a generated pair carry the SKI as CKA_ID.
 """
+import threading
 from datetime import datetime, timezone
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, ed448
 from cryptography.x509 import ocsp
 
 from asn1crypto import x509 as asn1_x509, crl as asn1_crl, ocsp as asn1_ocsp
@@ -35,11 +43,25 @@ from asn1crypto import algos, core
 
 from .base import KeyBackend, OcspResponseSpec
 from . import pkcs11_session
+from ..crypto_utils import hash_for_key
 
 
 # NIST curve name (asn1crypto NamedCurve) and pyca curve class by key size.
 _EC_CURVE_NAME = {256: "secp256r1", 384: "secp384r1", 521: "secp521r1"}
 _EC_CURVE_BY_SIZE = {256: ec.SECP256R1, 384: ec.SECP384R1, 521: ec.SECP521R1}
+# Edwards curves: PKCS#11 v3 CKA_EC_PARAMS is the curve's OID (SoftHSM also
+# accepts the PrintableString form); pyca classes for the raw point/scalar.
+_ED = {
+    "ED25519": {"oid": "1.3.101.112", "public": ed25519.Ed25519PublicKey,
+                "private": ed25519.Ed25519PrivateKey, "alg": "ed25519"},
+    "ED448": {"oid": "1.3.101.113", "public": ed448.Ed448PublicKey,
+              "private": ed448.Ed448PrivateKey, "alg": "ed448"},
+}
+
+# G5-2: one throwaway key per algorithm per process (generating an RSA-2048
+# key for every signature was the dominant cost of the HSM path).
+_throwaway_cache = {}
+_throwaway_lock = threading.Lock()
 
 
 class Pkcs11Backend(KeyBackend):
@@ -47,11 +69,13 @@ class Pkcs11Backend(KeyBackend):
 
     # -- helpers -------------------------------------------------------------
     def _ca_key_info(self, ca):
-        """('RSA', None) or ('EC', curve) from the CA's key_type/key_size
-        columns — not the certificate, which does not yet exist while a root
-        CA is being self-signed."""
+        """('RSA', None), ('EC', curve), ('ED25519', None) or ('ED448', None)
+        from the CA's key_type/key_size columns — not the certificate, which
+        does not yet exist while a root CA is being self-signed."""
         if ca.key_type == "RSA":
             return "RSA", None
+        if ca.key_type in _ED:
+            return ca.key_type, None
         if ca.key_type == "EC":
             # HSM-1: fail with a clear error (not a raw KeyError) for an EC curve
             # the backend doesn't support — otherwise `keys migrate-to-hsm` would
@@ -65,10 +89,21 @@ class Pkcs11Backend(KeyBackend):
         raise ValueError("Unsupported CA key type for the HSM backend.")
 
     def _throwaway_key(self, ca):
+        """A same-algorithm key pyca can sign with; only the TBS it produces is
+        used (the token's signature replaces its own). Cached per algorithm."""
         key_type, curve = self._ca_key_info(ca)
-        if key_type == "RSA":
-            return rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        return ec.generate_private_key(curve)
+        cache_key = (key_type, curve.name if curve is not None else None)
+        with _throwaway_lock:
+            key = _throwaway_cache.get(cache_key)
+            if key is None:
+                if key_type == "RSA":
+                    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                elif key_type in _ED:
+                    key = _ED[key_type]["private"].generate()
+                else:
+                    key = ec.generate_private_key(curve)
+                _throwaway_cache[cache_key] = key
+            return key
 
     def _hsm_sign(self, tbs_bytes, ca):
         """Sign TBS bytes inside the token; return the X.509 signatureValue.
@@ -92,6 +127,10 @@ class Pkcs11Backend(KeyBackend):
                 # SHA256_RSA_PKCS hashes and signs; the result is the PKCS#1 v1.5
                 # signatureValue directly.
                 return priv.sign(tbs_bytes, mechanism=Mechanism.SHA256_RSA_PKCS)
+            if key_type in _ED:
+                # Pure EdDSA over the raw message: the 64/114-byte result IS the
+                # signatureValue (no DER wrapping, no separate digest).
+                return priv.sign(tbs_bytes, mechanism=Mechanism.EDDSA)
             # Raw ECDSA over the SHA-256 digest returns r||s; wrap it in the DER
             # Ecdsa-Sig-Value X.509 wants.
             digest = hashlib.sha256(tbs_bytes).digest()
@@ -112,6 +151,8 @@ class Pkcs11Backend(KeyBackend):
 
     def _sig_alg_name(self, ca):
         key_type, _ = self._ca_key_info(ca)
+        if key_type in _ED:
+            return _ED[key_type]["alg"]  # ed25519 / ed448: no parameters, no digest
         return "sha256_rsa" if key_type == "RSA" else "sha256_ecdsa"
 
     @staticmethod
@@ -174,13 +215,38 @@ class Pkcs11Backend(KeyBackend):
                 from pkcs11.util.ec import encode_ec_public_key
                 spki = encode_ec_public_key(pub)
                 public_key = serialization.load_der_public_key(spki)
+            elif key_type in _ED:
+                params = core.ObjectIdentifier(_ED[key_type]["oid"]).dump()
+                pub, _priv = session.generate_keypair(
+                    KeyType.EC_EDWARDS, store=True, label=label,
+                    id=label.encode()[:32],
+                    private_template={
+                        Attribute.TOKEN: True, Attribute.PRIVATE: True,
+                        Attribute.SENSITIVE: True, Attribute.EXTRACTABLE: False,
+                        Attribute.SIGN: True,
+                    },
+                    public_template={
+                        Attribute.TOKEN: True, Attribute.VERIFY: True,
+                        Attribute.EC_PARAMS: params,
+                    },
+                )
+                # CKA_EC_POINT is a DER OCTET STRING wrapping the raw point.
+                point = pub[Attribute.EC_POINT]
+                try:
+                    raw = core.OctetString.load(point).native
+                except Exception:
+                    raw = point
+                public_key = _ED[key_type]["public"].from_public_bytes(raw)
             else:
                 raise ValueError(f"Unsupported key type: {key_type}")
 
-            # Tag both objects with the real SKI (CKA_ID) for interop/lookup.
+            # Tag BOTH objects with the real SKI (CKA_ID) for interop/lookup —
+            # a pair whose halves carry different IDs confuses other PKCS#11
+            # clients (G5-2).
             try:
                 ski = x509.SubjectKeyIdentifier.from_public_key(public_key).digest
                 pub[Attribute.ID] = ski
+                _priv[Attribute.ID] = ski
             except Exception:
                 pass
         return public_key, label
@@ -190,17 +256,27 @@ class Pkcs11Backend(KeyBackend):
         from pkcs11.util.rsa import decode_rsa_private_key
         from pkcs11.util.ec import decode_ec_private_key
 
-        der = private_key.private_bytes(
-            serialization.Encoding.DER,
-            serialization.PrivateFormat.TraditionalOpenSSL,
-            serialization.NoEncryption(),
-        )
-        if isinstance(private_key, rsa.RSAPrivateKey):
-            template = decode_rsa_private_key(der)
-        elif isinstance(private_key, ec.EllipticCurvePrivateKey):
-            template = decode_ec_private_key(der)
+        if isinstance(private_key, (ed25519.Ed25519PrivateKey, ed448.Ed448PrivateKey)):
+            from pkcs11 import KeyType, ObjectClass
+            key_type = "ED25519" if isinstance(private_key, ed25519.Ed25519PrivateKey) else "ED448"
+            template = {
+                Attribute.CLASS: ObjectClass.PRIVATE_KEY,
+                Attribute.KEY_TYPE: KeyType.EC_EDWARDS,
+                Attribute.EC_PARAMS: core.ObjectIdentifier(_ED[key_type]["oid"]).dump(),
+                Attribute.VALUE: private_key.private_bytes_raw(),
+            }
         else:
-            raise ValueError("Unsupported key type for HSM import.")
+            der = private_key.private_bytes(
+                serialization.Encoding.DER,
+                serialization.PrivateFormat.TraditionalOpenSSL,
+                serialization.NoEncryption(),
+            )
+            if isinstance(private_key, rsa.RSAPrivateKey):
+                template = decode_rsa_private_key(der)
+            elif isinstance(private_key, ec.EllipticCurvePrivateKey):
+                template = decode_ec_private_key(der)
+            else:
+                raise ValueError("Unsupported key type for HSM import.")
 
         template[Attribute.TOKEN] = True
         template[Attribute.LABEL] = label
@@ -240,21 +316,25 @@ class Pkcs11Backend(KeyBackend):
         key_type, _ = self._ca_key_info(ca)
         public_key = self.load_public_key(ca)
         nonce = os.urandom(32)
-        signature = self._hsm_sign(nonce, ca)  # signs SHA-256(nonce) in the token
+        signature = self._hsm_sign(nonce, ca)  # signs SHA-256(nonce) in the token (raw nonce for EdDSA)
         if key_type == "RSA":
             public_key.verify(signature, nonce, padding.PKCS1v15(), hashes.SHA256())
+        elif key_type in _ED:
+            public_key.verify(signature, nonce)
         else:
             public_key.verify(signature, nonce, _ec.ECDSA(hashes.SHA256()))
 
     # -- signing -------------------------------------------------------------
     def sign_certificate(self, builder, ca, *, secret=None) -> bytes:
-        der = builder.sign(self._throwaway_key(ca), hashes.SHA256()).public_bytes(
+        throwaway = self._throwaway_key(ca)
+        der = builder.sign(throwaway, hash_for_key(throwaway)).public_bytes(
             serialization.Encoding.DER)
         return self._reassemble(
             asn1_x509.Certificate.load(der), "tbs_certificate", "signature_value", ca)
 
     def sign_crl(self, builder, ca, *, secret=None) -> bytes:
-        der = builder.sign(self._throwaway_key(ca), hashes.SHA256()).public_bytes(
+        throwaway = self._throwaway_key(ca)
+        der = builder.sign(throwaway, hash_for_key(throwaway)).public_bytes(
             serialization.Encoding.DER)
         return self._reassemble(
             asn1_crl.CertificateList.load(der), "tbs_cert_list", "signature", ca)

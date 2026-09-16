@@ -8,7 +8,7 @@ from datetime import timedelta, timezone
 
 from flask import current_app
 from cryptography import x509
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, ed448
 from cryptography.x509.oid import NameOID
 
 
@@ -31,6 +31,8 @@ def enforce_key_strength(key_type, key_size):
     elif key_type == "EC":
         if key_size not in (256, 384, 521):
             raise ValueError("EC key size must be one of 256, 384, or 521.")
+    elif key_type in ("ED25519", "ED448"):
+        return  # F5: fixed-size curves — nothing to choose
     else:
         raise ValueError(f"Unsupported key type: {key_type}")
 
@@ -49,8 +51,15 @@ def enforce_public_key_strength(public_key):
                 f"Public key is too large: RSA {public_key.key_size} bits (maximum {maximum})."
             )
     elif isinstance(public_key, ec.EllipticCurvePublicKey):
-        if public_key.curve.key_size not in (256, 384, 521):
+        if not isinstance(public_key.curve, (ec.SECP256R1, ec.SECP384R1, ec.SECP521R1)):
             raise ValueError("Unsupported EC curve; use P-256, P-384, or P-521.")
+    elif isinstance(public_key, (ed25519.Ed25519PublicKey, ed448.Ed448PublicKey)):
+        return  # F5: accepted deliberately
+    else:
+        # G4-3: an explicit allow-list — DSA, other curves and unknown
+        # algorithms can no longer be signed or imported.
+        raise ValueError("Unsupported key algorithm; Chancery supports RSA, EC P-256/P-384/P-521, "
+                         "Ed25519 and Ed448.")
 
 
 def bounded_not_after(now, validity_days, ca_not_after=None, is_ca=False):
