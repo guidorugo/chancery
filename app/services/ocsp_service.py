@@ -168,6 +168,13 @@ def responder_status(ca, now=None):
     }
 
 
+def ca_expired(ca, now=None):
+    """True once the CA certificate's notAfter has passed (naive DB value = UTC)."""
+    now = now or datetime.now(timezone.utc)
+    not_after = ca.not_after if ca.not_after.tzinfo else ca.not_after.replace(tzinfo=timezone.utc)
+    return not_after <= now
+
+
 def responder_needs_rotation(ca, now=None, renew_before_days=None):
     """True when the CA has no usable responder, or it expires within
     OCSP_RESPONDER_RENEW_BEFORE_DAYS."""
@@ -190,6 +197,9 @@ def ensure_responder(ca, passphrase, *, force=False, now=None):
     if ca.is_revoked:
         raise ValueError("This CA is revoked; its OCSP responder cannot be renewed.")
     now = now or datetime.now(timezone.utc)
+    if ca_expired(ca, now):
+        raise ValueError("This CA has expired; it cannot issue an OCSP responder certificate "
+                         "(responses fall back to the CA key).")
     if not force and not responder_needs_rotation(ca, now):
         return False
     validity_days = int(_cfg("OCSP_RESPONDER_VALIDITY_DAYS", 30))
@@ -249,6 +259,8 @@ def _delegated_responder(ca, passphrase):
     is available (renewing lazily if needed), else None → direct path."""
     if not delegated_enabled():
         return None
+    if ca_expired(ca):
+        return None  # an expired CA cannot issue a responder; answer with its key while it still can
     try:
         if responder_needs_rotation(ca):
             if not ensure_responder(ca, passphrase):
