@@ -156,6 +156,30 @@ def _reset_lockout(user):
         db.session.commit()
 
 
+def register_failed_attempt(user):
+    """Count a failed second-factor attempt like a failed password (F13)."""
+    _register_failed_attempt(user)
+
+
+def is_locked(user):
+    """Public view of the lockout window (F13: the second-factor step checks it)."""
+    return _is_locked(user)
+
+
+def bump_session_version(user, keep_current=False):
+    """G6-4/G6-5: invalidate every other session of `user` (and its Basic-Auth
+    cache entries). With `keep_current` the calling session is re-stamped so
+    the actor stays logged in. Does not commit."""
+    from flask import has_request_context, session
+    user.session_version = (user.session_version or 1) + 1
+    db.session.add(user)
+    if keep_current and has_request_context():
+        session["sv"] = user.session_version
+    cache = getattr(current_app, "basic_auth_cache", None)
+    if cache is not None:
+        cache.drop_user(user.username)
+
+
 def clear_lockout(user):
     """Clear the failure counter and any active lock (AUTH-4: admin unlock,
     password reset, reactivation). Does NOT commit — the caller commits as part
@@ -289,6 +313,12 @@ class CredentialCache:
     def clear(self):
         with self._lock:
             self._entries.clear()
+
+    def drop_user(self, username):
+        """G6-5: forget a user's cached credential (password reset, 2FA change)
+        so the next Basic-Auth request re-verifies against the store."""
+        with self._lock:
+            self._entries.pop(username, None)
 
 
 def authenticate_basic(username, password):

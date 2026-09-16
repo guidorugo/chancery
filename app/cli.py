@@ -351,6 +351,27 @@ def unlock_user(username):
     click.echo(f"Cleared lockout for {username!r}.")
 
 
+@users_cli.command("reset-2fa")
+@click.argument("username")
+def reset_2fa_user(username):
+    """Clear USERNAME's TOTP second factor (lost authenticator); they can enrol again (F13)."""
+    from .models.user import User
+    from .routes.auth import _clear_totp
+    from .services import auth_service
+
+    user = User.query.filter_by(username=username).first()
+    if user is None:
+        raise click.ClickException(f"No user named {username!r}.")
+    if not user.totp_enabled:
+        click.echo(f"Two-factor authentication is not enabled for {username!r}.")
+        return
+    _clear_totp(user)
+    auth_service.bump_session_version(user)
+    _cli_audit("totp_reset", "user", user.id, {"username": username})
+    db.session.commit()
+    click.echo(f"Cleared the second factor for {username!r}; their sessions were logged out.")
+
+
 crl_cli = AppGroup("crl", help="CRL utilities.")
 
 

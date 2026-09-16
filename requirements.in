@@ -18,3 +18,5 @@ asn1crypto==1.5.1
 Flask-Limiter==4.1.1
 # Prometheus /metrics endpoint (only imported when METRICS_ENABLED=true)
 prometheus-client==0.26.0
+# F13 TOTP second factor: QR code for the enrolment page (pure Python, no dependencies)
+segno==1.6.6

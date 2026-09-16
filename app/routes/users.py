@@ -154,6 +154,7 @@ def reset_password(user_id):
         # AUTH-4: a password reset should also lift any brute-force lockout so
         # the account is immediately usable again.
         auth_service.clear_lockout(user)
+        auth_service.bump_session_version(user)  # G6-5: the old password's sessions and cached Basic Auth drop
         audit_service.log_action("reset_user_password", target_type="user", target_id=user.id)
         db.session.commit()
         flash(f"Password for '{user.username}' has been reset.", "success")
@@ -594,3 +595,30 @@ def revoke_api_token(token_id):
         return jsonify(row.to_dict())
     flash(f"API token '{row.name}' revoked.", "success")
     return redirect(url_for("users.api_tokens"))
+
+
+@users_bp.route("/<int:user_id>/reset-2fa", methods=["POST"])
+@admin_required
+def reset_2fa(user_id):
+    """F13: an admin clears a user's second factor (lost device); the user
+    can enrol again. Their sessions are dropped."""
+    from ..routes.auth import _clear_totp
+    user = db.session.get(User, user_id)
+    if not user:
+        if wants_json():
+            return api_error("User not found.", 404)
+        flash("User not found.", "danger")
+        return redirect(url_for("users.list_users"))
+    if not user.totp_enabled:
+        if wants_json():
+            return api_error("Two-factor authentication is not enabled for this user.", 409)
+        flash("Two-factor authentication is not enabled for this user.", "warning")
+        return redirect(url_for("users.edit_user", user_id=user.id))
+    _clear_totp(user)
+    auth_service.bump_session_version(user)
+    audit_service.log_action("totp_reset", target_type="user", target_id=user.id, details={"username": user.username})
+    db.session.commit()
+    if wants_json():
+        return jsonify(user.to_dict())
+    flash(f"Two-factor authentication reset for '{user.username}'.", "success")
+    return redirect(url_for("users.edit_user", user_id=user.id))

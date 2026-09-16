@@ -135,7 +135,8 @@ def _setup_password_change_guard(app):
     from flask import flash, redirect, url_for
     from flask_login import current_user
 
-    _ALLOWED = {"auth.change_password", "auth.logout", "static"}
+    _ALLOWED = {"auth.change_password", "auth.logout", "static",
+                "auth.two_factor_setup", "auth.two_factor_disable", "auth.two_factor_recovery_codes"}
 
     @app.before_request
     def _require_password_change():
@@ -145,10 +146,14 @@ def _setup_password_change_guard(app):
             return
         if not current_user.is_authenticated:
             return
-        if not getattr(current_user, "must_change_password", False):
-            return
-        flash("Please set a new password before continuing.", "warning")
-        return redirect(url_for("auth.change_password"))
+        if getattr(current_user, "must_change_password", False):
+            flash("Please set a new password before continuing.", "warning")
+            return redirect(url_for("auth.change_password"))
+        # F13: REQUIRE_2FA_FOR_ADMINS forces enrolment through the same gate.
+        if (app.config.get("REQUIRE_2FA_FOR_ADMINS") and getattr(current_user, "is_admin", False)
+                and not getattr(current_user, "totp_enabled", False)):
+            flash("Administrators must enrol a second factor before continuing.", "warning")
+            return redirect(url_for("auth.two_factor_setup"))
 
 
 def _setup_basic_auth(app):
@@ -220,6 +225,14 @@ def _setup_basic_auth(app):
             },
         )
         db.session.commit()
+
+        # F13: an account protected by a second factor cannot be driven by its
+        # bare password over Basic Auth — use a scoped API token (F12).
+        if getattr(result.user, "totp_enabled", False):
+            response = jsonify({"error": "This account uses two-factor authentication; Basic Auth is "
+                                         "disabled for it. Create an API token (Preferences → API Tokens) instead."})
+            response.status_code = 403
+            return response
 
         # AUTH-3: a Basic-Auth user still flagged for a forced password change
         # must rotate it (via the web UI) before programmatic access is allowed,
@@ -621,6 +634,17 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0"
             ))
+        # F13: TOTP second factor + session versioning (G6-4)
+        for name, ddl in (
+            ("totp_secret_enc", "ALTER TABLE users ADD COLUMN totp_secret_enc BLOB"),
+            ("totp_enabled", "ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0"),
+            ("totp_confirmed_at", "ALTER TABLE users ADD COLUMN totp_confirmed_at DATETIME"),
+            ("totp_last_step", "ALTER TABLE users ADD COLUMN totp_last_step INTEGER"),
+            ("recovery_codes_json", "ALTER TABLE users ADD COLUMN recovery_codes_json TEXT"),
+            ("session_version", "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 1"),
+        ):
+            if name not in columns:
+                db.session.execute(text(ddl))
 
     # Migrate certificate_authorities table
     if "certificate_authorities" in inspector.get_table_names():

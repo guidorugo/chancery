@@ -28,6 +28,7 @@ ENCRYPTED_COLUMNS = (
     ("app.models.certificate", "Certificate", "private_key_enc", "escrowed leaf private key"),
     ("app.models.ldap_settings", "LdapSettings", "bind_password_enc", "LDAP bind password"),
     ("app.models.webhook_settings", "WebhookSettings", "secret_enc", "webhook signing secret"),
+    ("app.models.user", "User", "totp_secret_enc", "TOTP secret"),
 )
 
 MIN_NEW_PASSPHRASE_LEN = 12
