@@ -117,6 +117,7 @@ def create():
         key_type = request.form.get("key_type", "RSA")
 
         def _err(message, status=400):
+            db.session.rollback()  # 2.27.1: a failed flush must not break the re-render
             if wants_json():
                 return api_error(message, status)
             flash(message, "danger")

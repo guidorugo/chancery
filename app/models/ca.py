@@ -7,9 +7,18 @@ from ..serialization import iso, days_until, expiry_status as _expiry_status
 
 class CertificateAuthority(db.Model):
     __tablename__ = "certificate_authorities"
+    # 2.27.1: a name is unique among CAs that are NOT revoked, so a revoked
+    # CA's name can be reused. Fresh databases get this partial unique index
+    # from create_all(); an upgraded database has the original table-level
+    # UNIQUE(name) removed by _migrate_schema (SQLite table rebuild).
+    __table_args__ = (
+        db.Index("ux_certificate_authorities_name_active", "name", unique=True,
+                 sqlite_where=db.text("is_revoked IS NOT 1"),
+                 postgresql_where=db.text("is_revoked IS NOT TRUE")),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), unique=True, nullable=False)
+    name = db.Column(db.String(200), nullable=False)
     common_name = db.Column(db.String(200), nullable=False)
     serial_number = db.Column(db.String(100), nullable=False, unique=True)  # G9-1
     certificate_pem = db.Column(db.Text, nullable=False)

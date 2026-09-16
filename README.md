@@ -6,7 +6,7 @@ A web-based X.509 Certificate Authority management application built with Python
 
 ## Features
 
-- **CA Management**: Create root and intermediate Certificate Authorities with RSA or EC keys, or import existing ones — PEM (single certificate or full chain), PKCS#12 bundles, encrypted private keys, and certificate-only imports for offline roots — and export them back out (chain bundle, private key, password-protected PKCS#12)
+- **CA Management**: Create root and intermediate Certificate Authorities with RSA or EC keys, or import existing ones — PEM (single certificate or full chain), PKCS#12 bundles, encrypted private keys, and certificate-only imports for offline roots — and export them back out (chain bundle, private key, password-protected PKCS#12). CA names are unique among active CAs; a revoked CA's name can be given to its replacement
 - **Certificate Issuance**: Generate certificates with SANs (DNS, IP, email, URI, and Microsoft UPN), key usage, extended key usage, and CRL Distribution Points
 - **Search, filter and pagination**: The certificate, CSR and CA lists take a search box and status/CA/profile filters (CAs: type and key protection), page 50 rows at a time, and the dashboard counters link straight into the matching filtered view; the JSON API accepts the same `q`, `status`, `ca_id`, `profile`, `page` and `per_page` parameters
 - **Certificate Detail View**: Full certificate details including Key Usage, Extended Key Usage, subject DN fields, requester, issuer (who signed/created it), and SANs
@@ -490,6 +490,20 @@ curl -u admin:PASSWORD -X POST -o cert.key http://localhost:5000/certificates/1/
 | POST | `/auth/2fa/disable` | Any | Turn 2FA off (password for local accounts + a current code or recovery code) |
 | POST | `/auth/2fa/recovery-codes` | Any | Regenerate the recovery codes (a current code is required; the old codes stop working) |
 | POST | `/auth/logout` | Any | Logout (POST-only, CSRF-protected) |
+
+## Demo data
+
+`scripts/seed_demo.sh` fills an instance with a realistic spread of demo CAs, certificates and CSRs (every lifecycle state, one SoftHSM-backed CA when the token is available) by running `scripts/seed_demo.py` inside the container:
+
+```bash
+./scripts/seed_demo.sh                    # create the demo objects
+./scripts/seed_demo.sh --reset            # remove and recreate them
+./scripts/seed_demo.sh --remove           # delete them (and anything a demo CA issued)
+./scripts/seed_demo.sh --remove --force   # also delete real CAs chained under a demo CA
+CONTAINER=my-app ./scripts/seed_demo.sh   # target a container not named chancery-app-1
+```
+
+Everything it creates is tagged (`Demo …` CA names, `*.demo.example.com` CNs). `--remove` deletes only those, plus certificates and CSRs that a demo CA issued (a certificate cannot outlive its CA) — they are listed. A non-demo CA chained under a demo CA makes `--remove` refuse unless `--force` is given.
 
 ## Running Tests
 

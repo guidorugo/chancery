@@ -73,6 +73,7 @@ def list_csrs():
 @login_required
 def create():
     def _err(message, status=400):
+        db.session.rollback()  # 2.27.1: a failed flush must not break the re-render
         if wants_json():
             return api_error(message, status)
         flash(message, "danger")
@@ -246,6 +247,7 @@ def sign(csr_id):
 
     if request.method == "POST":
         def _err(message, status=400):
+            db.session.rollback()  # 2.27.1: a failed flush must not break the re-render
             if wants_json():
                 return api_error(message, status)
             flash(message, "danger")
