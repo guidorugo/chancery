@@ -81,6 +81,13 @@
                     <tr><th>Valid From</th><td>{{ ca.not_before.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
                     <tr><th>Valid Until</th><td>{{ ca.not_after.strftime('%Y-%m-%d %H:%M UTC') }}{{ expiry_badge(ca) }}</td></tr>
                     <tr><th>Path Length</th><td>{{ ca.path_length if ca.path_length is not none else "Unlimited" }}</td></tr>
+                    {% set nc = ca.name_constraints %}
+                    <tr><th>Name Constraints</th><td>
+                        {% if nc %}
+                        {% if nc.permitted %}<div><span class="text-body-secondary">Permitted:</span> {% for e in nc.permitted %}<code>{{ e }}</code>{% if not loop.last %} {% endif %}{% endfor %}</div>{% endif %}
+                        {% if nc.excluded %}<div><span class="text-body-secondary">Excluded:</span> {% for e in nc.excluded %}<code>{{ e }}</code>{% if not loop.last %} {% endif %}{% endfor %}</div>{% endif %}
+                        {% else %}None{% endif %}
+                    </td></tr>
                     <tr><th>CRL Number</th><td>{{ ca.crl_number }}</td></tr>
                     <tr><th>Created</th><td>{{ ca.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
                     {% if ca.is_revoked %}

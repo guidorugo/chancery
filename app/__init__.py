@@ -628,6 +628,10 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificate_authorities ADD COLUMN expiry_notified_at DATETIME"
             ))
+        if "name_constraints_json" not in columns:  # F2
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN name_constraints_json TEXT"
+            ))
         # G9-1: DB-level uniqueness for CA serials (generated serials are random
         # and imports check in code; the index closes the race). Committed first
         # and guarded so a legacy DB with a duplicate keeps booting.
