@@ -134,7 +134,7 @@ working until the 3.0 flip.
 Key Usage comes from the profile and is keyed by key type, so EC and Ed leaves no
 longer get `keyEncipherment`.
 
-## F2. Name Constraints on CAs (2.15.0, M)
+## F2. Name Constraints on CAs (shipped as v2.22.0, PR #149)
 
 **Current state.** No `NameConstraints` anywhere in `app/services/`. Intermediates are
 built in `ca_service.create_intermediate_ca` (`app/services/ca_service.py:144-248`).
