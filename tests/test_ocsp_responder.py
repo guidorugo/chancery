@@ -135,6 +135,27 @@ class TestResponderCertificate:
             crl_service.revoke_ca(gone.id, "cessation_of_operation", passphrase=PASSPHRASE)
             with pytest.raises(ValueError, match="revoked"):
                 ocsp_service.ensure_responder(gone, PASSPHRASE)
+            expired = _root("Expired")
+            expired.not_after = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)
+            db.session.commit()
+            with pytest.raises(ValueError, match="expired"):
+                ocsp_service.ensure_responder(expired, PASSPHRASE)
+
+    def test_expired_ca_is_skipped_by_job_cli_and_request_path(self, delegated, db):
+        with delegated.app_context():
+            expired = _root("Expired Root")
+            leaf = _leaf(expired)
+            expired.not_after = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)
+            db.session.commit()
+            job = scheduler_service.tick(force=True)["jobs"]["ocsp_responders"]
+            assert job["skipped_expired"] == [expired.id] and job["failed"] == [] and job["rotated"] == []
+            assert AuditLog.query.filter_by(action="ocsp_responder_failed").count() == 0
+            r = delegated.test_cli_runner().invoke(args=["ocsp", "rotate-responders"])
+            assert r.exit_code == 0 and "expired — skipped" in r.output and "Rotated 0" in r.output
+            # the responder path steps aside; the response still comes, signed by the CA key
+            resp, _ = _respond(expired, leaf)
+            assert resp.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL and resp.certificates == []
+            assert ocsp_service.responder_status(expired) is None
 
 
 # ---------------------------------------------------------------------------

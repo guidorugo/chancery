@@ -441,6 +441,9 @@ def ocsp_rotate_responders(ca_id, force):
         click.echo("Note: OCSP_DELEGATED_RESPONDER is off — responses still use the CA key until it is enabled.")
     rotated = 0
     for ca in cas:
+        if ocsp_service.ca_expired(ca):
+            click.echo(f"CA {ca.id} ({ca.name}): expired — skipped")
+            continue
         try:
             if ocsp_service.ensure_responder(ca, secret, force=force):
                 _cli_audit("ocsp_responder_rotated", target_type="ca", target_id=ca.id,

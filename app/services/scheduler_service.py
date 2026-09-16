@@ -268,8 +268,11 @@ def job_ocsp_responders(now):
     if not ocsp_service.delegated_enabled():
         return {"disabled": True}
     passphrase = current_app.config["MASTER_PASSPHRASE"]
-    rotated, failed, fresh = [], [], 0
+    rotated, failed, fresh, skipped = [], [], 0, []
     for ca in CertificateAuthority.signing_capable().all():
+        if ocsp_service.ca_expired(ca):
+            skipped.append(ca.id)  # an expired CA cannot issue anything — not a failure to report hourly
+            continue
         try:
             if not ocsp_service.ensure_responder(ca, passphrase):
                 fresh += 1
@@ -289,7 +292,7 @@ def job_ocsp_responders(now):
             except Exception:
                 db.session.rollback()
             failed.append(ca.id)
-    return {"rotated": rotated, "failed": failed, "fresh": fresh}
+    return {"rotated": rotated, "failed": failed, "fresh": fresh, "skipped_expired": skipped}
 
 
 # (name, callable, minimum seconds between successful runs; 0 = every tick)
