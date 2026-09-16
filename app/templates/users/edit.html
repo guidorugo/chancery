@@ -27,6 +27,18 @@
             <button type="submit" class="btn btn-primary">Save Changes</button>
             <a href="{{ url_for('users.list_users') }}" class="btn btn-secondary">Cancel</a>
         </form>
+        <div class="mt-4">
+            <h6>Two-factor authentication</h6>
+            {% if user.totp_enabled %}
+            <p><span class="badge bg-success">Enabled</span> since {{ user.totp_confirmed_at.strftime('%Y-%m-%d') if user.totp_confirmed_at else '—' }}.</p>
+            <form method="POST" action="{{ url_for('users.reset_2fa', user_id=user.id) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-danger btn-sm" title="Clears the user's second factor (lost authenticator) and logs out their sessions; they can enrol again.">Reset two-factor</button>
+            </form>
+            {% else %}
+            <p class="text-body-secondary mb-0">Not enabled.</p>
+            {% endif %}
+        </div>
     </div>
 </div>
 {% endblock %}

@@ -75,6 +75,9 @@
                         <a class="nav-link" href="{{ url_for('users.api_tokens') }}">API Tokens</a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('auth.two_factor_setup') }}">Two-factor{% if current_user.totp_enabled %} <span class="badge bg-success">on</span>{% endif %}</a>
+                    </li>
+                    <li class="nav-item">
                         {# TMPL-3: logout is state-changing, so POST it with a CSRF token
                            (a GET link is forgeable via <img src=.../auth/logout>). #}
                         <form method="POST" action="{{ url_for('auth.logout') }}" class="d-inline">

@@ -23,6 +23,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Audit Logging**: Every sensitive action logged with user, timestamp, IP, and details
 - **User Management**: Admin UI for creating users, assigning roles, and managing accounts
 - **Scoped API tokens**: `Authorization: Bearer chy_api_…` credentials for scripts and automation, created per user (Preferences → API Tokens, or `flask api-token`), with a subset of scopes (`read`, `issue`, `revoke`, `admin`), a mandatory expiry and one-click revocation — never more than the owner's role. Prefer them over Basic Auth for anything automated
+- **Two-factor login (TOTP)**: Any user (local or LDAP) can enrol an authenticator app (RFC 6238, QR code or manual key) at *Two-factor* in the navbar; the login then asks for a 6-digit code after the password, with eight single-use recovery codes as the fallback. Codes are replay-protected and failed codes count toward the login lockout. `REQUIRE_2FA_FOR_ADMINS=true` forces every administrator to enrol before doing anything else; an admin (or `flask users reset-2fa`) can clear a lost authenticator. Password changes, admin resets and any 2FA change log the account out of all other sessions
 - **HTTP Basic Auth**: Stateless API access via `curl -u user:pass` for scripts and automation, alongside session-based browser auth
 - **Dark Theme**: Light/dark mode toggle with OS-preference default and per-browser persistence
 - **Security**: Private keys encrypted at rest with Fernet (PBKDF2-derived key, 600k iterations), session hardening, per-IP rate limiting and per-account login lockout (both on by default), insecure-default rejection plus a startup warning for short `SECRET_KEY` / `MASTER_PASSPHRASE` / PKCS#11 PIN values
@@ -293,7 +294,7 @@ nothing else is needed — the *Create CA* form simply offers HSM per-CA.
 
 ## API Reference
 
-Authenticate programmatic clients with a **scoped API token** (`Authorization: Bearer chy_api_…`, Preferences → API Tokens) rather than Basic Auth: a token carries only the scopes it was given (`read`, `issue`, `revoke`, `admin`), expires, and can be revoked without touching the account password. Basic Auth keeps working.
+Authenticate programmatic clients with a **scoped API token** (`Authorization: Bearer chy_api_…`, Preferences → API Tokens) rather than Basic Auth: a token carries only the scopes it was given (`read`, `issue`, `revoke`, `admin`), expires, and can be revoked without touching the account password. Basic Auth keeps working — except for an account with two-factor authentication enabled, which is refused with a JSON 403 pointing at API tokens (a bare password must not open an account that asks for a second factor in the browser).
 
 Chancery is a web application with form-based (HTML) endpoints. All authenticated routes use session cookies set at login. Public endpoints require no authentication.
 
@@ -468,6 +469,7 @@ curl -u admin:PASSWORD -X POST -o cert.key http://localhost:5000/certificates/1/
 | GET, POST | `/users/<user_id>/edit` | Change user role |
 | POST | `/users/<user_id>/toggle-active` | Activate or deactivate a user |
 | GET, POST | `/users/<user_id>/reset-password` | Reset a user's password |
+| POST | `/users/<user_id>/reset-2fa` | Clear a user's second factor (lost authenticator) and log out their sessions; 409 if not enabled |
 | GET | `/users/audit-log` | View audit log (paginated, `?page=N`) |
 | GET, POST | `/users/ldap` | View/save LDAP settings (POST `action=test` runs a live connection test) |
 | POST | `/users/ldap/reset` | Remove saved LDAP settings (revert to env config) |
@@ -483,6 +485,10 @@ curl -u admin:PASSWORD -X POST -o cert.key http://localhost:5000/certificates/1/
 | GET | `/` | Any | Dashboard (role-conditional stats) |
 | GET, POST | `/auth/login` | None | Login page |
 | GET, POST | `/auth/change-password` | Any (local accounts) | Self-service password change; forced on first login for the seeded admin |
+| GET, POST | `/auth/2fa` | — | Second step of the login for a 2FA-enabled account (TOTP or recovery code; the pending step expires after 5 minutes) |
+| GET, POST | `/auth/2fa/setup` | Any | Enrol an authenticator (QR / manual key, confirm one code, recovery codes shown once) or view the status |
+| POST | `/auth/2fa/disable` | Any | Turn 2FA off (password for local accounts + a current code or recovery code) |
+| POST | `/auth/2fa/recovery-codes` | Any | Regenerate the recovery codes (a current code is required; the old codes stop working) |
 | POST | `/auth/logout` | Any | Logout (POST-only, CSRF-protected) |
 
 ## Running Tests
@@ -511,6 +517,7 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask keys rotate-passphrase --new-file <path\|-> [--dry-run] [--yes]` | Re-wrap every stored key and secret under a new passphrase in one transaction (see *Rotating the master passphrase*) |
 | `flask keys migrate-to-hsm [--ca-id N] [--dry-run] [--yes]` | Move software-backed CA keys into the SoftHSM token (one-way). `--yes` skips the prompt only together with `--ca-id`; if the token fails the post-import signing check, the token object is removed and the software key is left untouched |
 | `flask users unlock <username>` | Clear a login lockout / failed-attempt counter from the shell — for when the locked account is the only admin and nobody can unlock it from the Users page |
+| `flask users reset-2fa <username>` | Clear a user's TOTP second factor (lost authenticator) and log out their sessions; they can enrol again. Break-glass for a locked-out sole admin (audited `totp_reset`) |
 | `flask metrics-token create --name <n> --expires-in-days <N>` / `list` / `revoke <name-or-id>` | Manage bearer tokens for `/metrics` |
 | `flask api-token create --user <u> --name <n> --scopes read,issue --expires-in-days <N>` / `list [--user <u>]` / `revoke <id> [--yes]` | Scoped API tokens (F12); the secret is printed once |
 
@@ -565,6 +572,8 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `RATE_LIMIT_DEFAULT` | `60/minute` | Default rate limit when enabled |
 | `LOGIN_LOCKOUT_THRESHOLD` | `5` | Failed logins per local account before a temporary lock (`0` disables). The last active admin is never hard-locked, so an attacker cannot lock everyone out |
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Lock duration once the threshold is hit; cleared early by an admin or `flask users unlock <username>` |
+| `REQUIRE_2FA_FOR_ADMINS` | `false` | Force every administrator to enrol a TOTP second factor before using the app (same gate as the first-login password change; logout and the enrolment page stay reachable) |
+| `TOTP_ISSUER` | `Chancery` | Issuer name shown in authenticator apps for enrolled accounts |
 | `BASIC_AUTH_ENABLED` | `true` | Enable HTTP Basic Auth for programmatic access |
 | `BASIC_AUTH_REALM` | `chancery` | Basic Auth realm name in `WWW-Authenticate` header |
 | `API_TOKEN_MAX_DAYS` | `365` | Longest lifetime an API token may be given |

@@ -142,7 +142,7 @@ def test_user_json_omits_password_hash(auth_admin):
     # (possibly secret) field added to to_dict() fails the test — not just the
     # two names we currently know to be sensitive.
     allowed = {"id", "username", "role", "is_active", "auth_source",
-               "must_change_password", "created_at"}
+               "must_change_password", "totp_enabled", "created_at"}
     for u in users:
         assert "password_hash" not in u
         assert set(u) <= allowed

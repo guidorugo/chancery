@@ -28,6 +28,17 @@ class User(UserMixin, db.Model):
     # Force a password change on next login (set for the bootstrap admin created
     # from ADMIN_PASSWORD, so the seed credential can't become permanent).
     must_change_password = db.Column(db.Boolean, nullable=False, default=False)
+    # F13: TOTP second factor. The secret is Fernet-wrapped under
+    # MASTER_PASSPHRASE (registered in passphrase_service); recovery codes are
+    # werkzeug hashes, each usable once; totp_last_step blocks code replay.
+    totp_secret_enc = db.Column(db.LargeBinary, nullable=True)
+    totp_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    totp_confirmed_at = db.Column(db.DateTime, nullable=True)
+    totp_last_step = db.Column(db.Integer, nullable=True)
+    recovery_codes_json = db.Column(db.Text, nullable=True)
+    # G6-4/G6-5: bumped on password change, admin reset and any 2FA change;
+    # a session carrying an older value is no longer valid.
+    session_version = db.Column(db.Integer, nullable=False, default=1)
 
     @property
     def is_active(self):
@@ -60,8 +71,16 @@ class User(UserMixin, db.Model):
             return False
         return check_password_hash(self.password_hash, password)
 
+    @property
+    def recovery_codes(self):
+        import json
+        try:
+            return list(json.loads(self.recovery_codes_json or "[]"))
+        except ValueError:
+            return []
+
     def to_dict(self):
-        # Never expose password_hash.
+        # Never expose password_hash, the TOTP secret or the recovery codes.
         return {
             "id": self.id,
             "username": self.username,
@@ -69,6 +88,7 @@ class User(UserMixin, db.Model):
             "is_active": self.is_active_user,
             "auth_source": self.auth_source,
             "must_change_password": self.must_change_password,
+            "totp_enabled": self.totp_enabled,
             "created_at": iso(self.created_at),
         }
 
@@ -78,7 +98,17 @@ class User(UserMixin, db.Model):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    """Session login. G6-4: a session minted before the user's
+    `session_version` was bumped (password change, admin reset, 2FA change)
+    is refused, which logs that session out everywhere."""
+    from flask import session
+    user = db.session.get(User, int(user_id))
+    if user is None:
+        return None
+    stamped = session.get("sv")
+    if stamped is not None and stamped != user.session_version:
+        return None
+    return user
 
 
 @login_manager.request_loader

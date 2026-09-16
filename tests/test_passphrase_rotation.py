@@ -35,6 +35,11 @@ def _seed_everything():
     _db.session.add_all([ldap, hook])
     from app.services import ocsp_service
     ocsp_service.ensure_responder(root, OLD)   # F7: the delegated responder key is a registered column too
+    from app.models.user import User
+    totp_user = User(username="rot-totp", role="admin", totp_enabled=True,
+                     totp_secret_enc=crypto_utils.encrypt_secret("JBSWY3DPEHPK3PXP", OLD))   # F13
+    totp_user.set_password("rot-totp-password")
+    _db.session.add(totp_user)
     _db.session.commit()
     return root, leaf, signed, cert_only, ldap, hook
 
@@ -45,6 +50,7 @@ def _snapshot():
         "cert": {c.id: c.private_key_enc for c in Certificate.query.all()},
         "ldap": {r.id: r.bind_password_enc for r in LdapSettings.query.all()},
         "hook": {r.id: r.secret_enc for r in WebhookSettings.query.all()},
+        "totp": {u.id: u.totp_secret_enc for u in __import__("app.models.user", fromlist=["User"]).User.query.all()},
     }
 
 
@@ -84,6 +90,7 @@ class TestRotateService:
                              "certificate_authorities.ocsp_responder_key_enc": 1,
                              "certificates.private_key_enc": 1,
                              "ldap_settings.bind_password_enc": 1,
+                             "users.totp_secret_enc": 1,
                              "webhook_settings.secret_enc": 1}
             after = _snapshot()
             # rotated blobs changed and open with NEW only
@@ -94,6 +101,8 @@ class TestRotateService:
             assert crypto_utils.decrypt_secret(after["ldap"][ldap.id], NEW) == "bind-pw"
             assert crypto_utils.decrypt_secret(after["hook"][hook.id], NEW) == "hook-secret"
             assert crypto_utils.decrypt_private_key(db.session.get(CertificateAuthority, root.id).ocsp_responder_key_enc, NEW)
+            totp_blobs = [b for b in after["totp"].values() if b]
+            assert len(totp_blobs) == 1 and crypto_utils.decrypt_secret(totp_blobs[0], NEW) == "JBSWY3DPEHPK3PXP"
             # sentinels / NULLs untouched
             assert after["ca"][cert_only.id] == b""
             assert after["cert"][signed.id] is None
