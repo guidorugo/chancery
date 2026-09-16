@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, Response, render_template, redirect, url_for, flash, request, current_app, jsonify
 from flask_login import current_user
+from sqlalchemy.exc import IntegrityError
 
 from ..decorators import admin_required
 from ..extensions import db
@@ -128,10 +129,21 @@ def list_cas():
 def create():
     def _err(message, status=400):
         # JSON for API clients; re-render the form (with flash) for browsers.
+        # 2.27.1: discard the failed transaction first — after an IntegrityError
+        # the session is unusable and re-rendering the form (which queries the
+        # CA list) raised PendingRollbackError, turning a 4xx into a 500.
+        db.session.rollback()
         if wants_json():
             return api_error(message, status)
         flash(message, "danger")
         return render_template("ca/create.html", **_create_page_context())
+
+    def _conflict(what):
+        # The service pre-checks names/serials; this only catches a race
+        # between that check and the INSERT (the database has the last word).
+        logger.warning("CA %s refused by a database constraint", what)
+        return _err("A CA with this name or serial number was created concurrently; "
+                    "the name of a revoked CA can be reused, an active one's cannot.", 409)
 
     if request.method == "POST":
         mode = request.form.get("mode", "generate")
@@ -212,6 +224,8 @@ def create():
                 return redirect(url_for("ca.detail", ca_id=ca.id))
             except ValueError as e:
                 return _err(str(e))
+            except IntegrityError:
+                return _conflict("import")
             except Exception:
                 logger.exception("Error importing CA")
                 return _err("An unexpected error occurred while importing the CA.", 500)
@@ -313,6 +327,8 @@ def create():
                 # Invalid input (e.g. a bad subject field or out-of-range
                 # validity) — surface the reason as a 400, not a generic 500.
                 return _err(str(e))
+            except IntegrityError:
+                return _conflict("creation")
             except Exception:
                 logger.exception("Error creating CA")
                 return _err("An unexpected error occurred while creating the CA.", 500)

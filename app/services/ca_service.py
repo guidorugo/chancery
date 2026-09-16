@@ -51,6 +51,7 @@ def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passp
     extension and stored on the row. `policies` (F3): a list from
     `certificate_policies.normalise()`, stamped as certificatePolicies and
     inherited by every certificate this CA issues."""
+    ensure_name_available(name)  # 2.27.1: before any key is generated
     enforce_key_strength(key_type, key_size)  # B5
     nc_ext = name_constraints.build_extension(constraints)
     cp_ext = certificate_policies.build_extension(policies)
@@ -144,6 +145,7 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
                            validity_days, passphrase, path_length=None, backend=None,
                            created_by=None, approval_status="approved", constraints=None,
                            policies=None):
+    ensure_name_available(name)  # 2.27.1: before any key is generated
     if not parent_ca.has_signing_key:
         raise ValueError("Parent CA was imported without its private key and cannot sign a new intermediate CA.")
     if parent_ca.approval_status == "pending":
@@ -558,6 +560,17 @@ def _key_info_from_public(public_key):
     return key_info(public_key)  # F5: RSA, EC P-256/384/521, Ed25519, Ed448; else ValueError
 
 
+def ensure_name_available(name):
+    """2.27.1: CA names are unique among non-revoked CAs only — a revoked CA's
+    name may be reused (the database enforces the same rule with the partial
+    unique index `ux_certificate_authorities_name_active`; this check gives
+    the friendly error before any key is generated)."""
+    clash = CertificateAuthority.query.filter_by(name=name, is_revoked=False).first()
+    if clash is not None:
+        raise ValueError(f"A CA named '{name}' already exists (#{clash.id}). "
+                         "Only a revoked CA's name can be reused.")
+
+
 def _unique_ca_name(base):
     name = base
     suffix = 2
@@ -603,9 +616,7 @@ def _import_ca_object(name, cert, private_key, passphrase, parent_id=None):
         key_type, key_size = _key_info_from_public(cert.public_key())
         enc_key = b""  # sentinel: imported without a private key
 
-    # Name uniqueness
-    if CertificateAuthority.query.filter_by(name=name).first():
-        raise ValueError(f"A CA with the name '{name}' already exists.")
+    ensure_name_available(name)  # 2.27.1: revoked names may be reused
 
     # Serial uniqueness
     serial_hex = format(cert.serial_number, "x")

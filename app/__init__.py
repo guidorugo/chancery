@@ -594,6 +594,86 @@ def _setup_rate_limiting(app):
         app.limiter = None
 
 
+def _drop_ca_name_unique_constraint():
+    """2.27.1: the original schema declared `certificate_authorities.name`
+    UNIQUE at table level, which made a revoked CA's name unusable forever.
+    SQLite cannot drop a table constraint, so while that constraint is still
+    present the table is rebuilt from the current model with SQLite's
+    documented create-copy-drop-rename procedure: every column, row and id is
+    copied, and the referencing tables (certificates, CSRs, ca_certificates)
+    keep pointing at `certificate_authorities` by name. Foreign-key
+    enforcement is off on this connection (SQLAlchemy's SQLite default), so
+    the drop cascades nothing; it is switched off explicitly otherwise. Runs
+    once (the next start finds no such constraint) and only ever on SQLite.
+    On failure the old table is left untouched and a warning is logged — the
+    app keeps working, only name reuse stays refused (as a 409)."""
+    import logging
+    from sqlalchemy import text
+    from sqlalchemy.schema import CreateTable
+    from .models.ca import CertificateAuthority
+
+    log = logging.getLogger(__name__)
+    if db.engine.dialect.name != "sqlite":
+        return
+    table = "certificate_authorities"
+    tmp = f"{table}__rebuild"
+    legacy = None
+    for row in db.session.execute(text(f"PRAGMA index_list({table})")).fetchall():
+        # (seq, name, unique, origin, partial); origin 'u' = a UNIQUE table constraint
+        if row[3] == "u" and row[2]:
+            cols = [r[2] for r in db.session.execute(text(f"PRAGMA index_info({row[1]})")).fetchall()]
+            if cols == ["name"]:
+                legacy = row[1]
+                break
+    if legacy is None:
+        return
+
+    model_table = CertificateAuthority.__table__
+    ddl = str(CreateTable(model_table).compile(db.engine)).strip()
+    head = f"CREATE TABLE {table} ("
+    if not ddl.startswith(head):
+        log.error("Unexpected DDL for %s; leaving the legacy UNIQUE(name) in place", table)
+        return
+    ddl = ddl.replace(head, f"CREATE TABLE {tmp} (", 1)
+    existing = [r[1] for r in db.session.execute(text(f"PRAGMA table_info({table})")).fetchall()]
+    cols = [c.name for c in model_table.columns if c.name in existing]
+    missing = [c for c in existing if c not in cols]
+    if missing:
+        log.error("%s has columns unknown to the model (%s); leaving the legacy UNIQUE(name) in place",
+                  table, ", ".join(missing))
+        return
+    collist = ", ".join(cols)
+    fk_on = bool(db.session.execute(text("PRAGMA foreign_keys")).scalar())
+    log.warning("Rebuilding %s once to drop the legacy UNIQUE(name) constraint (%d columns)", table, len(cols))
+    try:
+        if fk_on:
+            db.session.execute(text("PRAGMA foreign_keys=OFF"))
+        db.session.execute(text(f"DROP TABLE IF EXISTS {tmp}"))
+        db.session.execute(text(ddl))
+        # From the INSERT on, everything is inside one transaction: the old
+        # table is dropped only after the copy succeeded, or nothing changes.
+        db.session.execute(text(f"INSERT INTO {tmp} ({collist}) SELECT {collist} FROM {table}"))
+        db.session.execute(text(f"DROP TABLE {table}"))
+        db.session.execute(text(f"ALTER TABLE {tmp} RENAME TO {table}"))
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        log.error("Could not rebuild %s (%s); the name of a revoked CA cannot be reused until this succeeds",
+                  table, exc)
+        try:
+            db.session.execute(text(f"DROP TABLE IF EXISTS {tmp}"))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    finally:
+        if fk_on:
+            try:
+                db.session.execute(text("PRAGMA foreign_keys=ON"))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+
 def _migrate_schema():
     """Add new columns to existing SQLite tables (ALTER TABLE)."""
     from sqlalchemy import inspect, text
@@ -720,6 +800,21 @@ def _migrate_schema():
         # and imports check in code; the index closes the race). Committed first
         # and guarded so a legacy DB with a duplicate keeps booting.
         db.session.commit()
+        # 2.27.1: names are unique among non-revoked CAs only. The original
+        # table-level UNIQUE(name) has to go (SQLite: table rebuild), then the
+        # partial unique index takes over (fresh DBs get it from create_all).
+        _drop_ca_name_unique_constraint()
+        try:
+            db.session.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_certificate_authorities_name_active "
+                "ON certificate_authorities (name) WHERE is_revoked IS NOT 1"
+            ))
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not create the partial unique index on certificate_authorities.name: %s", exc)
         try:
             db.session.execute(text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_certificate_authorities_serial "
