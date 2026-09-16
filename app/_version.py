@@ -6,4 +6,4 @@ value at runtime with the ``APP_VERSION`` environment variable — handy to
 surface a git short SHA for an untagged build without editing this file.
 """
 
-__version__ = "2.18.0"
+__version__ = "2.19.0"
