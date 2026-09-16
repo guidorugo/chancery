@@ -31,6 +31,8 @@ def create_app(config_class=Config):
     csrf.init_app(app)
 
     _check_security(app)
+
+    _check_signature_policy(app)
     _validate_ldap_config(app)
     _validate_key_backend_config(app)
     _configure_session(app)
@@ -256,6 +258,23 @@ def _setup_basic_auth(app):
 # refused — nothing may stop booting over this).
 MIN_RECOMMENDED_SECRET_KEY_LEN = 32
 MIN_RECOMMENDED_PASSPHRASE_LEN = 20
+
+
+def _check_signature_policy(app):
+    """F6: refuse to start with an unknown SIGNATURE_HASH_POLICY or
+    RSA_SIGNATURE_HASH — a typo must not silently fall back to SHA-256 (or
+    fail at the first signature)."""
+    from .services import crypto_utils
+    policy = app.config.get("SIGNATURE_HASH_POLICY", "legacy")
+    if policy not in crypto_utils.SIGNATURE_HASH_POLICIES:
+        print(f"FATAL: SIGNATURE_HASH_POLICY={policy!r} is not one of "
+              f"{', '.join(crypto_utils.SIGNATURE_HASH_POLICIES)}.")
+        sys.exit(1)
+    rsa_hash = app.config.get("RSA_SIGNATURE_HASH", "sha256")
+    if rsa_hash not in crypto_utils.HASH_ALGORITHMS:
+        print(f"FATAL: RSA_SIGNATURE_HASH={rsa_hash!r} is not one of "
+              f"{', '.join(crypto_utils.HASH_ALGORITHMS)}.")
+        sys.exit(1)
 
 
 def _check_security(app):

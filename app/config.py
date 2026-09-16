@@ -88,6 +88,16 @@ class Config:
     # Relying parties poll CRL/OCSP far more often than humans use the UI (G8-4).
     PUBLIC_RATE_LIMIT = os.environ.get("PUBLIC_RATE_LIMIT") or "600/minute"
 
+    # F6 (2.21.0, G5-3): the digest used when signing certificates, CRLs, OCSP
+    # responses and generated CSRs. "legacy" = SHA-256 for every RSA/EC key
+    # (pre-2.21 behaviour, still the default until 3.0); "match-curve" = P-256
+    # → SHA-256, P-384 → SHA-384, P-521 → SHA-512 as the CA/Browser Forum and
+    # RFC 5759 profiles expect, and RSA_SIGNATURE_HASH for RSA keys. Ed25519/
+    # Ed448 never take a separate digest. Existing certificates are untouched;
+    # the setting applies to new signatures only.
+    SIGNATURE_HASH_POLICY = (os.environ.get("SIGNATURE_HASH_POLICY") or "legacy").strip().lower()
+    RSA_SIGNATURE_HASH = (os.environ.get("RSA_SIGNATURE_HASH") or "sha256").strip().lower()
+
     # A1: default backend for NEW CA signing keys. "software" (Fernet-encrypted,
     # today's behaviour) or "softhsm" (key held in a PKCS#11 token). Existing CAs
     # keep whatever backend they were created with, per-CA.
