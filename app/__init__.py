@@ -70,7 +70,7 @@ def create_app(config_class=Config):
         app.limiter.limit(app.config.get("PUBLIC_RATE_LIMIT", "600/minute"))(public_bp)
 
     from .cli import (keys_cli, certs_cli, users_cli, crl_cli, metrics_cli, profiles_cli,
-                      scheduler_cli, ocsp_cli)
+                      scheduler_cli, ocsp_cli, api_token_cli)
     app.cli.add_command(keys_cli)
     app.cli.add_command(certs_cli)
     app.cli.add_command(users_cli)
@@ -79,6 +79,7 @@ def create_app(config_class=Config):
     app.cli.add_command(profiles_cli)
     app.cli.add_command(scheduler_cli)
     app.cli.add_command(ocsp_cli)
+    app.cli.add_command(api_token_cli)
 
     with app.app_context():
         from . import models  # noqa: F401
@@ -165,6 +166,11 @@ def _setup_basic_auth(app):
         # cached Flask-Login user leak into this one.
         g.pop("_login_user", None)
 
+        g.api_token = None
+        header = request.headers.get("Authorization", "")
+        if header.startswith("Bearer "):
+            return _check_api_token(header[len("Bearer "):].strip())
+
         if not app.config.get("BASIC_AUTH_ENABLED", True):
             return
 
@@ -226,12 +232,53 @@ def _setup_basic_auth(app):
             response.status_code = 403
             return response
 
+    def _check_api_token(presented):
+        """F12: `Authorization: Bearer chy_api_…` authenticates like Basic Auth
+        (CSRF bypass, JSON errors, forced-password gate) but is additionally
+        bound to the token's scopes. Metrics tokens (`cmt_`) are refused here,
+        and API tokens are refused at /metrics — each kind opens one door."""
+        from .models.api_token import TOKEN_PREFIX
+        from .services import api_token_service
+        from .services.audit_service import log_action
+
+        if request.blueprint in ("metrics",):
+            return  # /metrics does its own (metrics-token) check
+        if not presented.startswith(TOKEN_PREFIX):
+            kind = "metrics token" if presented.startswith("cmt_") else "unknown bearer token"
+            log_action("api_token_auth_failed", target_type="api_token", details={"reason": kind})
+            db.session.commit()
+            return jsonify({"error": f"Not an API token ({kind}); use an Authorization: Bearer chy_api_… token."}), 401
+        row = api_token_service.verify(presented)
+        if row is None:
+            token_id = presented[len(TOKEN_PREFIX):].partition("_")[0][:32]
+            log_action("api_token_auth_failed", target_type="api_token",
+                       details={"reason": "invalid, expired, revoked, or owner deactivated", "token_id": token_id})
+            db.session.commit()
+            return jsonify({"error": "Invalid or expired API token."}), 401
+        g.basic_auth_used = True          # same programmatic-client semantics as Basic Auth
+        g.basic_auth_user = row.user
+        g.api_token = row
+        g.pop("_login_user", None)
+        api_token_service.touch(row)
+        if getattr(row.user, "must_change_password", False):
+            return jsonify({"error": "Password change required — set a new password via the web UI "
+                                     "before using API tokens."}), 403
+        scope = api_token_service.required_scope(request.method, request.endpoint)
+        if scope is not None and not row.has_scope(scope):
+            log_action("api_token_scope_denied", target_type="api_token", target_id=row.id,
+                       details={"required": scope, "scopes": row.scopes, "endpoint": request.endpoint,
+                                "method": request.method})
+            db.session.commit()
+            return jsonify({"error": f"This API token lacks the '{scope}' scope."}), 403
+
     @login_manager.unauthorized_handler
     def handle_unauthorized():
         # login_manager is a module-level singleton, so every create_app()
         # call re-registers this handler. Read config through current_app —
         # not the closed-over app — so the handler always serves the app
         # actually handling the request.
+        if request.headers.get("Authorization", "").startswith("Bearer "):
+            return jsonify({"error": "Invalid or expired API token."}), 401
         if current_app.config.get("BASIC_AUTH_ENABLED", True) and request.authorization is not None:
             realm = current_app.config.get("BASIC_AUTH_REALM", "chancery")
             response = jsonify({"error": "Invalid credentials."})

@@ -89,6 +89,10 @@ EVENT_CATALOG = {
         ("ldap_user_provisioned", "LDAP user provisioned"),
         ("ldap_role_synced", "LDAP role re-synced"),
         ("unlock_user", "User lockout cleared (CLI)"),
+        ("create_api_token", "API token created"),
+        ("revoke_api_token", "API token revoked"),
+        ("api_token_auth_failed", "API token rejected (can be noisy)"),
+        ("api_token_scope_denied", "API token lacked the required scope"),
     ],
     "Configuration": [
         ("update_ldap_settings", "LDAP settings saved"),

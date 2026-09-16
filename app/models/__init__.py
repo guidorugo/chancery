@@ -9,5 +9,6 @@ from .webhook_settings import WebhookSettings
 from .certificate_profile import CertificateProfile
 from .scheduler_lease import SchedulerLease, SchedulerJob
 from .ca_certificate import CaCertificate
+from .api_token import ApiToken
 
-__all__ = ["User", "CertificateAuthority", "Certificate", "CertificateSigningRequest", "AuditLog", "MetricsToken", "LdapSettings", "WebhookSettings", "CertificateProfile", "SchedulerLease", "SchedulerJob", "CaCertificate"]
+__all__ = ["User", "CertificateAuthority", "Certificate", "CertificateSigningRequest", "AuditLog", "MetricsToken", "LdapSettings", "WebhookSettings", "CertificateProfile", "SchedulerLease", "SchedulerJob", "CaCertificate", "ApiToken"]
