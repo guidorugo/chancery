@@ -222,7 +222,7 @@ at `import_csr` too, so DSA and unknown keys can no longer be signed as
 `key_type="Unknown"`. G5-2: fix the CKA_ID mismatch between the key-pair objects and
 cache one throwaway key per process while in the backend.
 
-## F6. Hash matched to curve, RSA-3072 (2.15.0, S)
+## F6. Hash matched to curve, RSA-3072 (shipped as v2.21.0, PR #145) — G5-3, G4-4
 
 **Current state.** `_get_hash_algorithm` at `app/services/ca_service.py:55-58` returns
 SHA-256 in both branches; `keybackend/software.py:22` and `cert_service.py:47` the
