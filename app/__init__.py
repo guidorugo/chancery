@@ -70,7 +70,7 @@ def create_app(config_class=Config):
         app.limiter.limit(app.config.get("PUBLIC_RATE_LIMIT", "600/minute"))(public_bp)
 
     from .cli import (keys_cli, certs_cli, users_cli, crl_cli, metrics_cli, profiles_cli,
-                      scheduler_cli)
+                      scheduler_cli, ocsp_cli)
     app.cli.add_command(keys_cli)
     app.cli.add_command(certs_cli)
     app.cli.add_command(users_cli)
@@ -78,6 +78,7 @@ def create_app(config_class=Config):
     app.cli.add_command(metrics_cli)
     app.cli.add_command(profiles_cli)
     app.cli.add_command(scheduler_cli)
+    app.cli.add_command(ocsp_cli)
 
     with app.app_context():
         from . import models  # noqa: F401
@@ -635,6 +636,14 @@ def _migrate_schema():
         if "certificate_policies_json" not in columns:  # F3
             db.session.execute(text(
                 "ALTER TABLE certificate_authorities ADD COLUMN certificate_policies_json TEXT"
+            ))
+        if "ocsp_responder_cert_pem" not in columns:  # F7
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN ocsp_responder_cert_pem TEXT"
+            ))
+        if "ocsp_responder_key_enc" not in columns:  # F7
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN ocsp_responder_key_enc BLOB"
             ))
         # G9-1: DB-level uniqueness for CA serials (generated serials are random
         # and imports check in code; the index closes the race). Committed first

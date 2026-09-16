@@ -33,6 +33,8 @@ def _seed_everything():
     ldap = LdapSettings(id=1, bind_password_enc=crypto_utils.encrypt_secret("bind-pw", OLD))
     hook = WebhookSettings(id=1, secret_enc=crypto_utils.encrypt_secret("hook-secret", OLD))
     _db.session.add_all([ldap, hook])
+    from app.services import ocsp_service
+    ocsp_service.ensure_responder(root, OLD)   # F7: the delegated responder key is a registered column too
     _db.session.commit()
     return root, leaf, signed, cert_only, ldap, hook
 
@@ -79,6 +81,7 @@ class TestRotateService:
             stats = passphrase_service.rotate(OLD, NEW)
             db.session.commit()
             assert stats == {"certificate_authorities.private_key_enc": 1,
+                             "certificate_authorities.ocsp_responder_key_enc": 1,
                              "certificates.private_key_enc": 1,
                              "ldap_settings.bind_password_enc": 1,
                              "webhook_settings.secret_enc": 1}
@@ -90,6 +93,7 @@ class TestRotateService:
             assert crypto_utils.decrypt_private_key(after["cert"][leaf.id], NEW)
             assert crypto_utils.decrypt_secret(after["ldap"][ldap.id], NEW) == "bind-pw"
             assert crypto_utils.decrypt_secret(after["hook"][hook.id], NEW) == "hook-secret"
+            assert crypto_utils.decrypt_private_key(db.session.get(CertificateAuthority, root.id).ocsp_responder_key_enc, NEW)
             # sentinels / NULLs untouched
             assert after["ca"][cert_only.id] == b""
             assert after["cert"][signed.id] is None

@@ -45,6 +45,10 @@ class CertificateAuthority(db.Model):
     name_constraints_json = db.Column(db.Text, nullable=True)
     # F3: [{"oid": ..., "cps_uri": ...|null}] stamped on this CA's certificate and inherited by its leaves.
     certificate_policies_json = db.Column(db.Text, nullable=True)
+    # F7: delegated OCSP responder — short-lived cert issued by this CA and its
+    # Fernet-wrapped key (always software, registered in passphrase_service).
+    ocsp_responder_cert_pem = db.Column(db.Text, nullable=True)
+    ocsp_responder_key_enc = db.Column(db.LargeBinary, nullable=True)
 
     parent = db.relationship("CertificateAuthority", remote_side=[id], backref="children")
     certificates = db.relationship("Certificate", backref="ca", lazy="dynamic")
@@ -178,6 +182,8 @@ class CertificateAuthority(db.Model):
             "created_at": iso(self.created_at),
         }
         if detail:
+            from ..services import ocsp_service
+            d["ocsp_responder"] = ocsp_service.responder_status(self)
             d.update({
                 "path_length": self.path_length,
                 "crl_number": self.crl_number,

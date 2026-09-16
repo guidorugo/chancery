@@ -105,6 +105,8 @@ EVENT_CATALOG = {
         ("certificate_expired", "Certificate expired (daily, once per certificate)"),
         ("ca_expiring", "CA expiring soon (daily, once per CA)"),
         ("ca_expired", "CA expired (daily, once per CA)"),
+        ("ocsp_responder_rotated", "OCSP responder certificate rotated"),
+        ("ocsp_responder_failed", "OCSP responder rotation failed"),
         ("scheduler_error", "Scheduler job error (on change)"),
     ],
 }

@@ -35,7 +35,7 @@ from ..models.ca import CertificateAuthority
 from ..models.certificate import Certificate
 from ..models.scheduler_lease import SchedulerJob, SchedulerLease
 from ..serialization import iso
-from . import audit_service, crl_service
+from . import audit_service, crl_service, ocsp_service
 
 LEASE_NAME = "main"
 ENV_FLAG = "CHANCERY_RUN_SCHEDULER"
@@ -260,10 +260,43 @@ def job_expiry_events(now):
     return summary
 
 
+def job_ocsp_responders(now):
+    """Hourly (F7): with OCSP_DELEGATED_RESPONDER on, issue a responder
+    certificate for every signing-capable CA that has none, an expired one,
+    or one expiring within OCSP_RESPONDER_RENEW_BEFORE_DAYS. Per-CA failures
+    are audited and skipped."""
+    if not ocsp_service.delegated_enabled():
+        return {"disabled": True}
+    passphrase = current_app.config["MASTER_PASSPHRASE"]
+    rotated, failed, fresh = [], [], 0
+    for ca in CertificateAuthority.signing_capable().all():
+        try:
+            if not ocsp_service.ensure_responder(ca, passphrase):
+                fresh += 1
+                continue
+            audit_service.log_action("ocsp_responder_rotated", target_type="ca", target_id=ca.id,
+                                     details={"trigger": "scheduler", **ocsp_service.responder_status(ca)},
+                                     actor=ACTOR)
+            db.session.commit()
+            rotated.append(ca.id)
+        except Exception as exc:
+            db.session.rollback()
+            logger.exception("OCSP responder rotation failed for CA %s", ca.id)
+            try:
+                audit_service.log_action("ocsp_responder_failed", target_type="ca", target_id=ca.id,
+                                         details={"trigger": "scheduler", "error": str(exc)[:200]}, actor=ACTOR)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            failed.append(ca.id)
+    return {"rotated": rotated, "failed": failed, "fresh": fresh}
+
+
 # (name, callable, minimum seconds between successful runs; 0 = every tick)
 JOBS = (
     ("crl_refresh", job_crl_refresh, 0),
     ("expiry_events", job_expiry_events, DAILY),
+    ("ocsp_responders", job_ocsp_responders, 3600),
 )
 
 
