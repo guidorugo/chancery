@@ -327,7 +327,7 @@ adding the lazy refresh to the public CRL routes, emit `Last-Modified`, `Expires
 `Cache-Control: max-age` from the CRL's thisUpdate/nextUpdate and give `/public/*`
 its own, higher rate-limit bucket.
 
-## F9. Renew and re-key (2.14.0, M)
+## F9. Renew and re-key (shipped as v2.19.0, PR #141)
 
 **Current state.** No renewal path; `grep -i renew app/` is empty. Direct-created certs
 keep an escrowed key (`certificates.private_key_enc`); CSR-signed certs do not, but the
