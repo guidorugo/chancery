@@ -587,3 +587,31 @@ def test_match_curve_parity_per_key(app, db, hsm_config, monkeypatch, key_type, 
         else:
             ca_cert.public_key().verify(rh.signature, rh.tbs_response_bytes, ec.ECDSA(rh.signature_hash_algorithm))
         Pkcs11Backend().verify_signing_key(_hsm_ca(ca, label))  # CORE-3 under the new digest
+
+
+# --- F7: delegated OCSP responder issued through the token --------------------
+
+def test_delegated_responder_from_an_hsm_ca(app, db, hsm_config, monkeypatch):
+    from app.services import ocsp_service as osvc
+    with app.app_context():
+        monkeypatch.setitem(app.config, "OCSP_DELEGATED_RESPONDER", True)
+        osvc._response_cache.clear()
+        ca = ca_service.create_root_ca(
+            name="HSM Resp Root", subject_attrs={"CN": "HSM Resp Root"},
+            key_type="EC", key_size=256, validity_days=3650, passphrase=PASSPHRASE, backend="softhsm")
+        ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
+        # the responder certificate is signed inside the token; its key is software
+        assert osvc.ensure_responder(ca, PASSPHRASE) is True
+        db.session.commit()
+        responder = osvc.responder_certificate(ca)
+        responder.verify_directly_issued_by(ca_cert)
+        assert ca.ocsp_responder_key_enc and ca.private_key_enc == b""
+        leaf = cert_service.create_certificate(ca, {"CN": "hsm-leaf.example"}, [], 30, PASSPHRASE, key_type="EC", key_size=256)
+        req = ocsp.OCSPRequestBuilder().add_certificate(
+            x509.load_pem_x509_certificate(leaf.certificate_pem.encode()), ca_cert, hashes.SHA256()).build()
+        resp = ocsp.load_der_ocsp_response(osvc.build_ocsp_response(
+            req.public_bytes(serialization.Encoding.DER), ca, PASSPHRASE))
+        assert resp.certificate_status == ocsp.OCSPCertStatus.GOOD
+        assert resp.certificates == [responder]
+        assert resp.responder_key_hash == x509.SubjectKeyIdentifier.from_public_key(responder.public_key()).digest
+        responder.public_key().verify(resp.signature, resp.tbs_response_bytes, ec.ECDSA(resp.signature_hash_algorithm))

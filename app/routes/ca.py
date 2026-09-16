@@ -11,7 +11,7 @@ from ..responses import api_error, wants_json
 from ..services import ca_service, crl_service, audit_service, dual_control_service, profile_service, listing
 from ..services.filenames import content_disposition
 from ..services.keybackend import hsm_available
-from ..services import name_constraints, certificate_policies
+from ..services import name_constraints, certificate_policies, ocsp_service
 
 logger = logging.getLogger(__name__)
 
@@ -343,7 +343,44 @@ def detail(ca_id):
         return jsonify(ca.to_dict(detail=True))
     chain = ca_service.get_ca_chain(ca)
     return render_template("ca/detail.html", ca=ca, chain=chain,
-                           profiles=profile_service.list_profiles())
+                           profiles=profile_service.list_profiles(),
+                           ocsp_delegated=ocsp_service.delegated_enabled(),
+                           ocsp_responder=ocsp_service.responder_status(ca))
+
+
+@ca_bp.route("/<int:ca_id>/ocsp-responder/rotate", methods=["POST"])
+@admin_required
+def rotate_ocsp_responder(ca_id):
+    """F7: issue a new delegated OCSP responder certificate now."""
+    ca = db.session.get(CertificateAuthority, ca_id)
+    if not ca:
+        if wants_json():
+            return api_error("CA not found.", 404)
+        flash("CA not found.", "danger")
+        return redirect(url_for("ca.list_cas"))
+    try:
+        ocsp_service.ensure_responder(ca, current_app.config["MASTER_PASSPHRASE"], force=True)
+        status = ocsp_service.responder_status(ca)
+        audit_service.log_action("ocsp_responder_rotated", target_type="ca", target_id=ca.id,
+                                 details={"trigger": "manual", **status})
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        if wants_json():
+            return api_error(str(e), 400)
+        flash(str(e), "danger")
+        return redirect(url_for("ca.detail", ca_id=ca.id))
+    except Exception:
+        db.session.rollback()
+        logger.exception("OCSP responder rotation failed")
+        if wants_json():
+            return api_error("An unexpected error occurred while rotating the OCSP responder.", 500)
+        flash("An unexpected error occurred while rotating the OCSP responder.", "danger")
+        return redirect(url_for("ca.detail", ca_id=ca.id))
+    if wants_json():
+        return jsonify({"ca_id": ca.id, "ocsp_responder": status})
+    flash(f"OCSP responder certificate for '{ca.name}' rotated; valid until {status['not_after'][:10]}.", "success")
+    return redirect(url_for("ca.detail", ca_id=ca.id))
 
 
 @ca_bp.route("/<int:ca_id>/profiles", methods=["POST"])

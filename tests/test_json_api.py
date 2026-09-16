@@ -169,6 +169,7 @@ def test_ca_detail_json_has_no_key_material(auth_admin):
         "expiry_notified_at",  # F10: last expiry report (timestamp or null)
         "name_constraints",  # F2: permitted/excluded subtrees (dict or null)
         "certificate_policies",  # F3: [{oid, cps_uri}] or null
+        "ocsp_responder",  # F7: delegated responder status (dict or null), never its key
     }
     assert "private_key_enc" not in detail
     assert "key_label" not in detail

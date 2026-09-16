@@ -74,6 +74,16 @@ class Config:
     # answered GOOD from cache. 0 disables.
     OCSP_RESPONSE_CACHE_TTL_SECONDS = int(os.environ.get("OCSP_RESPONSE_CACHE_TTL_SECONDS") or "60")
 
+    # F7 (2.24.0): sign OCSP responses with a short-lived delegated responder
+    # certificate (EKU OCSPSigning, id-pkix-ocsp-nocheck) issued by the CA,
+    # instead of the CA key itself. The CA key is then used once per
+    # OCSP_RESPONDER_VALIDITY_DAYS; the scheduler renews responders
+    # OCSP_RESPONDER_RENEW_BEFORE_DAYS before expiry. Default off until 3.0
+    # (the responder ID of every CA changes when it flips).
+    OCSP_DELEGATED_RESPONDER = (os.environ.get("OCSP_DELEGATED_RESPONDER") or "false").lower() == "true"
+    OCSP_RESPONDER_VALIDITY_DAYS = int(os.environ.get("OCSP_RESPONDER_VALIDITY_DAYS") or "30")
+    OCSP_RESPONDER_RENEW_BEFORE_DAYS = int(os.environ.get("OCSP_RESPONDER_RENEW_BEFORE_DAYS") or "7")
+
     # PKI-1: validity window stamped into a generated CRL (nextUpdate = now +
     # this many days). Raise it to reduce how often CRLs expire; cron
     # `flask crl refresh` to keep published CRLs fresh.

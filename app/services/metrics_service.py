@@ -157,9 +157,20 @@ class ChanceryCollector:
             labels=["ca_id", "name", "common_name", "is_root",
                     "key_backend", "key_type", "key_size"])
 
+        ocsp_responder = GaugeMetricFamily(
+            "chancery_ca_ocsp_responder_expiry_timestamp_seconds",
+            "Unix time at which the CA's delegated OCSP responder certificate expires (F7; absent when none).",
+            labels=["ca_id"])
+
         for ca in cas:
             cid = str(ca.id)
             ca_states[_ca_state(ca, now, soon)] += 1
+            if ca.ocsp_responder_cert_pem:
+                try:
+                    ocsp_responder.add_metric([cid], _unix(x509.load_pem_x509_certificate(
+                        ca.ocsp_responder_cert_pem.encode()).not_valid_after_utc))
+                except Exception:
+                    pass
             ca_backend[ca.key_backend] = ca_backend.get(ca.key_backend, 0) + 1
             ca_type["root" if ca.is_root else "intermediate"] += 1
             if not ca.is_revoked and ca.has_signing_key and ca.approval_status == "approved":
@@ -181,6 +192,8 @@ class ChanceryCollector:
                     [cid, ca.name or "", ca.common_name or "",
                      "true" if ca.is_root else "false", ca.key_backend or "",
                      ca.key_type or "", str(ca.key_size or "")], 1)
+
+        yield ocsp_responder
 
         caf = GaugeMetricFamily(
             "chancery_certificate_authorities",

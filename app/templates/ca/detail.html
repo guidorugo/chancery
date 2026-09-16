@@ -145,6 +145,28 @@
                 <p><strong>OCSP Responder:</strong><br>
                     <code>{{ url_for('public.ocsp_responder', ca_id=ca.id, _external=True) }}</code>
                 </p>
+                <div class="border-top pt-2" id="ocsp-responder">
+                    <strong>OCSP signing:</strong>
+                    {% if ocsp_delegated %}
+                    <span class="badge bg-info text-dark" title="Responses are signed by a short-lived responder certificate issued by this CA (OCSP_DELEGATED_RESPONDER)">Delegated responder</span>
+                    {% else %}
+                    <span class="badge bg-secondary" title="Responses are signed by the CA key itself; set OCSP_DELEGATED_RESPONDER=true to delegate">CA key</span>
+                    {% endif %}
+                    {% if ocsp_responder %}
+                    <div class="small mt-1">Responder certificate serial <code>{{ ocsp_responder.serial_number[:16] }}…</code>,
+                        {% if ocsp_responder.valid %}valid until {{ ocsp_responder.not_after[:10] }} ({{ ocsp_responder.days_left }} days left){% else %}<span class="text-danger">not valid</span>{% endif %}
+                        {% if not ocsp_delegated %}<span class="text-body-secondary">(unused while delegation is off)</span>{% endif %}
+                    </div>
+                    {% elif ocsp_delegated %}
+                    <div class="small mt-1 text-body-secondary">No responder certificate yet — the scheduler or the first OCSP request will issue one.</div>
+                    {% endif %}
+                    {% if current_user.is_admin and ca.has_signing_key and not ca.is_revoked and ca.approval_status == 'approved' %}
+                    <form method="POST" action="{{ url_for('ca.rotate_ocsp_responder', ca_id=ca.id) }}" class="d-inline mt-1">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Issue a new responder certificate now">Rotate responder</button>
+                    </form>
+                    {% endif %}
+                </div>
                 {% else %}
                 <p class="text-body-secondary mb-0">CRL and OCSP are unavailable - this CA was imported without its private key.</p>
                 {% endif %}

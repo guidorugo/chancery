@@ -415,6 +415,47 @@ def scheduler_tick(force):
         raise click.ClickException("Another worker holds the scheduler lease; use --force to run anyway.")
 
 
+ocsp_cli = AppGroup("ocsp", help="OCSP responder utilities (2.24.0, F7).")
+
+
+@ocsp_cli.command("rotate-responders")
+@click.option("--ca-id", type=int, default=None, help="Only this CA (default: every signing-capable CA).")
+@click.option("--force", is_flag=True, help="Issue a new responder certificate even if the current one is fresh.")
+def ocsp_rotate_responders(ca_id, force):
+    """Issue/renew delegated OCSP responder certificates (OCSP_DELEGATED_RESPONDER).
+
+    Without --force only CAs whose responder is missing, expired or within
+    OCSP_RESPONDER_RENEW_BEFORE_DAYS of expiry get a new one.
+    """
+    from .models.ca import CertificateAuthority
+    from .services import ocsp_service
+
+    secret = current_app.config["MASTER_PASSPHRASE"]
+    query = CertificateAuthority.signing_capable()
+    if ca_id is not None:
+        query = query.filter_by(id=ca_id)
+    cas = query.all()
+    if ca_id is not None and not cas:
+        raise click.ClickException(f"CA {ca_id} not found or not signing-capable.")
+    if not ocsp_service.delegated_enabled():
+        click.echo("Note: OCSP_DELEGATED_RESPONDER is off — responses still use the CA key until it is enabled.")
+    rotated = 0
+    for ca in cas:
+        try:
+            if ocsp_service.ensure_responder(ca, secret, force=force):
+                _cli_audit("ocsp_responder_rotated", target_type="ca", target_id=ca.id,
+                           details={"trigger": "cli", "force": force, **ocsp_service.responder_status(ca)})
+                db.session.commit()
+                rotated += 1
+                click.echo(f"CA {ca.id} ({ca.name}): new responder, valid until {ocsp_service.responder_status(ca)['not_after']}")
+            else:
+                click.echo(f"CA {ca.id} ({ca.name}): responder still fresh")
+        except Exception as exc:
+            db.session.rollback()
+            click.echo(f"CA {ca.id} ({ca.name}): FAILED — {exc}", err=True)
+    click.echo(f"Rotated {rotated} responder(s).")
+
+
 profiles_cli = AppGroup("profiles", help="Certificate profile utilities (2.13.0, F1).")
 
 

@@ -24,6 +24,7 @@ from . import crypto_utils
 # share the wrapping format.
 ENCRYPTED_COLUMNS = (
     ("app.models.ca", "CertificateAuthority", "private_key_enc", "CA private key"),
+    ("app.models.ca", "CertificateAuthority", "ocsp_responder_key_enc", "OCSP responder private key"),
     ("app.models.certificate", "Certificate", "private_key_enc", "escrowed leaf private key"),
     ("app.models.ldap_settings", "LdapSettings", "bind_password_enc", "LDAP bind password"),
     ("app.models.webhook_settings", "WebhookSettings", "secret_enc", "webhook signing secret"),

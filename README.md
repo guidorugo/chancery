@@ -15,7 +15,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **CSR Management**: Create or import Certificate Signing Requests, sign or reject them — the signing user is recorded and shown on the CSR and certificate
 - **Revocation**: Revoke certificates with standard reasons, generate CRLs
 - **Renewal and re-key**: One click (or `POST /certificates/<id>/renew`) issues a successor with the same subject, SANs, usages and profile — keeping the escrowed key so deployed material keeps working, or generating a fresh one; optionally revokes the old certificate as *superseded*. Successors are linked (`renewed_from_id`), the old certificate is flagged *Superseded*, and expiry reminders move to the successor
-- **OCSP Responder**: Built-in OCSP endpoint for real-time certificate status checks
+- **OCSP Responder**: Built-in OCSP endpoint for real-time certificate status checks; optionally signs responses with a short-lived **delegated responder certificate** (`OCSP_DELEGATED_RESPONDER`) so the CA key is used once a month instead of per request — the scheduler renews responders, the CA page shows their status with a *Rotate responder* button
 - **Automatic CRL refresh**: A built-in scheduler regenerates every CA's CRL before it expires (no cron needed), an expired CRL is regenerated on the fly when downloaded, and CRL responses carry proper caching headers
 - **Public Endpoints**: Unauthenticated access to CRL downloads and CA certificates
 - **Monitoring**: `/health` liveness probe and an opt-in Prometheus `/metrics` endpoint (dedicated bearer token, minimal exposure)
@@ -409,6 +409,7 @@ curl -u admin:PASSWORD "http://localhost:5000/certificates/?status=expiring&page
 | POST | `/ca/detect-parent` | Detect parent CA for an imported certificate (JSON response) |
 | GET | `/ca/<ca_id>` | View CA details |
 | POST | `/ca/<ca_id>/approve` | Approve a pending CA (dual control); while the mode is active the approver must not be the CA's creator |
+| POST | `/ca/<ca_id>/ocsp-responder/rotate` | Admin | Issue a new delegated OCSP responder certificate now (F7) |
 | GET, POST | `/ca/<ca_id>/revoke` | Revoke a CA (also the way to discard an unwanted pending CA) |
 | POST | `/ca/<ca_id>/crl` | Generate a new CRL |
 | GET, POST | `/ca/<ca_id>/download` | Export CA. `pem`/`chain` via GET; `key`/`pkcs12` are **POST-only** (private-key material). `pkcs12` needs a `password` **form** field |
@@ -493,6 +494,7 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask certs backfill-issuers [--dry-run]` | One-time backfill of CSR signer / certificate issuer from the audit log (2.11.0) |
 | `flask scheduler status` / `flask scheduler tick [--force]` | Show the scheduler lease, each job's last run and the config, or run one pass now (`--force` also runs the daily expiry-events pass regardless of when it last ran) |
 | `flask crl refresh [--all]` | Regenerate stale CRLs (or all of them) by hand — the built-in scheduler does this automatically |
+| `flask ocsp rotate-responders [--ca-id N] [--force]` | Issue/renew delegated OCSP responder certificates (the scheduler does this hourly when `OCSP_DELEGATED_RESPONDER` is on) |
 | `flask profiles list` / `export` / `import <file> [--replace]` | List certificate profiles, dump them as JSON, or import (upsert by key) |
 | `flask keys check-passphrase` | Verify the running `MASTER_PASSPHRASE` opens every kind of stored ciphertext |
 | `flask keys rotate-passphrase --new-file <path\|-> [--dry-run] [--yes]` | Re-wrap every stored key and secret under a new passphrase in one transaction (see *Rotating the master passphrase*) |
@@ -567,6 +569,9 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `RSA_SIGNATURE_HASH` | `sha256` | Digest for RSA signatures under `match-curve`: `sha256`, `sha384` or `sha512` |
 | `OCSP_KEY_CACHE_TTL_SECONDS` | `300` | In-memory TTL for the decrypted CA key used by OCSP (`0` disables) |
 | `OCSP_RESPONSE_CACHE_TTL_SECONDS` | `60` | Cache signed OCSP responses per (CA, serial, status) for this long (`0` disables); the status is part of the key, so a revoked certificate is never served `good` from cache |
+| `OCSP_DELEGATED_RESPONDER` | `false` | Sign OCSP responses with a delegated responder certificate (EKU OCSPSigning, id-pkix-ocsp-nocheck) issued by each CA instead of the CA key; responders are renewed by the scheduler and lazily on the request path. Note: every CA's OCSP responder ID changes when this flips. Default flips to `true` in 3.0 |
+| `OCSP_RESPONDER_VALIDITY_DAYS` | `30` | Validity of a delegated responder certificate (capped at the CA's expiry) |
+| `OCSP_RESPONDER_RENEW_BEFORE_DAYS` | `7` | Renew a responder once it expires within this many days |
 | `SCHEDULER_ENABLED` | `true` | Built-in scheduler that keeps CRLs fresh (one worker holds a lease; safe with any worker count) |
 | `SCHEDULER_TICK_SECONDS` | `60` | Scheduler pass interval (CRL refresh runs every pass; the expiry-events job once a day) |
 | `CRL_REFRESH_BEFORE_DAYS` | `2` | Regenerate a CRL once it expires within this many days |
