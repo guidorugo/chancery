@@ -46,6 +46,16 @@ class Certificate(db.Model):
         backref=db.backref("renewals", lazy="selectin", order_by="Certificate.id"))
 
     @property
+    def certificate_policies(self):
+        """Policies carried by this certificate (F3), parsed from the PEM."""
+        from cryptography import x509
+        from ..services import certificate_policies
+        try:
+            return certificate_policies.from_certificate(x509.load_pem_x509_certificate(self.certificate_pem.encode()))
+        except Exception:
+            return None
+
+    @property
     def superseded_by_id(self):
         """Id of the newest renewal of this certificate, or None (F9)."""
         return self.renewals[-1].id if self.renewals else None
@@ -96,6 +106,7 @@ class Certificate(db.Model):
                 "extended_key_usage": json_or_none(self.extended_key_usage_json),
                 "revoked_at": iso(self.revoked_at),
                 "revocation_reason": self.revocation_reason,
+                "certificate_policies": self.certificate_policies,
                 "certificate_pem": self.certificate_pem,
             })
         return d

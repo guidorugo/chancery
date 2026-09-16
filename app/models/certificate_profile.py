@@ -37,6 +37,8 @@ class CertificateProfile(db.Model):
     key_usage_json = db.Column(db.Text, nullable=True)
     extended_key_usage_json = db.Column(db.Text, nullable=True)
     include_ocsp_aia = db.Column(db.Boolean, nullable=False, default=True)
+    # F3: policies stamped on certificates issued under this profile (None = inherit the CA's).
+    certificate_policies_json = db.Column(db.Text, nullable=True)
 
     # Bounds (None / empty = unrestricted, global policy still applies)
     default_validity_days = db.Column(db.Integer, nullable=False, default=365)
@@ -68,6 +70,10 @@ class CertificateProfile(db.Model):
         return _load(self.extended_key_usage_json, None)
 
     @property
+    def certificate_policies(self):
+        return _load(self.certificate_policies_json, None)
+
+    @property
     def allowed_key_types(self):
         return _load(self.allowed_key_types_json, None)
 
@@ -91,6 +97,7 @@ class CertificateProfile(db.Model):
             "key_usage": self.key_usage,
             "extended_key_usage": self.extended_key_usage,
             "include_ocsp_aia": self.include_ocsp_aia,
+            "certificate_policies": self.certificate_policies,
             "default_validity_days": self.default_validity_days,
             "max_validity_days": self.max_validity_days,
             "allowed_key_types": self.allowed_key_types,

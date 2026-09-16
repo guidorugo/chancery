@@ -632,6 +632,10 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificate_authorities ADD COLUMN name_constraints_json TEXT"
             ))
+        if "certificate_policies_json" not in columns:  # F3
+            db.session.execute(text(
+                "ALTER TABLE certificate_authorities ADD COLUMN certificate_policies_json TEXT"
+            ))
         # G9-1: DB-level uniqueness for CA serials (generated serials are random
         # and imports check in code; the index closes the race). Committed first
         # and guarded so a legacy DB with a duplicate keeps booting.
@@ -647,6 +651,15 @@ def _migrate_schema():
             import logging
             logging.getLogger(__name__).warning(
                 "Could not create the unique index on certificate_authorities.serial_number: %s", exc)
+
+    # Migrate certificate_profiles table (created whole by create_all in 2.13.0;
+    # columns added later need ALTERs)
+    if "certificate_profiles" in inspector.get_table_names():
+        columns = {col["name"] for col in inspector.get_columns("certificate_profiles")}
+        if "certificate_policies_json" not in columns:  # F3
+            db.session.execute(text(
+                "ALTER TABLE certificate_profiles ADD COLUMN certificate_policies_json TEXT"
+            ))
 
     # Migrate certificates table
     if "certificates" in inspector.get_table_names():

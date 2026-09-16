@@ -43,6 +43,8 @@ class CertificateAuthority(db.Model):
     expiry_notified_at = db.Column(db.DateTime, nullable=True)  # F10, same rule as Certificate
     # F2: {"permitted": [...], "excluded": [...]} in DNS:/IP:/EMAIL:/URI: spelling; NULL = unconstrained.
     name_constraints_json = db.Column(db.Text, nullable=True)
+    # F3: [{"oid": ..., "cps_uri": ...|null}] stamped on this CA's certificate and inherited by its leaves.
+    certificate_policies_json = db.Column(db.Text, nullable=True)
 
     parent = db.relationship("CertificateAuthority", remote_side=[id], backref="children")
     certificates = db.relationship("Certificate", backref="ca", lazy="dynamic")
@@ -120,6 +122,19 @@ class CertificateAuthority(db.Model):
         self.name_constraints_json = json.dumps(constraints) if constraints else None
 
     @property
+    def certificate_policies(self):
+        """Stored certificate policies (F3) as a list, or None."""
+        if not self.certificate_policies_json:
+            return None
+        try:
+            return json.loads(self.certificate_policies_json)
+        except ValueError:
+            return None
+
+    def set_certificate_policies(self, policies):
+        self.certificate_policies_json = json.dumps(policies) if policies else None
+
+    @property
     def days_until_expiry(self):
         """Whole days until notAfter (negative if already expired), or None."""
         return days_until(self.not_after)
@@ -159,6 +174,7 @@ class CertificateAuthority(db.Model):
             "created_by": self.created_by,
             "allowed_profiles": self.allowed_profile_ids,
             "name_constraints": self.name_constraints,
+            "certificate_policies": self.certificate_policies,
             "created_at": iso(self.created_at),
         }
         if detail:
