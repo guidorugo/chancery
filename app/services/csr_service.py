@@ -1,26 +1,13 @@
 import json
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from cryptography.hazmat.primitives import serialization
 
 from ..extensions import db
 from ..models.csr import CertificateSigningRequest
-from .crypto_utils import encrypt_private_key
-from .policy import build_subject, enforce_key_strength
+from .crypto_utils import encrypt_private_key, generate_key, hash_for_key
+from .policy import build_subject, enforce_public_key_strength
 from . import san
-
-
-def _generate_key(key_type: str, key_size: int):
-    # G7-1: the same floor as CA/certificate generation — a 1024-bit CSR key was
-    # accepted here (and only refused later, at signing).
-    enforce_key_strength(key_type, key_size)
-    if key_type == "RSA":
-        return rsa.generate_private_key(public_exponent=65537, key_size=key_size)
-    elif key_type == "EC":
-        curves = {256: ec.SECP256R1(), 384: ec.SECP384R1(), 521: ec.SECP521R1()}
-        return ec.generate_private_key(curves[key_size])
-    raise ValueError(f"Unsupported key type: {key_type}")
 
 
 def _build_san_extensions(san_list):
@@ -30,7 +17,7 @@ def _build_san_extensions(san_list):
 
 def create_csr(subject_attrs, san_list=None, key_type="RSA", key_size=2048, passphrase=None,
                created_by=None, profile_id=None):
-    key = _generate_key(key_type, key_size)
+    key = generate_key(key_type, key_size)  # G7-1: same policy floor as CA/certificate generation
     subject = build_subject(subject_attrs)
 
     builder = x509.CertificateSigningRequestBuilder().subject_name(subject)
@@ -43,7 +30,7 @@ def create_csr(subject_attrs, san_list=None, key_type="RSA", key_size=2048, pass
                 critical=False,
             )
 
-    csr = builder.sign(key, hashes.SHA256())
+    csr = builder.sign(key, hash_for_key(key))
     csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode()
 
     enc_key = None
@@ -91,6 +78,10 @@ def parse_csr(csr_pem):
 
 def import_csr(csr_pem, created_by=None, profile_id=None):
     subject_attrs, san_list = parse_csr(csr_pem)
+    # G4-3: only supported key algorithms may enter the queue — a DSA or
+    # off-list CSR is refused here, not carried along as an unknown key.
+    enforce_public_key_strength(x509.load_pem_x509_csr(
+        csr_pem.encode() if isinstance(csr_pem, str) else csr_pem).public_key())
     cn = subject_attrs.get("commonName", subject_attrs.get("CN", "Unknown"))
 
     csr_model = CertificateSigningRequest(

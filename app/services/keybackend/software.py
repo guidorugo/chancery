@@ -9,18 +9,13 @@ import threading
 import time
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from cryptography.hazmat.primitives import serialization
 from cryptography.x509 import ocsp
 
 from flask import current_app
 
 from .base import KeyBackend, OcspResponseSpec
-from ..crypto_utils import encrypt_private_key, decrypt_private_key
-
-
-def _hash():
-    return hashes.SHA256()
+from ..crypto_utils import encrypt_private_key, decrypt_private_key, generate_key, hash_for_key
 
 
 class SoftwareBackend(KeyBackend):
@@ -38,13 +33,7 @@ class SoftwareBackend(KeyBackend):
         return secret if secret is not None else current_app.config["MASTER_PASSPHRASE"]
 
     def generate_ca_key(self, key_type, key_size, *, label=None, secret=None):
-        if key_type == "RSA":
-            key = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
-        elif key_type == "EC":
-            curves = {256: ec.SECP256R1(), 384: ec.SECP384R1(), 521: ec.SECP521R1()}
-            key = ec.generate_private_key(curves[key_size])
-        else:
-            raise ValueError(f"Unsupported key type: {key_type}")
+        key = generate_key(key_type, key_size)  # RSA, EC, Ed25519, Ed448 (F5)
         return key.public_key(), encrypt_private_key(key, self._secret(secret))
 
     def import_ca_key(self, private_key, *, label=None, secret=None):
@@ -76,11 +65,13 @@ class SoftwareBackend(KeyBackend):
         return key
 
     def sign_certificate(self, builder, ca, *, secret=None) -> bytes:
-        cert = builder.sign(self._key(ca, secret), _hash())
+        key = self._key(ca, secret)
+        cert = builder.sign(key, hash_for_key(key))
         return cert.public_bytes(serialization.Encoding.DER)
 
     def sign_crl(self, builder, ca, *, secret=None) -> bytes:
-        crl = builder.sign(self._key(ca, secret), _hash())
+        key = self._key(ca, secret)
+        crl = builder.sign(key, hash_for_key(key))
         return crl.public_bytes(serialization.Encoding.DER)
 
     def sign_ocsp(self, spec: OcspResponseSpec, ca, *, secret=None) -> bytes:
@@ -96,7 +87,8 @@ class SoftwareBackend(KeyBackend):
             revocation_time=spec.revocation_time,
             revocation_reason=spec.revocation_reason,
         ).responder_id(ocsp.OCSPResponderEncoding.HASH, issuer)
-        resp = builder.sign(self._ocsp_key(ca, secret), _hash())
+        key = self._ocsp_key(ca, secret)
+        resp = builder.sign(key, hash_for_key(key))
         return resp.public_bytes(serialization.Encoding.DER)
 
     def can_export(self) -> bool:

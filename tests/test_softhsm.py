@@ -19,7 +19,7 @@ pytest.importorskip("pkcs11")  # skip whole module if the library is absent
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec, padding
+from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, ed448, padding
 from cryptography.x509 import ocsp
 from cryptography.x509.oid import NameOID
 
@@ -463,3 +463,88 @@ def test_hsm3_session_cleared_on_error_and_reopens(app, db, hsm_config):
         with pkcs11_session.session_scope() as s2:
             assert s2 is not None
         assert pkcs11_session._session is not None
+
+
+# --- F5: Ed25519 / Ed448 (EdDSA is deterministic -> byte parity like RSA) ----
+
+@pytest.mark.parametrize("key_type,pub_cls", [("ED25519", ed25519.Ed25519PublicKey), ("ED448", ed448.Ed448PublicKey)])
+def test_ed_leaf_and_crl_der_are_byte_identical(app, db, hsm_config, key_type, pub_cls):
+    with app.app_context():
+        ca = ca_service.create_root_ca(
+            name=f"Diff Root {key_type}", subject_attrs={"CN": f"Diff Root {key_type}"},
+            key_type=key_type, key_size=0, validity_days=3650, passphrase=PASSPHRASE,
+        )
+        ca_key = decrypt_private_key(ca.private_key_enc, PASSPHRASE)
+        label = f"diff-{key_type.lower()}"
+        Pkcs11Backend().import_ca_key(ca_key, label=label)
+        ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
+        assert isinstance(ca_cert.public_key(), pub_cls)
+
+        builder = _leaf_builder(ca)
+        soft_der = get_backend("software").sign_certificate(builder, ca, secret=PASSPHRASE)
+        hsm_der = Pkcs11Backend().sign_certificate(builder, _hsm_ca(ca, label))
+        assert hsm_der == soft_der
+        leaf = x509.load_der_x509_certificate(hsm_der)
+        assert leaf.signature_hash_algorithm is None
+        leaf.verify_directly_issued_by(ca_cert)
+
+        now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        crl_builder = (x509.CertificateRevocationListBuilder().issuer_name(ca_cert.subject)
+                       .last_update(now).next_update(now + timedelta(days=7))
+                       .add_revoked_certificate(x509.RevokedCertificateBuilder().serial_number(0x1234)
+                                                .revocation_date(now).build()))
+        soft_crl = get_backend("software").sign_crl(crl_builder, ca, secret=PASSPHRASE)
+        hsm_crl = Pkcs11Backend().sign_crl(crl_builder, _hsm_ca(ca, label))
+        assert soft_crl == hsm_crl
+        assert x509.load_der_x509_crl(hsm_crl).is_signature_valid(ca_cert.public_key())
+
+        # OCSP: assembled by asn1crypto, signed raw in the token, verifies
+        spec = _ocsp_spec(ca, hsm_der, ocsp.OCSPCertStatus.GOOD, hashes.SHA1())
+        rh = ocsp.load_der_ocsp_response(Pkcs11Backend().sign_ocsp(spec, _hsm_ca(ca, label)))
+        assert rh.response_status == ocsp.OCSPResponseStatus.SUCCESSFUL
+        assert rh.certificate_status == ocsp.OCSPCertStatus.GOOD
+        assert rh.signature_hash_algorithm is None
+        ca_cert.public_key().verify(rh.signature, rh.tbs_response_bytes)
+        # CORE-3 check works for EdDSA too
+        Pkcs11Backend().verify_signing_key(_hsm_ca(ca, label))
+
+
+@pytest.mark.parametrize("key_type,pub_cls", [("ED25519", ed25519.Ed25519PublicKey), ("ED448", ed448.Ed448PublicKey)])
+def test_generate_ed_key_in_token(app, db, hsm_config, key_type, pub_cls):
+    with app.app_context():
+        pub, label = Pkcs11Backend().generate_ca_key(key_type, 0, label=f"gen-{key_type.lower()}")
+        assert isinstance(pub, pub_cls)
+        from pkcs11 import ObjectClass, Mechanism, Attribute
+        with pkcs11_session.session_scope() as s:
+            priv = s.get_key(object_class=ObjectClass.PRIVATE_KEY, label=label)
+            pubobj = s.get_key(object_class=ObjectClass.PUBLIC_KEY, label=label)
+            sig = priv.sign(b"to-be-signed", mechanism=Mechanism.EDDSA)
+            # G5-2: both halves carry the same CKA_ID (the SKI)
+            assert priv[Attribute.ID] == pubobj[Attribute.ID] == x509.SubjectKeyIdentifier.from_public_key(pub).digest
+        pub.verify(sig, b"to-be-signed")
+
+
+def test_ed25519_hsm_ca_end_to_end(app, db, hsm_config):
+    with app.app_context():
+        ca = ca_service.create_root_ca(
+            name="E2E HSM Ed", subject_attrs={"CN": "E2E HSM Ed"},
+            key_type="ED25519", key_size=0, validity_days=3650, passphrase=PASSPHRASE, backend="softhsm")
+        assert ca.key_backend == "softhsm" and ca.private_key_enc == b"" and (ca.key_type, ca.key_size) == ("ED25519", 256)
+        ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
+        ca_cert.verify_directly_issued_by(ca_cert)
+        assert x509.load_pem_x509_crl(ca.crl_pem.encode()).is_signature_valid(ca_cert.public_key())
+        cert = cert_service.create_certificate(ca, {"CN": "leaf.example"}, [], 90, PASSPHRASE, key_type="ED25519")
+        leaf = x509.load_pem_x509_certificate(cert.certificate_pem.encode())
+        leaf.verify_directly_issued_by(ca_cert)
+        req = ocsp.OCSPRequestBuilder().add_certificate(leaf, ca_cert, hashes.SHA256()).build()
+        resp = ocsp.load_der_ocsp_response(ocsp_service.build_ocsp_response(
+            req.public_bytes(serialization.Encoding.DER), ca, PASSPHRASE))
+        assert resp.certificate_status == ocsp.OCSPCertStatus.GOOD
+        ca_cert.public_key().verify(resp.signature, resp.tbs_response_bytes)
+        crl_service.revoke_certificate(cert.id, passphrase=PASSPHRASE)
+        crl = x509.load_pem_x509_crl(ca.crl_pem.encode())
+        assert crl.is_signature_valid(ca_cert.public_key())
+        assert crl.get_revoked_certificate_by_serial_number(int(cert.serial_number, 16)) is not None
+        # the throwaway key is cached per algorithm (G5-2)
+        from app.services.keybackend import softhsm as mod
+        assert ("ED25519", None) in mod._throwaway_cache

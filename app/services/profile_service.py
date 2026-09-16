@@ -21,7 +21,7 @@ KU_FIELDS = ("digital_signature", "key_encipherment", "content_commitment",
 EKU_NAMES = ("serverAuth", "clientAuth", "codeSigning", "emailProtection",
              "timeStamping", "ocspSigning")
 SAN_TYPES = san_module.TYPES  # dns, ip, email, uri, upn (F4)
-KEY_TYPES = ("RSA", "EC")
+KEY_TYPES = ("RSA", "EC", "ED25519", "ED448")  # F5: Edwards curves are deliberate (G4-3)
 EC_SIZES = (256, 384, 521)
 
 

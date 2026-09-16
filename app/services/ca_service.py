@@ -3,13 +3,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
+from cryptography.hazmat.primitives import serialization
 from cryptography.x509.oid import ExtensionOID
 
 from ..extensions import db
 from ..models.ca import CertificateAuthority
-from .crypto_utils import encrypt_private_key, decrypt_private_key
+from .crypto_utils import encrypt_private_key, decrypt_private_key, key_info
 from .policy import (enforce_key_strength, enforce_public_key_strength,
                      bounded_not_after, build_subject)
 from .keybackend import get_backend, backend_for_ca, default_backend_name
@@ -42,22 +41,6 @@ def publish_initial_crl(ca, passphrase):
         logging.getLogger(__name__).warning("Initial CRL generation failed for CA %s", ca.id)
 
 
-def _generate_key(key_type: str, key_size: int):
-    enforce_key_strength(key_type, key_size)
-    if key_type == "RSA":
-        return rsa.generate_private_key(public_exponent=65537, key_size=key_size)
-    elif key_type == "EC":
-        curves = {256: ec.SECP256R1(), 384: ec.SECP384R1(), 521: ec.SECP521R1()}
-        return ec.generate_private_key(curves[key_size])
-    raise ValueError(f"Unsupported key type: {key_type}")
-
-
-def _get_hash_algorithm(key):
-    if isinstance(key, ec.EllipticCurvePrivateKey):
-        return hashes.SHA256()
-    return hashes.SHA256()
-
-
 def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passphrase,
                    path_length=None, backend=None, created_by=None,
                    approval_status="approved"):
@@ -67,6 +50,7 @@ def create_root_ca(name, subject_attrs, key_type, key_size, validity_days, passp
     label = _key_label()
     public_key, key_ref = kb.generate_ca_key(
         key_type, key_size, label=label, secret=passphrase)
+    key_type, key_size = key_info(public_key)  # canonical (Edwards keys have a fixed size)
 
     subject = build_subject(subject_attrs)
     now = datetime.now(timezone.utc)
@@ -166,6 +150,7 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
     label = _key_label()
     public_key, key_ref = child_kb.generate_ca_key(
         key_type, key_size, label=label, secret=passphrase)
+    key_type, key_size = key_info(public_key)
 
     subject = build_subject(subject_attrs)
     parent_cert = x509.load_pem_x509_certificate(parent_ca.certificate_pem.encode())
@@ -316,17 +301,12 @@ def _load_import_private_key(key_bytes, key_passphrase=None):
             raise ValueError("Could not decrypt the private key. Check the key passphrase.")
         raise ValueError("Failed to parse private key PEM. Ensure it is a valid PEM-encoded private key.")
 
-    if not isinstance(private_key, (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey)):
-        raise ValueError("Unsupported key type. Only RSA and EC keys are supported.")
+    enforce_public_key_strength(private_key.public_key())  # F5/G4-3: RSA, EC P-256/384/521, Ed25519, Ed448
     return private_key
 
 
 def _key_info_from_public(public_key):
-    if isinstance(public_key, rsa.RSAPublicKey):
-        return "RSA", public_key.key_size
-    if isinstance(public_key, ec.EllipticCurvePublicKey):
-        return "EC", public_key.curve.key_size
-    raise ValueError("Unsupported certificate key type. Only RSA and EC are supported.")
+    return key_info(public_key)  # F5: RSA, EC P-256/384/521, Ed25519, Ed448; else ValueError
 
 
 def _unique_ca_name(base):
@@ -635,8 +615,8 @@ def import_pkcs12(name, p12_bytes, p12_password, passphrase, parent_id=None,
     except Exception:
         raise ValueError("Could not open the PKCS#12 file: wrong password or not a valid PKCS#12 bundle.")
 
-    if key is not None and not isinstance(key, (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey)):
-        raise ValueError("Unsupported key type. Only RSA and EC keys are supported.")
+    if key is not None:
+        enforce_public_key_strength(key.public_key())  # F5/G4-3: the same allow-list as the PEM path
 
     if cert is None:
         # Key-less bundles store their certificates in the additional list
