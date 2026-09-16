@@ -419,7 +419,7 @@ revoked alternate excluded; import of a cross-cert bundle.
 scope enforcement per route, metrics token refused here and API token refused at
 `/metrics`, deactivated owner, audit entries, CSRF bypass only with a valid token.
 
-## F13. TOTP second factor (2.17.0, M, after F12)
+## F13. TOTP second factor (shipped as v2.27.0, PR #161)
 
 **Design.**
 
