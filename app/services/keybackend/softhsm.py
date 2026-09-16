@@ -34,7 +34,7 @@ import threading
 from datetime import datetime, timezone
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, ed448
 from cryptography.x509 import ocsp
 
@@ -43,7 +43,7 @@ from asn1crypto import algos, core
 
 from .base import KeyBackend, OcspResponseSpec
 from . import pkcs11_session
-from ..crypto_utils import hash_for_key
+from ..crypto_utils import hash_for_key, signature_hash_name
 
 
 # NIST curve name (asn1crypto NamedCurve) and pyca curve class by key size.
@@ -105,35 +105,44 @@ class Pkcs11Backend(KeyBackend):
                 _throwaway_cache[cache_key] = key
             return key
 
+    def _hash_name(self, ca):
+        """"sha256"/"sha384"/"sha512" (or None for EdDSA) for this CA under the
+        configured SIGNATURE_HASH_POLICY (F6) — from the key columns, so it
+        also works while a root is being self-signed."""
+        return signature_hash_name(ca.key_type, ca.key_size)
+
     def _hsm_sign(self, tbs_bytes, ca):
         """Sign TBS bytes inside the token; return the X.509 signatureValue.
 
-        We sign with the single-part RSA mechanism but the *raw* EC mechanism
-        over a SHA-256 digest: SoftHSM (and many hardware tokens) implement only
-        CKM_ECDSA, not CKM_ECDSA_SHA256. The certificate's algorithm is
-        ecdsa-with-SHA256 either way (the software backend also hashes with
-        SHA-256), so signing the SHA-256 digest keeps output equivalent.
+        We sign with the single-part RSA mechanism (SHA{n}_RSA_PKCS) but the
+        *raw* EC mechanism over our own digest: SoftHSM (and many hardware
+        tokens) implement only CKM_ECDSA, not CKM_ECDSA_SHA{n}. The digest is
+        the one the policy assigns to the key (F6), the same the software
+        backend uses, so the output stays equivalent.
         """
         import hashlib
         from pkcs11 import ObjectClass, Mechanism
         from pkcs11.util.ec import encode_ecdsa_signature
 
         key_type, _curve = self._ca_key_info(ca)
+        hash_name = self._hash_name(ca)
         with pkcs11_session.session_scope() as session:
             priv = session.get_key(
                 object_class=ObjectClass.PRIVATE_KEY, label=ca.key_label
             )
             if key_type == "RSA":
-                # SHA256_RSA_PKCS hashes and signs; the result is the PKCS#1 v1.5
+                # SHA{n}_RSA_PKCS hashes and signs; the result is the PKCS#1 v1.5
                 # signatureValue directly.
-                return priv.sign(tbs_bytes, mechanism=Mechanism.SHA256_RSA_PKCS)
+                mechanism = {"sha256": Mechanism.SHA256_RSA_PKCS, "sha384": Mechanism.SHA384_RSA_PKCS,
+                             "sha512": Mechanism.SHA512_RSA_PKCS}[hash_name]
+                return priv.sign(tbs_bytes, mechanism=mechanism)
             if key_type in _ED:
                 # Pure EdDSA over the raw message: the 64/114-byte result IS the
                 # signatureValue (no DER wrapping, no separate digest).
                 return priv.sign(tbs_bytes, mechanism=Mechanism.EDDSA)
-            # Raw ECDSA over the SHA-256 digest returns r||s; wrap it in the DER
+            # Raw ECDSA over the digest returns r||s; wrap it in the DER
             # Ecdsa-Sig-Value X.509 wants.
-            digest = hashlib.sha256(tbs_bytes).digest()
+            digest = hashlib.new(hash_name, tbs_bytes).digest()
             raw = priv.sign(digest, mechanism=Mechanism.ECDSA)
             return encode_ecdsa_signature(raw)
 
@@ -153,7 +162,7 @@ class Pkcs11Backend(KeyBackend):
         key_type, _ = self._ca_key_info(ca)
         if key_type in _ED:
             return _ED[key_type]["alg"]  # ed25519 / ed448: no parameters, no digest
-        return "sha256_rsa" if key_type == "RSA" else "sha256_ecdsa"
+        return f"{self._hash_name(ca)}_{'rsa' if key_type == 'RSA' else 'ecdsa'}"
 
     @staticmethod
     def _gtime(dt):
@@ -313,16 +322,20 @@ class Pkcs11Backend(KeyBackend):
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import padding, ec as _ec
 
+        from ..crypto_utils import HASH_ALGORITHMS
+
         key_type, _ = self._ca_key_info(ca)
         public_key = self.load_public_key(ca)
         nonce = os.urandom(32)
-        signature = self._hsm_sign(nonce, ca)  # signs SHA-256(nonce) in the token (raw nonce for EdDSA)
-        if key_type == "RSA":
-            public_key.verify(signature, nonce, padding.PKCS1v15(), hashes.SHA256())
-        elif key_type in _ED:
+        signature = self._hsm_sign(nonce, ca)  # signs digest(nonce) in the token (raw nonce for EdDSA)
+        if key_type in _ED:
             public_key.verify(signature, nonce)
+            return
+        digest = HASH_ALGORITHMS[self._hash_name(ca)]()
+        if key_type == "RSA":
+            public_key.verify(signature, nonce, padding.PKCS1v15(), digest)
         else:
-            public_key.verify(signature, nonce, _ec.ECDSA(hashes.SHA256()))
+            public_key.verify(signature, nonce, _ec.ECDSA(digest))
 
     # -- signing -------------------------------------------------------------
     def sign_certificate(self, builder, ca, *, secret=None) -> bytes:

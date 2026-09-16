@@ -65,10 +65,51 @@ def is_ed_key(key):
                             ed448.Ed448PrivateKey, ed448.Ed448PublicKey))
 
 
+# F6: digest names accepted by RSA_SIGNATURE_HASH, and the per-curve mapping
+# used under SIGNATURE_HASH_POLICY=match-curve.
+HASH_ALGORITHMS = {"sha256": hashes.SHA256, "sha384": hashes.SHA384, "sha512": hashes.SHA512}
+SIGNATURE_HASH_POLICIES = ("legacy", "match-curve")
+_CURVE_HASH = {256: "sha256", 384: "sha384", 521: "sha512"}
+
+
+def _signature_hash_config():
+    try:
+        from flask import current_app
+        return (current_app.config.get("SIGNATURE_HASH_POLICY", "legacy"),
+                current_app.config.get("RSA_SIGNATURE_HASH", "sha256"))
+    except RuntimeError:
+        return "legacy", "sha256"  # outside an app context: today's behaviour
+
+
+def signature_hash_name(key_type, key_size):
+    """The digest NAME ("sha256"/"sha384"/"sha512") a signature by a key of
+    this type/size gets under the configured policy, or None for the Edwards
+    curves. Keyed on the stored columns so it also works while a root CA is
+    being self-signed (no certificate yet)."""
+    if key_type in ED_KEY_SIZES:
+        return None
+    policy, rsa_hash = _signature_hash_config()
+    if policy != "match-curve":
+        return "sha256"
+    if key_type == "RSA":
+        return rsa_hash if rsa_hash in HASH_ALGORITHMS else "sha256"
+    return _CURVE_HASH.get(key_size, "sha256")
+
+
+def hash_for_key_params(key_type, key_size):
+    """pyca hash instance (or None) for `signature_hash_name`."""
+    name = signature_hash_name(key_type, key_size)
+    return None if name is None else HASH_ALGORITHMS[name]()
+
+
 def hash_for_key(key):
     """The digest to pass to a pyca `sign()` for this key: None for the
-    Edwards curves (EdDSA hashes internally), SHA-256 otherwise."""
-    return None if is_ed_key(key) else hashes.SHA256()
+    Edwards curves (EdDSA hashes internally); otherwise SHA-256, or the
+    curve-matched / configured digest under SIGNATURE_HASH_POLICY=match-curve
+    (F6)."""
+    if is_ed_key(key):
+        return None
+    return hash_for_key_params(*key_info(key))
 
 
 def _derive_key(passphrase: str, salt: bytes) -> bytes:

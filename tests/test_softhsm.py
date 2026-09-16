@@ -548,3 +548,42 @@ def test_ed25519_hsm_ca_end_to_end(app, db, hsm_config):
         # the throwaway key is cached per algorithm (G5-2)
         from app.services.keybackend import softhsm as mod
         assert ("ED25519", None) in mod._throwaway_cache
+
+
+# --- F6: digest matched to the key under SIGNATURE_HASH_POLICY=match-curve ----
+
+@pytest.mark.parametrize("key_type,key_size,hash_name", [
+    ("EC", 256, "sha256"), ("EC", 384, "sha384"), ("EC", 521, "sha512"), ("RSA", 2048, "sha512")])
+def test_match_curve_parity_per_key(app, db, hsm_config, monkeypatch, key_type, key_size, hash_name):
+    with app.app_context():
+        monkeypatch.setitem(app.config, "SIGNATURE_HASH_POLICY", "match-curve")
+        monkeypatch.setitem(app.config, "RSA_SIGNATURE_HASH", "sha512")
+        ca = ca_service.create_root_ca(
+            name=f"MC {key_type} {key_size}", subject_attrs={"CN": f"MC {key_type} {key_size}"},
+            key_type=key_type, key_size=key_size, validity_days=3650, passphrase=PASSPHRASE)
+        label = f"mc-{key_type.lower()}-{key_size}"
+        Pkcs11Backend().import_ca_key(decrypt_private_key(ca.private_key_enc, PASSPHRASE), label=label)
+        ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
+        builder = _leaf_builder(ca)
+        soft = x509.load_der_x509_certificate(get_backend("software").sign_certificate(builder, ca, secret=PASSPHRASE))
+        hsm_der = Pkcs11Backend().sign_certificate(builder, _hsm_ca(ca, label))
+        hsm = x509.load_der_x509_certificate(hsm_der)
+        assert hsm.signature_hash_algorithm.name == hash_name == soft.signature_hash_algorithm.name
+        assert hsm.tbs_certificate_bytes == soft.tbs_certificate_bytes
+        if key_type == "RSA":
+            assert hsm_der == soft.public_bytes(serialization.Encoding.DER)  # deterministic -> byte parity
+        hsm.verify_directly_issued_by(ca_cert)
+        # CRL and OCSP follow the same digest and verify
+        now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        crl_builder = (x509.CertificateRevocationListBuilder().issuer_name(ca_cert.subject)
+                       .last_update(now).next_update(now + timedelta(days=7)))
+        crl = x509.load_der_x509_crl(Pkcs11Backend().sign_crl(crl_builder, _hsm_ca(ca, label)))
+        assert crl.signature_hash_algorithm.name == hash_name and crl.is_signature_valid(ca_cert.public_key())
+        spec = _ocsp_spec(ca, hsm_der, ocsp.OCSPCertStatus.GOOD, hashes.SHA1())
+        rh = ocsp.load_der_ocsp_response(Pkcs11Backend().sign_ocsp(spec, _hsm_ca(ca, label)))
+        assert rh.signature_hash_algorithm.name == hash_name
+        if key_type == "RSA":
+            ca_cert.public_key().verify(rh.signature, rh.tbs_response_bytes, padding.PKCS1v15(), rh.signature_hash_algorithm)
+        else:
+            ca_cert.public_key().verify(rh.signature, rh.tbs_response_bytes, ec.ECDSA(rh.signature_hash_algorithm))
+        Pkcs11Backend().verify_signing_key(_hsm_ca(ca, label))  # CORE-3 under the new digest
