@@ -163,7 +163,7 @@ subtree accepts/refuses; excluded wins over permitted; sub-CA outside parent sco
 refused; imported CA constraints enforced; `openssl verify` of an issued cert against
 the constrained chain passes.
 
-## F3. Certificate Policies extension (2.15.0, S)
+## F3. Certificate Policies extension (shipped as v2.23.0, PR #151)
 
 Column `certificate_authorities.certificate_policies_json` (`[{oid, cps_uri}]`), form
 fields under Advanced, `x509.CertificatePolicies` stamped on the CA cert at creation
