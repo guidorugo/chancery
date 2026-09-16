@@ -70,7 +70,7 @@ Shared conventions for every feature (not repeated below):
 
 ---
 
-## F1. Server-side certificate profiles (2.13.0, L)
+## F1. Server-side certificate profiles (shipped as v2.13.0, PR #129)
 
 **Goal.** Turn the four client-side presets into stored, enforced issuance policies.
 
@@ -187,7 +187,7 @@ Parse both on CSR import, display them on detail pages and in `san_json`. Profil
 `DNS:`, `IP:`, `EMAIL:`, `URI:`, `UPN:`) is rejected with a 400 instead of being
 silently treated as a DNS name.
 
-## F5. Ed25519 / Ed448 keys (2.15.0, M)
+## F5. Ed25519 / Ed448 keys (shipped as v2.20.0, PR #143) — G4-3, G5-2
 
 **Verified.** cryptography 50 signs with `algorithm=None` for Ed keys; python-pkcs11 in
 the venv exposes `KeyType.EC_EDWARDS` and `Mechanism.EDDSA`; the image runs SoftHSM
