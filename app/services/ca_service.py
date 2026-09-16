@@ -13,6 +13,7 @@ from .policy import (enforce_key_strength, enforce_public_key_strength,
                      bounded_not_after, build_subject)
 from .keybackend import get_backend, backend_for_ca, default_backend_name
 from . import certificate_policies, name_constraints
+from ..models.ca_certificate import CaCertificate
 
 
 def _key_label():
@@ -266,16 +267,238 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
     return ca
 
 
-def get_ca_chain(ca):
-    chain = []
-    current = ca
-    while current:
-        chain.append(current.certificate_pem)
-        if current.parent:
-            current = current.parent
+def chain_pems(ca, via=None):
+    """The CA chain as a list of PEMs, issuing CA first, up to the top.
+
+    `via` (F11) is a CaCertificate alternate to route through: at the CA it
+    belongs to, its PEM is used instead of the primary and the walk continues
+    from the alternate's issuer (a cross-certificate) or the parent (a
+    previous primary / pending re-issue). An alternate that is not usable
+    (pending, or a cross-certificate from a revoked issuer) raises ValueError.
+    """
+    if via is not None and not via.is_usable:
+        raise ValueError("That alternate certificate is not usable (pending approval or issued by a revoked CA).")
+    chain, seen, current = [], set(), ca
+    while current is not None and current.id not in seen:
+        seen.add(current.id)
+        if via is not None and via.ca_id == current.id:
+            chain.append(via.certificate_pem)
+            if via.kind == "cross":
+                current = via.issuer            # None for an externally issued cross-cert: chain ends here
+                continue
         else:
-            break
-    return "\n".join(chain)
+            chain.append(current.certificate_pem)
+        current = current.parent
+    return chain
+
+
+def get_ca_chain(ca, via=None):
+    return "\n".join(chain_pems(ca, via))
+
+
+# --- F11: re-issue, cross-sign, alternates ------------------------------------
+
+def _ca_cert_builder(ca, ca_cert, issuer_cert, validity_days, now, path_length):
+    """Certificate for `ca`'s existing key and subject: same extensions as at
+    creation (BasicConstraints, CA key usage, SKI, Name Constraints,
+    Certificate Policies), issuer/AKI from `issuer_cert`, new serial."""
+    not_after = bounded_not_after(now, validity_days, is_ca=True)  # callers clamp to the issuer's expiry
+    serial = x509.random_serial_number()
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(ca_cert.subject)
+        .issuer_name(issuer_cert.subject)
+        .public_key(ca_cert.public_key())
+        .serial_number(serial)
+        .not_valid_before(now)
+        .not_valid_after(not_after)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=path_length), critical=True)
+        .add_extension(x509.KeyUsage(
+            digital_signature=True, key_cert_sign=True, crl_sign=True, content_commitment=False,
+            key_encipherment=False, data_encipherment=False, key_agreement=False,
+            encipher_only=False, decipher_only=False), critical=True)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_cert.public_key()), critical=False)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(
+            issuer_cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_KEY_IDENTIFIER).value), critical=False)
+    )
+    nc_ext = name_constraints.build_extension(ca.name_constraints)
+    if nc_ext is not None:
+        builder = builder.add_extension(nc_ext, critical=True)
+    cp_ext = certificate_policies.build_extension(ca.certificate_policies)
+    if cp_ext is not None:
+        builder = builder.add_extension(cp_ext, critical=False)
+    return builder, serial, not_after
+
+
+def _alternate_from_der(ca, kind, cert_der, issuer_ca_id, created_by, approval_status):
+    cert = x509.load_der_x509_certificate(cert_der)
+    now = datetime.now(timezone.utc)
+    row = CaCertificate(
+        ca_id=ca.id, kind=kind,
+        certificate_pem=cert.public_bytes(serialization.Encoding.PEM).decode(),
+        issuer_ca_id=issuer_ca_id, serial_number=format(cert.serial_number, "x"),
+        not_before=cert.not_valid_before_utc, not_after=cert.not_valid_after_utc,
+        approval_status=approval_status, created_by=created_by,
+        approved_by=(created_by if approval_status == "approved" else None),
+        approved_at=(now if approval_status == "approved" else None),
+    )
+    db.session.add(row)
+    db.session.flush()
+    return row
+
+
+def _promote_reissue(ca, row):
+    """Make a re-issued certificate the primary; the old primary becomes a
+    `previous` alternate (same key, so every leaf's AKI still matches)."""
+    old_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
+    previous = CaCertificate(
+        ca_id=ca.id, kind="previous", certificate_pem=ca.certificate_pem, issuer_ca_id=ca.parent_id,
+        serial_number=ca.serial_number, not_before=old_cert.not_valid_before_utc,
+        not_after=old_cert.not_valid_after_utc, approval_status="approved",
+        created_by=row.created_by, approved_by=row.approved_by, approved_at=row.approved_at,
+    )
+    db.session.add(previous)
+    new_cert = x509.load_pem_x509_certificate(row.certificate_pem.encode())
+    ca.certificate_pem = row.certificate_pem
+    ca.serial_number = row.serial_number
+    ca.not_before = new_cert.not_valid_before_utc.replace(tzinfo=None)
+    ca.not_after = new_cert.not_valid_after_utc.replace(tzinfo=None)
+    ca.expiry_notified_at = None          # the expiry clock restarts (F10)
+    db.session.delete(row)
+    db.session.flush()
+    return previous
+
+
+def reissue_ca_certificate(ca, passphrase, validity_days=None, created_by=None, approval_status="approved"):
+    """Issue a new certificate for `ca`'s existing key (same subject, SKI and
+    extensions; new serial and validity), signed by the parent or self.
+    With `approval_status="pending"` the certificate is stored as a `reissue`
+    alternate until approved; otherwise it becomes the primary at once and the
+    old primary is kept as `previous`. Returns the CaCertificate row (the
+    `previous` row when promoted immediately). Flushes, does not commit."""
+    if not ca.has_signing_key and ca.is_root:
+        raise ValueError("A certificate-only root cannot re-issue its own certificate (no private key).")
+    if ca.is_revoked:
+        raise ValueError("A revoked CA cannot be re-issued.")
+    if ca.approval_status == "pending":
+        raise ValueError("This CA is awaiting dual-control approval.")
+    issuer = ca if ca.is_root else ca.parent
+    if issuer is None:
+        raise ValueError("This CA's issuer is not in the database (imported without its chain); it cannot be re-issued here.")
+    if issuer is not ca:
+        if not issuer.has_signing_key or issuer.approval_status == "pending":
+            raise ValueError("The parent CA cannot sign (no private key or awaiting approval).")
+        if issuer.is_revoked:
+            raise ValueError("The parent CA is revoked and cannot re-issue this CA.")
+        if ca_expired_naive(issuer):
+            raise ValueError("The parent CA has expired and cannot re-issue this CA.")
+    ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
+    issuer_cert = x509.load_pem_x509_certificate(issuer.certificate_pem.encode())
+    now = datetime.now(timezone.utc)
+    if validity_days is None:
+        validity_days = max(1, (ca.not_after - ca.not_before).days)
+    if issuer is not ca:
+        validity_days = min(validity_days, max(1, (issuer.not_after.replace(tzinfo=timezone.utc) - now).days))
+    builder, serial, _ = _ca_cert_builder(ca, ca_cert, issuer_cert, validity_days, now, ca.path_length)
+    cert_der = backend_for_ca(issuer).sign_certificate(builder, issuer, secret=passphrase)
+    row = _alternate_from_der(ca, "reissue", cert_der, issuer.id if issuer is not ca else None,
+                              created_by, approval_status)
+    if approval_status == "approved":
+        return _promote_reissue(ca, row)
+    return row
+
+
+def cross_sign_ca(ca, issuer, passphrase, validity_days=None, created_by=None, approval_status="approved"):
+    """Have `issuer` certify `ca`'s existing public key: a cross-certificate
+    stored as a `cross` alternate (the primary is untouched). Flushes, does
+    not commit."""
+    if issuer.id == ca.id:
+        raise ValueError("A CA cannot cross-sign itself; use re-issue.")
+    if ca.is_revoked:
+        raise ValueError("A revoked CA cannot be cross-signed.")
+    if not issuer.has_signing_key or issuer.approval_status == "pending" or issuer.is_revoked:
+        raise ValueError("The issuing CA cannot sign (no private key, awaiting approval, or revoked).")
+    if ca_expired_naive(issuer):
+        raise ValueError("The issuing CA has expired.")
+    # the issuer must not be below `ca` in the hierarchy (a loop would validate nothing)
+    current = issuer
+    while current is not None:
+        if current.id == ca.id:
+            raise ValueError("The issuing CA is a descendant of this CA; a cross-certificate would create a loop.")
+        current = current.parent
+    ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
+    issuer_cert = x509.load_pem_x509_certificate(issuer.certificate_pem.encode())
+    subject_attrs = {attr.oid._name: attr.value for attr in ca_cert.subject}
+    subject_attrs.setdefault("CN", ca.common_name)
+    name_constraints.enforce(issuer, subject_attrs, [])  # F2: the issuer chain's constraints apply
+    now = datetime.now(timezone.utc)
+    if validity_days is None:
+        validity_days = max(1, (ca.not_after - now.replace(tzinfo=None)).days)
+    validity_days = min(validity_days, max(1, (issuer.not_after.replace(tzinfo=timezone.utc) - now).days))
+    path_length = ca.path_length
+    if issuer.path_length is not None:                    # PKI-6: honour the issuer's budget
+        if issuer.path_length <= 0:
+            raise ValueError("The issuing CA's path length is 0 — it cannot certify a CA.")
+        allowed = issuer.path_length - 1
+        if path_length is None or path_length > allowed:
+            path_length = allowed
+    builder, serial, _ = _ca_cert_builder(ca, ca_cert, issuer_cert, validity_days, now, path_length)
+    cert_der = backend_for_ca(issuer).sign_certificate(builder, issuer, secret=passphrase)
+    return _alternate_from_der(ca, "cross", cert_der, issuer.id, created_by, approval_status)
+
+
+def import_alternate_certificate(ca, cert_pem, created_by=None):
+    """Attach an externally issued certificate for this CA's key (e.g. a
+    cross-certificate from another PKI) as a `cross` alternate. The issuer is
+    linked when it is a CA in this database. Flushes, does not commit."""
+    data = cert_pem.encode() if isinstance(cert_pem, str) else cert_pem
+    if len(data) > MAX_PEM_SIZE:
+        raise ValueError("Certificate PEM exceeds 64KB size limit.")
+    try:
+        cert = x509.load_pem_x509_certificates(data)[0]
+    except Exception:
+        raise ValueError("Failed to parse certificate PEM. Ensure it is a valid PEM-encoded certificate.")
+    ca_cert = x509.load_pem_x509_certificate(ca.certificate_pem.encode())
+    same_key = cert.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo) == \
+        ca_cert.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    if not same_key:
+        raise ValueError("The certificate's public key does not match this CA's key.")
+    try:
+        bc = cert.extensions.get_extension_for_class(x509.BasicConstraints).value
+    except x509.ExtensionNotFound:
+        raise ValueError("The certificate has no BasicConstraints extension; it is not a CA certificate.")
+    if not bc.ca:
+        raise ValueError("The certificate is not a CA certificate (BasicConstraints ca=False).")
+    serial_hex = format(cert.serial_number, "x")
+    if serial_hex == ca.serial_number or any(a.serial_number == serial_hex for a in ca.alternate_certificates):
+        raise ValueError("This certificate is already stored for the CA.")
+    issuer_id = None if cert.issuer == cert.subject else _find_parent_by_issuer(cert)
+    return _alternate_from_der(ca, "cross", cert.public_bytes(serialization.Encoding.DER), issuer_id, created_by, "approved")
+
+
+def approve_alternate(row, approved_by):
+    """Dual-control approval of a pending alternate; a pending re-issue is
+    promoted to primary. Returns the row that now represents the change."""
+    if row.approval_status != "pending":
+        raise ValueError("This certificate is not awaiting approval.")
+    row.approval_status = "approved"
+    row.approved_by = approved_by
+    row.approved_at = datetime.now(timezone.utc)
+    if row.kind == "reissue":
+        return _promote_reissue(row.ca, row)
+    db.session.flush()
+    return row
+
+
+def delete_alternate(row):
+    db.session.delete(row)
+    db.session.flush()
+
+
+def ca_expired_naive(ca, now=None):
+    now = now or datetime.now(timezone.utc)
+    not_after = ca.not_after if ca.not_after.tzinfo else ca.not_after.replace(tzinfo=timezone.utc)
+    return not_after <= now
 
 
 def _find_parent_by_issuer(cert):

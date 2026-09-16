@@ -172,6 +172,82 @@
                 {% endif %}
             </div>
         </div>
+        <div class="card mb-3" id="ca-certificates">
+            <div class="card-header">CA Certificates</div>
+            <div class="card-body">
+                <table class="table table-sm mb-2">
+                    <thead><tr><th>Kind</th><th>Issuer</th><th>Serial</th><th>Valid until</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge bg-primary">Primary</span></td>
+                            <td>{% if ca.parent %}<a href="{{ url_for('ca.detail', ca_id=ca.parent.id) }}">{{ ca.parent.name }}</a>{% elif ca.is_root %}self{% else %}external{% endif %}</td>
+                            <td><code>{{ ca.serial_number[:16] }}…</code></td>
+                            <td>{{ ca.not_after.strftime('%Y-%m-%d') }}</td>
+                            <td><span class="badge bg-success">Active</span></td>
+                            <td><a href="{{ url_for('public.download_ca_cert', ca_id=ca.id) }}" class="btn btn-sm btn-outline-primary">Cert</a>
+                                <a href="{{ url_for('ca.download', ca_id=ca.id, format='chain') }}" class="btn btn-sm btn-outline-primary">Chain</a></td>
+                        </tr>
+                        {% for alt in ca.alternate_certificates %}
+                        <tr>
+                            <td>{% if alt.kind == 'cross' %}<span class="badge bg-info text-dark">Cross-signed</span>{% elif alt.kind == 'previous' %}<span class="badge bg-secondary">Previous</span>{% else %}<span class="badge bg-warning text-dark">Re-issue</span>{% endif %}</td>
+                            <td>{% if alt.issuer %}<a href="{{ url_for('ca.detail', ca_id=alt.issuer.id) }}">{{ alt.issuer.name }}</a>{% if alt.issuer.is_revoked %} <span class="badge bg-danger">issuer revoked</span>{% endif %}{% elif alt.kind == 'cross' %}external{% else %}self{% endif %}</td>
+                            <td><code>{{ alt.serial_number[:16] }}…</code></td>
+                            <td>{{ alt.not_after.strftime('%Y-%m-%d') }}</td>
+                            <td>{% if alt.approval_status == 'pending' %}<span class="badge bg-warning text-dark">Pending approval</span>{% elif alt.is_usable %}<span class="badge bg-success">Usable</span>{% else %}<span class="badge bg-secondary">Unusable</span>{% endif %}</td>
+                            <td class="text-nowrap">
+                                {% if alt.approval_status == 'approved' %}
+                                <a href="{{ url_for('public.download_ca_alt_cert', ca_id=ca.id, alt_id=alt.id) }}" class="btn btn-sm btn-outline-primary">Cert</a>
+                                {% if alt.is_usable %}<a href="{{ url_for('ca.download', ca_id=ca.id, format='chain', via=alt.id) }}" class="btn btn-sm btn-outline-primary">Chain</a>{% endif %}
+                                {% elif current_user.is_admin %}
+                                <form method="POST" action="{{ url_for('ca.approve_alternate', ca_id=ca.id, alt_id=alt.id) }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                                </form>
+                                {% endif %}
+                                {% if current_user.is_admin %}
+                                <form method="POST" action="{{ url_for('ca.delete_alternate', ca_id=ca.id, alt_id=alt.id) }}" class="d-inline">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% if current_user.is_admin and not ca.is_revoked and ca.approval_status == 'approved' %}
+                <div class="row g-2">
+                    {% if ca.has_signing_key or ca.parent %}
+                    <div class="col-md-6">
+                        <form method="POST" action="{{ url_for('ca.reissue', ca_id=ca.id) }}" class="d-flex gap-1 align-items-center">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="number" min="1" class="form-control form-control-sm" name="validity_days" placeholder="days (default: as issued)" style="max-width:12rem">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="New certificate for the same key: same subject and extensions, new serial and validity. Issued certificates keep validating.">Re-issue certificate</button>
+                        </form>
+                    </div>
+                    {% endif %}
+                    {% if cross_issuers %}
+                    <div class="col-md-6">
+                        <form method="POST" action="{{ url_for('ca.cross_sign', ca_id=ca.id) }}" class="d-flex gap-1 align-items-center">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <select class="form-select form-select-sm" name="issuer_ca_id" style="max-width:16rem">
+                                {% for c in cross_issuers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Have another CA certify this CA's key (a cross-certificate), so relying parties that trust that CA can validate this hierarchy too.">Cross-sign</button>
+                        </form>
+                    </div>
+                    {% endif %}
+                    <div class="col-12">
+                        <form method="POST" action="{{ url_for('ca.import_alternate', ca_id=ca.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <textarea class="form-control form-control-sm font-monospace" name="cert_pem" rows="2" placeholder="-----BEGIN CERTIFICATE----- (a cross-certificate for this CA's key issued elsewhere)"></textarea>
+                            <button type="submit" class="btn btn-sm btn-outline-secondary mt-1">Import cross-signed certificate</button>
+                        </form>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
         <div class="card mb-3">
             <div class="card-header">Certificate Chain (PEM)</div>
             <div class="card-body">

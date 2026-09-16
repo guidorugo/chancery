@@ -12,6 +12,7 @@ from ..services import ca_service, crl_service, audit_service, dual_control_serv
 from ..services.filenames import content_disposition
 from ..services.keybackend import hsm_available
 from ..services import name_constraints, certificate_policies, ocsp_service
+from ..models.ca_certificate import CaCertificate
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +346,9 @@ def detail(ca_id):
     return render_template("ca/detail.html", ca=ca, chain=chain,
                            profiles=profile_service.list_profiles(),
                            ocsp_delegated=ocsp_service.delegated_enabled(),
-                           ocsp_responder=ocsp_service.responder_status(ca))
+                           ocsp_responder=ocsp_service.responder_status(ca),
+                           cross_issuers=[c for c in CertificateAuthority.signing_capable().order_by(CertificateAuthority.name).all()
+                                          if c.id != ca.id])
 
 
 @ca_bp.route("/<int:ca_id>/ocsp-responder/rotate", methods=["POST"])
@@ -483,10 +486,22 @@ def download(ca_id):
         return redirect(url_for("ca.detail", ca_id=ca.id))
 
     if fmt == "chain":
+        via = None
+        if request.values.get("via"):
+            via = _alternate_or_none(request.values.get("via"))
+            if via is None:
+                flash("Unknown alternate certificate.", "danger")
+                return redirect(url_for("ca.detail", ca_id=ca.id))
+        try:
+            chain = ca_service.get_ca_chain(ca, via)
+        except ValueError as e:
+            flash(str(e), "danger")
+            return redirect(url_for("ca.detail", ca_id=ca.id))
+        suffix = f"-chain-via-{via.id}" if via else "-chain"
         return Response(
-            ca_service.get_ca_chain(ca),
+            chain,
             mimetype="application/x-pem-file",
-            headers={"Content-Disposition": content_disposition(f"{ca.name}-chain", "pem", fallback=f"ca-{ca.id}-chain")},
+            headers={"Content-Disposition": content_disposition(f"{ca.name}{suffix}", "pem", fallback=f"ca-{ca.id}{suffix}")},
         )
 
     if fmt == "key":
@@ -648,4 +663,219 @@ def generate_crl(ca_id):
             return api_error("An unexpected error occurred while generating the CRL.", 500)
         flash("An unexpected error occurred while generating the CRL.", "danger")
 
+    return redirect(url_for("ca.detail", ca_id=ca.id))
+
+
+# --- F11: alternate CA certificates (re-issue, cross-sign, import) --------------
+
+def _alternate_or_none(raw):
+    try:
+        return db.session.get(CaCertificate, int(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _ca_or_error(ca_id):
+    ca = db.session.get(CertificateAuthority, ca_id)
+    if not ca:
+        if wants_json():
+            return None, api_error("CA not found.", 404)
+        flash("CA not found.", "danger")
+        return None, redirect(url_for("ca.list_cas"))
+    return ca, None
+
+
+def _alt_error(ca, message, status=400):
+    if wants_json():
+        return api_error(message, status)
+    flash(message, "danger")
+    return redirect(url_for("ca.detail", ca_id=ca.id))
+
+
+def _alt_approval_status():
+    """Both operations are CA-creation events under dual control: pending
+    until another admin approves (the bootstrap account is exempt)."""
+    if dual_control_service.is_active() and not dual_control_service.is_exempt(current_user):
+        return "pending"
+    return "approved"
+
+
+@ca_bp.route("/<int:ca_id>/reissue", methods=["POST"])
+@admin_required
+def reissue(ca_id):
+    """F11: new certificate for the same key (same SKI/extensions, new serial and validity)."""
+    ca, err = _ca_or_error(ca_id)
+    if err:
+        return err
+    raw_days = (request.form.get("validity_days") or "").strip()
+    try:
+        validity_days = int(raw_days) if raw_days else None
+    except ValueError:
+        return _alt_error(ca, "Validity days must be a whole number.")
+    status = _alt_approval_status()
+    try:
+        row = ca_service.reissue_ca_certificate(ca, current_app.config["MASTER_PASSPHRASE"], validity_days=validity_days,
+                                                created_by=current_user.id, approval_status=status)
+        audit_service.log_action("reissue_ca_certificate", target_type="ca", target_id=ca.id,
+                                 details={"approval_status": status, "alternate_id": row.id,
+                                          "serial_number": ca.serial_number if status == "approved" else row.serial_number,
+                                          "not_after": ca.not_after.isoformat() if status == "approved" else row.not_after.isoformat()})
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return _alt_error(ca, str(e))
+    except Exception:
+        db.session.rollback()
+        logger.exception("Error re-issuing CA certificate")
+        return _alt_error(ca, "An unexpected error occurred while re-issuing the CA certificate.", 500)
+    if status == "approved":
+        warning = _crl_refresh_warning_ca(ca)
+        if wants_json():
+            payload = ca.to_dict(detail=True)
+            if warning:
+                payload["warning"] = warning
+            return jsonify(payload), 201
+        flash(f"CA certificate for '{ca.name}' re-issued (new serial, valid until {ca.not_after:%Y-%m-%d}); "
+              "the previous certificate is kept as an alternate.", "success")
+        if warning:
+            flash(warning, "warning")
+    else:
+        if wants_json():
+            return jsonify(row.to_dict()), 201
+        flash("Re-issued certificate created and awaiting approval by another admin before it becomes the primary.", "warning")
+    return redirect(url_for("ca.detail", ca_id=ca.id))
+
+
+def _crl_refresh_warning_ca(ca):
+    """After a re-issue the CRL is regenerated so its AKI/issuer match the new
+    primary exactly (same key, so old CRLs stay valid too)."""
+    if not ca.has_signing_key or ca.approval_status != "approved":
+        return None
+    try:
+        crl_service.refresh_crl(ca, current_app.config["MASTER_PASSPHRASE"])
+        return None
+    except Exception:
+        logger.exception("CRL refresh after re-issue failed")
+        return "The CA certificate was re-issued but the CRL could not be regenerated; run Generate CRL."
+
+
+@ca_bp.route("/<int:ca_id>/cross-sign", methods=["POST"])
+@admin_required
+def cross_sign(ca_id):
+    """F11: a cross-certificate for this CA's key issued by another CA (`issuer_ca_id`)."""
+    ca, err = _ca_or_error(ca_id)
+    if err:
+        return err
+    try:
+        issuer_id = int(request.form.get("issuer_ca_id", ""))
+    except ValueError:
+        return _alt_error(ca, "Choose the issuing CA.")
+    issuer = CertificateAuthority.signing_capable().filter_by(id=issuer_id).first()
+    if issuer is None:
+        return _alt_error(ca, "Issuing CA not found, or it cannot sign (revoked, awaiting approval, or without a private key).")
+    raw_days = (request.form.get("validity_days") or "").strip()
+    try:
+        validity_days = int(raw_days) if raw_days else None
+    except ValueError:
+        return _alt_error(ca, "Validity days must be a whole number.")
+    status = _alt_approval_status()
+    try:
+        row = ca_service.cross_sign_ca(ca, issuer, current_app.config["MASTER_PASSPHRASE"], validity_days=validity_days,
+                                       created_by=current_user.id, approval_status=status)
+        audit_service.log_action("cross_sign_ca", target_type="ca", target_id=ca.id,
+                                 details={"issuer_ca_id": issuer.id, "alternate_id": row.id, "approval_status": status,
+                                          "serial_number": row.serial_number, "not_after": row.not_after.isoformat()})
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return _alt_error(ca, str(e))
+    except Exception:
+        db.session.rollback()
+        logger.exception("Error cross-signing CA")
+        return _alt_error(ca, "An unexpected error occurred while cross-signing the CA.", 500)
+    if wants_json():
+        return jsonify(row.to_dict()), 201
+    if status == "approved":
+        flash(f"'{ca.name}' cross-signed by '{issuer.name}' (valid until {row.not_after:%Y-%m-%d}).", "success")
+    else:
+        flash("Cross-certificate created and awaiting approval by another admin.", "warning")
+    return redirect(url_for("ca.detail", ca_id=ca.id))
+
+
+@ca_bp.route("/<int:ca_id>/certificates/import", methods=["POST"])
+@admin_required
+def import_alternate(ca_id):
+    """F11: attach an externally issued cross-certificate for this CA's key."""
+    ca, err = _ca_or_error(ca_id)
+    if err:
+        return err
+    pem = (request.form.get("cert_pem") or "").strip()
+    if not pem:
+        return _alt_error(ca, "Certificate PEM data is required.")
+    try:
+        row = ca_service.import_alternate_certificate(ca, pem, created_by=current_user.id)
+        audit_service.log_action("import_ca_certificate", target_type="ca", target_id=ca.id,
+                                 details={"alternate_id": row.id, "issuer_ca_id": row.issuer_ca_id,
+                                          "serial_number": row.serial_number})
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return _alt_error(ca, str(e))
+    if wants_json():
+        return jsonify(row.to_dict()), 201
+    flash("Cross-signed certificate imported.", "success")
+    return redirect(url_for("ca.detail", ca_id=ca.id))
+
+
+@ca_bp.route("/<int:ca_id>/certificates/<int:alt_id>/approve", methods=["POST"])
+@admin_required
+def approve_alternate(ca_id, alt_id):
+    ca, err = _ca_or_error(ca_id)
+    if err:
+        return err
+    row = db.session.get(CaCertificate, alt_id)
+    if row is None or row.ca_id != ca.id:
+        return _alt_error(ca, "Alternate certificate not found.", 404)
+    if row.approval_status != "pending":
+        return _alt_error(ca, "This certificate is not awaiting approval.", 409)
+    if (dual_control_service.is_active() and row.created_by == current_user.id
+            and not dual_control_service.is_exempt(current_user)):
+        return _alt_error(ca, "Dual-control mode: a CA certificate must be approved by a different admin than its creator.", 403)
+    kind = row.kind
+    try:
+        result = ca_service.approve_alternate(row, current_user.id)
+        audit_service.log_action("approve_ca_certificate", target_type="ca", target_id=ca.id,
+                                 details={"alternate_id": alt_id, "kind": kind})
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        return _alt_error(ca, str(e))
+    warning = _crl_refresh_warning_ca(ca) if kind == "reissue" else None
+    if wants_json():
+        payload = ca.to_dict(detail=True) if kind == "reissue" else result.to_dict()
+        if warning:
+            payload["warning"] = warning
+        return jsonify(payload)
+    flash("Re-issued certificate approved and promoted to primary." if kind == "reissue" else "Cross-certificate approved.", "success")
+    if warning:
+        flash(warning, "warning")
+    return redirect(url_for("ca.detail", ca_id=ca.id))
+
+
+@ca_bp.route("/<int:ca_id>/certificates/<int:alt_id>/delete", methods=["POST"])
+@admin_required
+def delete_alternate(ca_id, alt_id):
+    ca, err = _ca_or_error(ca_id)
+    if err:
+        return err
+    row = db.session.get(CaCertificate, alt_id)
+    if row is None or row.ca_id != ca.id:
+        return _alt_error(ca, "Alternate certificate not found.", 404)
+    details = {"alternate_id": alt_id, "kind": row.kind, "serial_number": row.serial_number}
+    ca_service.delete_alternate(row)
+    audit_service.log_action("delete_ca_certificate", target_type="ca", target_id=ca.id, details=details)
+    db.session.commit()
+    if wants_json():
+        return jsonify({"deleted": alt_id})
+    flash("Alternate certificate removed.", "success")
     return redirect(url_for("ca.detail", ca_id=ca.id))

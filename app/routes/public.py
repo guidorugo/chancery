@@ -118,6 +118,23 @@ def download_ca_cert(ca_id):
     )
 
 
+@public_bp.route("/ca/<int:ca_id>/alt/<int:alt_id>.crt")
+def download_ca_alt_cert(ca_id, alt_id):
+    """F11: an approved alternate certificate for the CA's key (a previous
+    primary or a cross-certificate), so relying parties can fetch either
+    trust path."""
+    from ..models.ca_certificate import CaCertificate
+    ca = db.session.get(CertificateAuthority, ca_id)
+    row = db.session.get(CaCertificate, alt_id)
+    if not ca or row is None or row.ca_id != ca.id or row.approval_status != "approved":
+        return "CA certificate not found", 404
+    return Response(
+        row.certificate_pem,
+        mimetype="application/x-pem-file",
+        headers={"Content-Disposition": content_disposition(f"{ca.name}-alt-{row.id}", "crt", fallback=f"ca-{ca.id}-alt-{row.id}")},
+    )
+
+
 def _ocsp_respond(ca, ocsp_request_der):
     passphrase = current_app.config["MASTER_PASSPHRASE"]
     try:
