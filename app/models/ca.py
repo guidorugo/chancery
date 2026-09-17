@@ -58,11 +58,17 @@ class CertificateAuthority(db.Model):
     # Fernet-wrapped key (always software, registered in passphrase_service).
     ocsp_responder_cert_pem = db.Column(db.Text, nullable=True)
     ocsp_responder_key_enc = db.Column(db.LargeBinary, nullable=True)
+    # F14 (3.2.0): per-CA ACME directory settings. Enabling ACME is the approved
+    # act under dual control; orders afterwards are automated issuance.
+    acme_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    acme_profile_id = db.Column(db.Integer, db.ForeignKey("certificate_profiles.id"), nullable=True)
+    acme_require_eab = db.Column(db.Boolean, nullable=False, default=True)
 
     parent = db.relationship("CertificateAuthority", remote_side=[id], backref="children")
     certificates = db.relationship("Certificate", backref="ca", lazy="dynamic")
     csrs = db.relationship("CertificateSigningRequest", backref="ca", lazy="dynamic")
     creator = db.relationship("User", foreign_keys=[created_by])
+    acme_profile = db.relationship("CertificateProfile", foreign_keys=[acme_profile_id])
     approver = db.relationship("User", foreign_keys=[approved_by])
 
     @property
@@ -188,6 +194,8 @@ class CertificateAuthority(db.Model):
             "allowed_profiles": self.allowed_profile_ids,
             "name_constraints": self.name_constraints,
             "certificate_policies": self.certificate_policies,
+            "acme": {"enabled": bool(self.acme_enabled), "require_eab": bool(self.acme_require_eab),
+                     "profile": self.acme_profile.key if self.acme_profile else None},
             "created_at": iso(self.created_at),
         }
         if detail:

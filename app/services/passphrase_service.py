@@ -29,6 +29,7 @@ ENCRYPTED_COLUMNS = (
     ("app.models.ldap_settings", "LdapSettings", "bind_password_enc", "LDAP bind password"),
     ("app.models.webhook_settings", "WebhookSettings", "secret_enc", "webhook signing secret"),
     ("app.models.user", "User", "totp_secret_enc", "TOTP secret"),
+    ("app.models.acme", "AcmeEabKey", "hmac_key_enc", "ACME external account binding key"),
 )
 
 MIN_NEW_PASSPHRASE_LEN = 12

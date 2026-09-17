@@ -40,6 +40,8 @@ def _seed_everything():
                      totp_secret_enc=crypto_utils.encrypt_secret("JBSWY3DPEHPK3PXP", OLD))   # F13
     totp_user.set_password("rot-totp-password")
     _db.session.add(totp_user)
+    from app.services.acme import service as acme_service
+    acme_service.create_eab_key(root, name="rot")   # F14: the EAB MAC key is a registered column too
     _db.session.commit()
     return root, leaf, signed, cert_only, ldap, hook
 
@@ -91,6 +93,7 @@ class TestRotateService:
                              "certificates.private_key_enc": 1,
                              "ldap_settings.bind_password_enc": 1,
                              "users.totp_secret_enc": 1,
+                             "acme_eab_keys.hmac_key_enc": 1,
                              "webhook_settings.secret_enc": 1}
             after = _snapshot()
             # rotated blobs changed and open with NEW only

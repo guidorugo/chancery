@@ -51,6 +51,7 @@ def create_app(config_class=Config):
     from .routes.users import users_bp
     from .routes.health import health_bp
     from .routes.metrics import metrics_bp
+    from .routes.acme import acme_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -61,6 +62,7 @@ def create_app(config_class=Config):
     app.register_blueprint(users_bp)
     app.register_blueprint(health_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(acme_bp)
 
     # Monitoring probes must not be throttled if rate limiting is enabled.
     if getattr(app, "limiter", None) is not None:
@@ -69,9 +71,10 @@ def create_app(config_class=Config):
         # G8-4: CRL/OCSP clients poll far more often than humans use the UI —
         # the public blueprint gets its own, larger bucket.
         app.limiter.limit(app.config.get("PUBLIC_RATE_LIMIT", "600/minute"))(public_bp)
+        app.limiter.limit(app.config.get("ACME_RATE_LIMIT", "300/minute"))(acme_bp)
 
     from .cli import (keys_cli, certs_cli, users_cli, crl_cli, metrics_cli, profiles_cli,
-                      scheduler_cli, ocsp_cli, api_token_cli)
+                      scheduler_cli, ocsp_cli, api_token_cli, acme_cli)
     app.cli.add_command(keys_cli)
     app.cli.add_command(certs_cli)
     app.cli.add_command(users_cli)
@@ -81,6 +84,7 @@ def create_app(config_class=Config):
     app.cli.add_command(scheduler_cli)
     app.cli.add_command(ocsp_cli)
     app.cli.add_command(api_token_cli)
+    app.cli.add_command(acme_cli)
 
     with app.app_context():
         from . import models  # noqa: F401
@@ -143,7 +147,7 @@ def _setup_password_change_guard(app):
     def _require_password_change():
         if getattr(g, "basic_auth_used", False):
             return
-        if request.blueprint in ("public", "health", "metrics") or request.endpoint in _ALLOWED:
+        if request.blueprint in ("public", "health", "metrics", "acme") or request.endpoint in _ALLOWED:
             return
         if not current_user.is_authenticated:
             return
@@ -819,6 +823,13 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificate_authorities ADD COLUMN ocsp_responder_key_enc BLOB"
             ))
+        for name, ddl in (  # F14
+            ("acme_enabled", "ALTER TABLE certificate_authorities ADD COLUMN acme_enabled BOOLEAN NOT NULL DEFAULT 0"),
+            ("acme_profile_id", "ALTER TABLE certificate_authorities ADD COLUMN acme_profile_id INTEGER REFERENCES certificate_profiles(id)"),
+            ("acme_require_eab", "ALTER TABLE certificate_authorities ADD COLUMN acme_require_eab BOOLEAN NOT NULL DEFAULT 1"),
+        ):
+            if name not in columns:
+                db.session.execute(text(ddl))
         # G9-1: DB-level uniqueness for CA serials (generated serials are random
         # and imports check in code; the index closes the race). Committed first
         # and guarded so a legacy DB with a duplicate keeps booting.
@@ -882,6 +893,12 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE certificates ADD COLUMN renewed_from_id INTEGER REFERENCES certificates(id)"
             ))
+        for name, ddl in (  # F14
+            ("issuance_source", "ALTER TABLE certificates ADD COLUMN issuance_source VARCHAR(20)"),
+            ("acme_account_id", "ALTER TABLE certificates ADD COLUMN acme_account_id INTEGER REFERENCES acme_accounts(id)"),
+        ):
+            if name not in columns:
+                db.session.execute(text(ddl))
 
     # Migrate certificate_signing_requests table
     if "certificate_signing_requests" in inspector.get_table_names():
