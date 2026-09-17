@@ -1187,3 +1187,37 @@ class TestUserRoleDefault:
         db.session.add(user)
         db.session.commit()
         assert user.role == "csr_requester"
+
+
+class TestIssuingCaPreselect:
+    """3.1.0: the CA page's "Issue Certificate" button opens the form with that
+    CA selected; a bad or non-signing id is ignored; the posted CA survives an
+    error re-render."""
+
+    def _cas(self):
+        from app.services import ca_service
+        a = ca_service.create_root_ca(name="Pre A", subject_attrs={"CN": "a"}, key_type="EC", key_size=256,
+                                      validity_days=365, passphrase="test-passphrase")
+        b = ca_service.create_root_ca(name="Pre B", subject_attrs={"CN": "b"}, key_type="EC", key_size=256,
+                                      validity_days=365, passphrase="test-passphrase")
+        return a, b
+
+    def test_ca_page_links_with_its_id_and_form_preselects(self, auth_admin, db):
+        a, b = self._cas()
+        page = auth_admin.get(f"/ca/{b.id}").data
+        assert f'href="/certificates/create?ca_id={b.id}"'.encode() in page
+        form = auth_admin.get(f"/certificates/create?ca_id={b.id}").data
+        assert f'<option value="{b.id}" selected>'.encode() in form
+        assert f'<option value="{a.id}" selected>'.encode() not in form
+
+    def test_bad_or_unknown_id_is_ignored(self, auth_admin, db):
+        a, b = self._cas()
+        for bad in ("abc", "999999", ""):
+            form = auth_admin.get(f"/certificates/create?ca_id={bad}").data
+            assert b" selected>" not in form and form.count(b"<option value=") >= 2
+
+    def test_posted_ca_survives_error_rerender(self, auth_admin, db):
+        a, b = self._cas()
+        form = auth_admin.post("/certificates/create", data={"ca_id": str(b.id), "cn": "", "key_type": "EC",
+                                                             "key_size": "256", "validity_days": "30"}).data
+        assert f'<option value="{b.id}" selected>'.encode() in form

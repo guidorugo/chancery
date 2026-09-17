@@ -220,8 +220,17 @@ def _create_context():
     """Template context shared by the create form and its error re-render."""
     cas = CertificateAuthority.signing_capable().all()
     profiles = profile_service.list_profiles(enabled_only=True)
+    # 3.1.0: preselect the issuing CA — `?ca_id=` from a CA page's "Issue
+    # Certificate" button, or the posted value on an error re-render. Unknown
+    # or non-signing ids are simply ignored (the first CA stays selected).
+    try:
+        wanted = int(request.values.get("ca_id", ""))
+    except (TypeError, ValueError):
+        wanted = None
+    selected_ca_id = wanted if any(ca.id == wanted for ca in cas) else None
     return {
         "cas": cas,
+        "selected_ca_id": selected_ca_id,
         "ocsp_scheme": public_url.public_scheme(),
         "ocsp_server": public_url.public_host(),
         "profiles": profiles,

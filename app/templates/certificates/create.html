@@ -20,7 +20,7 @@
                         </label>
                         <select class="form-select" id="ca_id" name="ca_id" required>
                             {% for ca in cas %}
-                            <option value="{{ ca.id }}">{{ ca.name }}</option>
+                            <option value="{{ ca.id }}"{% if ca.id == selected_ca_id %} selected{% endif %}>{{ ca.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
