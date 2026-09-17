@@ -293,7 +293,7 @@ class TestSurface:
             r = app.test_cli_runner().invoke(args=["scheduler", "tick", "--force"])
             assert r.exit_code == 0, r.output
             out = json.loads(r.output)
-            assert set(out["jobs"]) == {"crl_refresh", "expiry_events", "ocsp_responders"} and out["skipped"] == []
+            assert set(out["jobs"]) == {"crl_refresh", "expiry_events", "ocsp_responders", "acme_maintenance"} and out["skipped"] == []
             r = app.test_cli_runner().invoke(args=["scheduler", "status"])
             assert r.exit_code == 0, r.output
             status = json.loads(r.output)

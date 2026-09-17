@@ -23,6 +23,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Audit Logging**: Every sensitive action logged with user, timestamp, IP, and details
 - **User Management**: Admin UI for creating users, assigning roles, and managing accounts
 - **Scoped API tokens**: `Authorization: Bearer chy_api_…` credentials for scripts and automation, created per user (Preferences → API Tokens, or `flask api-token`), with a subset of scopes (`read`, `issue`, `revoke`, `admin`), a mandatory expiry and one-click revocation — never more than the owner's role. Prefer them over Basic Auth for anything automated
+- **ACME server (RFC 8555)**: certbot, acme.sh, lego, Caddy and friends enrol from your CA without a human — one directory per CA at `/acme/<ca_id>/directory`, `http-01` validation, accounts gated by admin-issued external account binding (EAB) keys by default, issuance through the CA's chosen certificate profile, revocation by the account or the certificate key. Off until `ACME_ENABLED=true` and the CA page's *Enable ACME* switch
 - **Two-factor login (TOTP)**: Any user (local or LDAP) can enrol an authenticator app (RFC 6238, QR code or manual key) at *Two-factor* in the navbar; the login then asks for a 6-digit code after the password, with eight single-use recovery codes as the fallback. Codes are replay-protected and failed codes count toward the login lockout. `REQUIRE_2FA=admins|all` forces enrolment before anything else (and refuses Basic Auth until enrolled); an admin (or `flask users reset-2fa`) can clear a lost authenticator. Password changes, admin resets and any 2FA change log the account out of all other sessions
 - **HTTP Basic Auth**: Stateless API access via `curl -u user:pass` for scripts and automation, alongside session-based browser auth
 - **Dark Theme**: Light/dark mode toggle with OS-preference default and per-browser persistence
@@ -231,6 +232,40 @@ openssl ocsp \
 
 Both the POST form and the RFC 6960 GET form (`GET /public/ocsp/1/<url-encoded base64 request>`, what Windows CryptoAPI uses for small requests) are served. A request that is not valid DER gets an OCSP `malformedRequest` response at HTTP 200, not an HTTP error.
 
+## ACME: automated issuance for certbot, acme.sh, lego, Caddy
+
+Chancery speaks RFC 8555 so machines on your network can obtain and renew certificates from an internal CA without anyone clicking through the UI. Every CA gets its own directory:
+
+```
+http(s)://<chancery-host>/acme/<ca_id>/directory
+```
+
+**Switch it on.** Set `ACME_ENABLED=true` in `.env` (`docker compose up -d`), then open the CA page, tick *Enable ACME*, choose the certificate profile ACME certificates are issued under (Key Usage / EKU / validity bounds apply as for any signed CSR) and leave *Require EAB key* on. Issue one *external account binding* key per client (*New EAB key* on the CA page or `flask acme eab-create --ca-id <id> --name <label>`): you get a `kid` and a MAC key, shown once. A client registers its account with them; the key is single-use, and an unused key can be revoked. With *Require EAB key* off, any host that can reach the directory and prove control of a name may enrol — standard ACME semantics, so keep the switch on unless the network is closed.
+
+**How validation works.** Only `http-01` is offered (no wildcards). Chancery fetches `http://<name>/.well-known/acme-challenge/<token>` from the server itself, so the name must resolve *from the Chancery host* to the machine running the client, and port 80 (or `ACME_HTTP01_PORT`) must reach it. Loopback, link-local and the CA's own addresses are refused as targets; RFC 1918 addresses are fine. The CA's name constraints are enforced when an order is placed, the profile when it is finalized.
+
+**Clients.** Replace `ca.example.lan`, the CA id, `KID` and `HMAC` with yours; `ACME_BASE_URL` pins the directory's base URL when Chancery sits behind a proxy under another name.
+
+```bash
+# certbot (standalone on port 80)
+certbot certonly --standalone --server https://ca.example.lan/acme/3/directory \
+  --eab-kid KID --eab-hmac-key HMAC -d web.example.lan --email ops@example.lan --agree-tos
+
+# acme.sh
+acme.sh --register-account --server https://ca.example.lan/acme/3/directory --eab-kid KID --eab-hmac-key HMAC
+acme.sh --issue --server https://ca.example.lan/acme/3/directory -d web.example.lan --standalone
+
+# lego 5 (lego 4 takes the same flags before `run`, named --kid/--hmac)
+lego run --server https://ca.example.lan/acme/3/directory --email ops@example.lan --accept-tos \
+  --eab --eab.kid KID --eab.hmac HMAC --http -d web.example.lan
+```
+
+Caddy: `acme_ca https://ca.example.lan/acme/3/directory` plus `acme_eab { key_id KID mac_key HMAC }` in the global options, and trust the CA's certificate on the Caddy host.
+
+**Transport.** RFC 8555 requires the directory over HTTPS and certbot, lego and Caddy refuse a plain `http://` server (acme.sh tolerates it). Run Chancery behind TLS (`deploy/docker-compose.tls.yml`) for ACME even when you use the UI over plain HTTP, and trust the CA certificate (or the front-end's certificate) on the clients.
+
+**Bookkeeping.** Certificates obtained through ACME carry `issuance_source: acme` in the JSON API; the audit log records `acme_account_created`, `acme_order_created`, `acme_challenge_validated` / `acme_challenge_failed`, `acme_certificate_issued`, `acme_certificate_revoked` and the admin actions `update_ca_acme`, `create_acme_eab_key`, `revoke_acme_eab_key` (all available as webhook events). The scheduler expires stale orders and prunes nonces hourly (`flask acme maintain` does it now). Under dual control, enabling ACME on a CA is the approved act: the CA's creator cannot switch it on; orders afterwards are automated issuance and need no second admin.
+
 ## Two-factor authentication and recovering access
 
 Any account can enrol an authenticator app at *Two-factor* in the navbar. `REQUIRE_2FA=admins` or `REQUIRE_2FA=all` in `.env` makes it mandatory for administrators or for everyone:
@@ -382,6 +417,7 @@ These endpoints are designed for automated consumption by PKI clients, browsers,
 | GET | `/public/crl/<ca_id>.crl` | `application/pkix-crl` | Download CRL (DER) |
 | GET | `/public/crl/<ca_id>.pem` | `application/x-pem-file` | Download CRL (PEM) |
 | POST | `/public/ocsp/<ca_id>` | `application/ocsp-response` | OCSP responder (send DER-encoded OCSP request) |
+| GET, POST | `/acme/<ca_id>/…` | `application/json`, `application/problem+json` | ACME directory, nonces, accounts, orders, authorizations, challenges, certificates and revocation (RFC 8555, JWS-authenticated; 404 unless `ACME_ENABLED` and the CA has ACME on) |
 
 ```bash
 # Download a CA certificate
@@ -548,6 +584,7 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask keys migrate-to-hsm [--ca-id N] [--dry-run] [--yes]` | Move software-backed CA keys into the SoftHSM token (one-way). `--yes` skips the prompt only together with `--ca-id`; if the token fails the post-import signing check, the token object is removed and the software key is left untouched |
 | `flask users unlock <username>` | Clear a login lockout / failed-attempt counter from the shell — for when the locked account is the only admin and nobody can unlock it from the Users page |
 | `flask users reset-2fa <username>` | Clear a user's TOTP second factor (lost authenticator) and log out their sessions; they can enrol again. Break-glass for a locked-out sole admin (audited `totp_reset`) |
+| `flask acme eab-create --ca-id <id> [--name <label>]` / `eab-list [--ca-id <id>]` / `eab-revoke <kid>` / `maintain` | ACME external-account-binding keys (the MAC key is printed once) and the hourly maintenance run |
 | `flask metrics-token create --name <n> --expires-in-days <N>` / `list` / `revoke <name-or-id>` | Manage bearer tokens for `/metrics` |
 | `flask api-token create --user <u> --name <n> --scopes read,issue --expires-in-days <N>` / `list [--user <u>]` / `revoke <id> [--yes]` | Scoped API tokens (F12); the secret is printed once |
 
@@ -604,6 +641,14 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Lock duration once the threshold is hit; cleared early by an admin or `flask users unlock <username>` |
 | `REQUIRE_2FA` | `off` | Force enrolment of a TOTP second factor: `admins` (every administrator) or `all` (every account). An affected user who has not enrolled is sent to the enrolment page at login (after the first-login password change) and is refused Basic Auth until enrolled; the second factor cannot be disabled by the user while the policy applies. Unknown values refuse startup. See *Recovering access* below |
 | `REQUIRE_2FA_FOR_ADMINS` | `false` | 2.27 alias for `REQUIRE_2FA=admins` |
+| `ACME_ENABLED` | `false` | Serve ACME directories (each CA still needs *Enable ACME* on its page) |
+| `ACME_BASE_URL` | *(request host)* | Absolute base for the URLs in ACME responses, e.g. `https://ca.example.lan`, when the server is reached under another name than the one it sees |
+| `ACME_RATE_LIMIT` | `300/minute` | Per-IP rate-limit bucket for `/acme/*` |
+| `ACME_HTTP01_PORT` | `80` | Port the http-01 fetch connects to on the identifier's host |
+| `ACME_HTTP01_TIMEOUT_SECONDS` | `10` | Timeout of that fetch |
+| `ACME_DEFAULT_VALIDITY_DAYS` | `90` | Validity of ACME-issued certificates (capped by the profile's maximum and the CA's expiry) |
+| `ACME_ORDER_LIFETIME_HOURS` | `168` | How long an order and its authorizations stay pending |
+| `ACME_NONCE_LIFETIME_MINUTES` | `60` | Replay-nonce lifetime |
 | `TOTP_ISSUER` | `Chancery` | Issuer name shown in authenticator apps for enrolled accounts |
 | `BASIC_AUTH_ENABLED` | `true` | Enable HTTP Basic Auth for programmatic access |
 | `BASIC_AUTH_REALM` | `chancery` | Basic Auth realm name in `WWW-Authenticate` header |
