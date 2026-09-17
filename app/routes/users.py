@@ -620,5 +620,7 @@ def reset_2fa(user_id):
     db.session.commit()
     if wants_json():
         return jsonify(user.to_dict())
-    flash(f"Two-factor authentication reset for '{user.username}'.", "success")
+    from ..services import totp_service
+    note = " They must enrol again at their next login (REQUIRE_2FA)." if totp_service.enforced_for(user, current_app.config) else ""
+    flash(f"Two-factor authentication reset for '{user.username}'.{note}", "success")
     return redirect(url_for("users.edit_user", user_id=user.id))

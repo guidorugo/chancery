@@ -7,9 +7,10 @@
 {% if new_codes %}
 <div class="alert alert-warning">
     <strong>Recovery codes — save them now.</strong> Each works once, when your authenticator is unavailable. They will not be shown again.
-    <pre class="mt-2 mb-0 user-select-all" id="recovery-codes">{% for c in new_codes %}{{ c }}
+    <pre class="mt-2 mb-2 user-select-all" id="recovery-codes">{% for c in new_codes %}{{ c }}
 {% endfor %}</pre>
-    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-copy-target="#recovery-codes"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy codes</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-copy-target="#recovery-codes"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy codes</button>
+    <a class="btn btn-sm btn-outline-secondary" id="download-codes" download="chancery-recovery-codes-{{ current_user.username }}.txt" href="#"><i class="bi bi-download" aria-hidden="true"></i> Download as .txt</a>
 </div>
 {% endif %}
 <div class="row g-3">
@@ -19,7 +20,10 @@
             <div class="card-header"><span><i class="bi bi-shield-check" aria-hidden="true"></i>Status</span></div>
             <div class="card-body">
                 <p><span class="badge bg-success">Enabled</span> Your account requires a code from your authenticator app at every login.
-                    {{ remaining }} recovery code{{ 's' if remaining != 1 }} remaining.</p>
+                    {{ remaining }} recovery code{{ 's' if remaining != 1 }} remaining.{% if enforced %} <span class="badge bg-info text-dark" title="REQUIRE_2FA applies to this account">Required by policy</span>{% endif %}</p>
+                {% if remaining <= low %}
+                <div class="alert alert-danger py-2">Only {{ remaining }} recovery code{{ 's' if remaining != 1 }} left — generate new ones now, before you need them.</div>
+                {% endif %}
                 <p class="text-body-secondary small mb-0">Basic Auth is disabled for this account; use an <a href="{{ url_for('users.api_tokens') }}">API token</a> for scripts.</p>
             </div>
         </div>
@@ -43,6 +47,9 @@
         <div class="card">
             <div class="card-header"><span><i class="bi bi-shield-x" aria-hidden="true"></i>Disable</span></div>
             <div class="card-body">
+                {% if enforced %}
+                <p class="small text-body-secondary mb-0">Two-factor authentication is required for your account and cannot be disabled here. If you lose your authenticator and your recovery codes, an administrator can reset it; you then enrol again at your next login.</p>
+                {% else %}
                 <form method="POST" action="{{ url_for('auth.two_factor_disable') }}" class="row g-2 align-items-end">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     {% if current_user.has_usable_password() %}
@@ -57,6 +64,7 @@
                     </div>
                     <div class="col-12"><button type="submit" class="btn btn-outline-danger">Disable 2FA</button></div>
                 </form>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -66,7 +74,7 @@
             <div class="card-header"><span><i class="bi bi-qr-code" aria-hidden="true"></i>Enrol an authenticator</span></div>
             <div class="card-body">
                 {% if forced %}
-                <div class="alert alert-warning">Administrators on this Chancery must use a second factor. Enrol to continue.</div>
+                <div class="alert alert-warning"><strong>A second factor is required for your account.</strong> Enrol an authenticator to continue; keep the recovery codes somewhere safe — if you lose both, an administrator has to reset your second factor.</div>
                 {% endif %}
                 <ol class="mb-4">
                     <li>Open your authenticator app (any TOTP app: Aegis, FreeOTP, Google Authenticator, 1Password, …).</li>
@@ -98,4 +106,17 @@
     </div>
 {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if new_codes %}
+<script nonce="{{ csp_nonce }}">
+(function () {
+    var a = document.getElementById('download-codes');
+    var codes = document.getElementById('recovery-codes');
+    if (!a || !codes) return;
+    a.href = URL.createObjectURL(new Blob([codes.textContent], {type: 'text/plain'}));
+})();
+</script>
+{% endif %}
 {% endblock %}

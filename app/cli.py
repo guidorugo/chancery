@@ -369,7 +369,48 @@ def reset_2fa_user(username):
     auth_service.bump_session_version(user)
     _cli_audit("totp_reset", "user", user.id, {"username": username})
     db.session.commit()
+    from .services import totp_service
     click.echo(f"Cleared the second factor for {username!r}; their sessions were logged out.")
+    if totp_service.enforced_for(user, current_app.config):
+        click.echo("REQUIRE_2FA applies to this account: they must enrol an authenticator again at their next login.")
+
+
+@users_cli.command("reset-password")
+@click.argument("username")
+@click.option("--new-file", required=True, type=click.Path(dir_okay=False, allow_dash=True),
+              help="File holding the new password (`-` = stdin); never pass it on the command line.")
+def reset_password_user(username, new_file):
+    """Break-glass: set USERNAME's password from a file or stdin (2.28.0).
+
+    For the case no other administrator can do it from the Users page. The
+    account must change the password again at its next login, any lockout is
+    cleared and every session / cached Basic-Auth credential is dropped.
+    """
+    from .models.user import User
+    from .services import auth_service
+
+    user = User.query.filter_by(username=username).first()
+    if user is None:
+        raise click.ClickException(f"No user named {username!r}.")
+    if not user.has_usable_password():
+        raise click.ClickException(f"{username!r} is a directory (LDAP) account; its password is not managed here.")
+    if new_file == "-":
+        raw = click.get_text_stream("stdin").read()
+    else:
+        with open(new_file, "r", encoding="utf-8") as fh:
+            raw = fh.read()
+    new_password = raw.rstrip("\r\n")
+    min_len = current_app.config.get("MIN_PASSWORD_LENGTH", 12)
+    if len(new_password) < min_len:
+        raise click.ClickException(f"The new password must be at least {min_len} characters.")
+    user.set_password(new_password)
+    user.must_change_password = True
+    auth_service.clear_lockout(user)
+    auth_service.bump_session_version(user)
+    _cli_audit("reset_user_password", "user", user.id, {"username": username, "break_glass": True})
+    db.session.commit()
+    click.echo(f"Password set for {username!r}; they must choose a new one at their next login. "
+               "Sessions and any lockout were cleared.")
 
 
 crl_cli = AppGroup("crl", help="CRL utilities.")
