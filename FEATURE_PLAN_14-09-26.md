@@ -450,7 +450,9 @@ Basic Auth refusal, recovery code single use.
 change, admin reset and any 2FA change, reject older sessions in the Flask-Login
 `user_loader`, and drop the user's Basic Auth cache entry at the same points.
 
-## F14. ACME server (shipped as v3.2.0, PR #174 — http-01; dns-01 remains phase 2)
+## F14. ACME server (shipped as v3.2.0, PR #174 — http-01; dns-01 + wildcards shipped as v3.6.0)
+
+**dns-01 and wildcard identifiers shipped as v3.6.0 (user request 2026-09-17: a wildcard use case; operator example `examples/acme-dns01/` with BIND 9 + TSIG, verified with lego 5 and certbot).**
 
 **Scope.** RFC 8555 with `http-01` first, `dns-01` second, per-CA directory at
 `/acme/<ca_id>/directory`. Lets certbot, acme.sh, lego and Caddy enrol from the LAN

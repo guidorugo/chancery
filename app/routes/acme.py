@@ -80,6 +80,13 @@ def _json(data, status=200, **headers):
     return response
 
 
+def _retry_after(challenges):
+    """Retry-After while a dns-01 lookup is pending (the client's next poll runs it)."""
+    if any(c.status == "processing" for c in challenges):
+        return {"Retry-After": str(current_app.config.get("ACME_DNS01_RETRY_SECONDS", 10))}
+    return {}
+
+
 def _verified(allow_jwk=False, allow_kid=True, post_as_get=False):
     """Parse and verify the request JWS, check the nonce, return Verified."""
     if request.mimetype != "application/jose+json":
@@ -176,7 +183,7 @@ def authorization(authz_id):
     if verified.payload and verified.payload.get("status") == "deactivated":
         service.deactivate_authz(authz)
     db.session.commit()
-    return _json(service.authz_dict(ca, authz))
+    return _json(service.authz_dict(ca, authz), **_retry_after(authz.challenges))
 
 
 @acme_bp.route("/chall/<int:challenge_id>", methods=["POST"])
@@ -188,7 +195,7 @@ def challenge(challenge_id):
         row = service.respond_challenge(ca, verified.account, row)
     db.session.commit()
     authz_url = service.acme_url("acme.authorization", ca.id, authz_id=row.authorization_id)
-    response = _json(service.challenge_dict(ca, row))
+    response = _json(service.challenge_dict(ca, row), **_retry_after([row]))
     response.headers.add("Link", f'<{authz_url}>;rel="up"')
     return response
 

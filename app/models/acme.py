@@ -113,12 +113,20 @@ class AcmeAuthorization(db.Model):
     ca_id = db.Column(db.Integer, db.ForeignKey("certificate_authorities.id"), nullable=False)
     identifier_type = db.Column(db.String(10), nullable=False, default="dns")
     identifier_value = db.Column(db.String(253), nullable=False)
+    # 3.6.0: the order named `*.<identifier_value>` (RFC 8555 §7.1.4: the
+    # authorization carries the base domain and this flag, never the wildcard).
+    wildcard = db.Column(db.Boolean, nullable=False, default=False)
     status = db.Column(db.String(20), nullable=False, default="pending")   # pending|valid|invalid|expired|deactivated
     expires = db.Column(db.DateTime, nullable=False)
     created_at = db.Column(db.DateTime, default=_utcnow)
 
     challenges = db.relationship("AcmeChallenge", backref="authorization", lazy="selectin",
                                  order_by="AcmeChallenge.id")
+    account = db.relationship("AcmeAccount", foreign_keys=[account_id])
+
+    @property
+    def display_identifier(self):
+        return ("*." if self.wildcard else "") + self.identifier_value
 
 
 class AcmeChallenge(db.Model):
@@ -131,6 +139,8 @@ class AcmeChallenge(db.Model):
     status = db.Column(db.String(20), nullable=False, default="pending")   # pending|processing|valid|invalid
     validated_at = db.Column(db.DateTime, nullable=True)
     error_json = db.Column(db.Text, nullable=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)        # 3.6.0: dns-01 lookups so far
+    next_attempt_at = db.Column(db.DateTime, nullable=True)            # 3.6.0: next dns-01 retry (a client poll runs it)
     created_at = db.Column(db.DateTime, default=_utcnow)
 
     @property

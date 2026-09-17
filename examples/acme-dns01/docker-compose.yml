@@ -1,0 +1,34 @@
+# dns-01 for Chancery's ACME server: a small authoritative BIND 9 next to the
+# app, holding the zone where ACME clients publish their `_acme-challenge` TXT
+# records. Chancery reads them straight from this server (ACME_DNS_RESOLVERS),
+# clients write them over RFC 2136 with the TSIG key that setup.sh generates.
+# Your LAN's regular DNS is not involved and needs no change.
+#
+# Usage, from the repository root (see examples/acme-dns01/README.md):
+#   ./examples/acme-dns01/setup.sh
+#   docker compose -f docker-compose.yml -f examples/acme-dns01/docker-compose.yml up -d
+services:
+  app:
+    environment:
+      - ACME_ENABLED=true
+      # The BIND service below, by name; every listed resolver must agree.
+      - ACME_DNS_RESOLVERS=dns
+
+  dns:
+    image: internetsystemsconsortium/bind9:9.20
+    # The zone files are copied at start so BIND can keep its journal next to
+    # them; ACME records are transient, so a restart resetting the zone to the
+    # file is the intended behaviour.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "cp /zones/*.zone /var/lib/bind/ && chown bind:bind /var/lib/bind/*.zone && exec /usr/sbin/named -u bind -f -c /etc/bind/named.conf"
+    volumes:
+      - ./named.conf:/etc/bind/named.conf:ro     # rendered by setup.sh (holds the TSIG secret)
+      - ./zones:/zones:ro
+    ports:
+      # Where LAN clients send their updates (lego, certbot, acme.sh, nsupdate).
+      # Port 53 on the host usually belongs to systemd-resolved or a Pi-hole,
+      # hence a different one by default.
+      - "${ACME_DNS_PORT:-5354}:53/udp"
+      - "${ACME_DNS_PORT:-5354}:53/tcp"
+    restart: unless-stopped

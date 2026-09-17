@@ -63,6 +63,7 @@ class CertificateAuthority(db.Model):
     acme_enabled = db.Column(db.Boolean, nullable=False, default=False)
     acme_profile_id = db.Column(db.Integer, db.ForeignKey("certificate_profiles.id"), nullable=True)
     acme_require_eab = db.Column(db.Boolean, nullable=False, default=True)
+    acme_allow_wildcards = db.Column(db.Boolean, nullable=False, default=False)   # 3.6.0: dns-01 wildcard orders
 
     parent = db.relationship("CertificateAuthority", remote_side=[id], backref="children")
     certificates = db.relationship("Certificate", backref="ca", lazy="dynamic")
@@ -195,6 +196,7 @@ class CertificateAuthority(db.Model):
             "name_constraints": self.name_constraints,
             "certificate_policies": self.certificate_policies,
             "acme": {"enabled": bool(self.acme_enabled), "require_eab": bool(self.acme_require_eab),
+                     "allow_wildcards": bool(self.acme_allow_wildcards),
                      "profile": self.acme_profile.key if self.acme_profile else None},
             "created_at": iso(self.created_at),
         }

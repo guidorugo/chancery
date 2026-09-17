@@ -24,7 +24,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **User Management**: Admin UI for creating users, assigning roles, and managing accounts
 - **Scoped API tokens**: `Authorization: Bearer chy_api_…` credentials for scripts and automation, created per user (Preferences → API Tokens, or `flask api-token`), with a subset of scopes (`read`, `issue`, `revoke`, `admin`), a mandatory expiry and one-click revocation — never more than the owner's role. Prefer them over Basic Auth for anything automated
 - **Tamper-evident audit log**: every row is hash-chained and sealed by the scheduler, a daily anchor event carries the head hash to your webhook receiver, `flask audit verify` reports the first altered or missing row; the page filters and exports (CSV/JSON) with hashes, and optional retention archives old rows behind a checkpoint
-- **ACME server (RFC 8555)**: certbot, acme.sh, lego, Caddy and friends enrol from your CA without a human — one directory per CA at `/acme/<ca_id>/directory`, `http-01` validation, accounts gated by admin-issued external account binding (EAB) keys by default, issuance through the CA's chosen certificate profile, revocation by the account or the certificate key. Off until `ACME_ENABLED=true` and the CA page's *Enable ACME* switch
+- **ACME server (RFC 8555)**: certbot, acme.sh, lego, Caddy and friends enrol from your CA without a human — one directory per CA at `/acme/<ca_id>/directory`, `http-01` and `dns-01` validation (wildcard certificates included), accounts gated by admin-issued external account binding (EAB) keys by default, issuance through the CA's chosen certificate profile, revocation by the account or the certificate key. Off until `ACME_ENABLED=true` and the CA page's *Enable ACME* switch
 - **Two-factor login (TOTP)**: Any user (local or LDAP) can enrol an authenticator app (RFC 6238, QR code or manual key) at *Two-factor* in the navbar; the login then asks for a 6-digit code after the password, with eight single-use recovery codes as the fallback. Codes are replay-protected and failed codes count toward the login lockout. `REQUIRE_2FA=admins|all` forces enrolment before anything else (and refuses Basic Auth until enrolled); an admin (or `flask users reset-2fa`) can clear a lost authenticator. Password changes, admin resets and any 2FA change log the account out of all other sessions
 - **HTTP Basic Auth**: Stateless API access via `curl -u user:pass` for scripts and automation, alongside session-based browser auth
 - **Dark Theme**: Light/dark mode toggle with OS-preference default and per-browser persistence
@@ -243,7 +243,10 @@ http(s)://<chancery-host>/acme/<ca_id>/directory
 
 **Switch it on.** Set `ACME_ENABLED=true` in `.env` (`docker compose up -d`), then open the CA page, tick *Enable ACME*, choose the certificate profile ACME certificates are issued under (Key Usage / EKU / validity bounds apply as for any signed CSR) and leave *Require EAB key* on. Issue one *external account binding* key per client (*New EAB key* on the CA page or `flask acme eab-create --ca-id <id> --name <label>`): you get a `kid` and a MAC key, shown once. A client registers its account with them; the key is single-use, and an unused key can be revoked. With *Require EAB key* off, any host that can reach the directory and prove control of a name may enrol — standard ACME semantics, so keep the switch on unless the network is closed.
 
-**How validation works.** Only `http-01` is offered (no wildcards). Chancery fetches `http://<name>/.well-known/acme-challenge/<token>` from the server itself, so the name must resolve *from the Chancery host* to the machine running the client, and port 80 (or `ACME_HTTP01_PORT`) must reach it. Loopback, link-local and the CA's own addresses are refused as targets; RFC 1918 addresses are fine. The CA's name constraints are enforced when an order is placed, the profile when it is finalized.
+**How validation works.** Every authorization offers both challenge types (`ACME_CHALLENGE_TYPES`, default `http-01,dns-01`) and the client picks one.
+With **`http-01`** Chancery fetches `http://<name>/.well-known/acme-challenge/<token>` from the server itself, so the name must resolve *from the Chancery host* to the machine running the client, and port 80 (or `ACME_HTTP01_PORT`) must reach it. Loopback, link-local and the CA's own addresses are refused as targets; RFC 1918 addresses are fine.
+With **`dns-01`** the client publishes a TXT record `_acme-challenge.<name>` holding the SHA-256 digest of the key authorization and Chancery looks it up: on the servers listed in `ACME_DNS_RESOLVERS` (every one of them must agree) or, when unset, through the container's own resolver. Point it at the authoritative server so no cache sits in between. A record that is not there yet leaves the challenge `processing`; each poll of the authorization or challenge by the client retries once `ACME_DNS01_RETRY_SECONDS` have passed, up to `ACME_DNS01_MAX_ATTEMPTS`, then the challenge fails and its `error` carries the last DNS answer. Without DNSSEC, whoever answers DNS for the CA can pass `dns-01` — the same trust class as `http-01` on a LAN.
+**Wildcards** (`*.example.lan`) are accepted only when the CA's *Allow wildcard names (dns-01)* switch is on. They are proven with `dns-01` alone — the TXT record sits at the base name, `_acme-challenge.example.lan` — and one certificate then covers every name one label below the base, so pair the switch with a name-constrained CA when the reach should be bounded. The CA's name constraints are enforced when an order is placed, the profile when it is finalized.
 
 **Clients.** Replace `ca.example.lan`, the CA id, `KID` and `HMAC` with yours; `ACME_BASE_URL` pins the directory's base URL when Chancery sits behind a proxy under another name.
 
@@ -262,6 +265,8 @@ lego run --server https://ca.example.lan/acme/3/directory --email ops@example.la
 ```
 
 Caddy: `acme_ca https://ca.example.lan/acme/3/directory` plus `acme_eab { key_id KID mac_key HMAC }` in the global options, and trust the CA's certificate on the Caddy host.
+
+**dns-01 and wildcards, worked example.** The client has to *write* the TXT record, which needs a DNS server with an update API. `examples/acme-dns01/` ships one: a compose overlay with a small authoritative BIND 9 next to Chancery, a TSIG key generated by `setup.sh`, and a private validation zone that only ever holds `_acme-challenge` records — your LAN's regular DNS is not involved. `docker compose -f docker-compose.yml -f examples/acme-dns01/docker-compose.yml up -d` starts it with `ACME_DNS_RESOLVERS=dns` already set; the README there walks through `nsupdate`, lego 5 (`--dns dnsupdate`), certbot (`dns-rfc2136`) and acme.sh (`dns_nsupdate`), and explains what the TSIG key authorizes. A network that already runs BIND, Knot, PowerDNS, Technitium or Windows DNS with dynamic updates needs only `ACME_DNS_RESOLVERS` pointed at it.
 
 **Transport.** RFC 8555 requires the directory over HTTPS and certbot, lego and Caddy refuse a plain `http://` server (acme.sh tolerates it). Run Chancery behind TLS (`deploy/docker-compose.tls.yml`) for ACME even when you use the UI over plain HTTP, and trust the CA certificate (or the front-end's certificate) on the clients.
 
@@ -433,7 +438,7 @@ These endpoints are designed for automated consumption by PKI clients, browsers,
 | GET | `/public/crl/<ca_id>.crl` | `application/pkix-crl` | Download CRL (DER) |
 | GET | `/public/crl/<ca_id>.pem` | `application/x-pem-file` | Download CRL (PEM) |
 | POST | `/public/ocsp/<ca_id>` | `application/ocsp-response` | OCSP responder (send DER-encoded OCSP request) |
-| GET, POST | `/acme/<ca_id>/…` | `application/json`, `application/problem+json` | ACME directory, nonces, accounts, orders, authorizations, challenges, certificates and revocation (RFC 8555, JWS-authenticated; 404 unless `ACME_ENABLED` and the CA has ACME on) |
+| GET, POST | `/acme/<ca_id>/…` | `application/json`, `application/problem+json` | ACME directory, nonces, accounts, orders, authorizations, challenges (`http-01`, `dns-01`), certificates and revocation (RFC 8555, JWS-authenticated; 404 unless `ACME_ENABLED` and the CA has ACME on) |
 
 ```bash
 # Download a CA certificate
@@ -671,6 +676,11 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `ACME_DEFAULT_VALIDITY_DAYS` | `90` | Validity of ACME-issued certificates (capped by the profile's maximum and the CA's expiry) |
 | `ACME_ORDER_LIFETIME_HOURS` | `168` | How long an order and its authorizations stay pending |
 | `ACME_NONCE_LIFETIME_MINUTES` | `60` | Replay-nonce lifetime |
+| `ACME_CHALLENGE_TYPES` | `http-01,dns-01` | Challenge types offered on every authorization; a wildcard name always gets `dns-01` only |
+| `ACME_DNS_RESOLVERS` | *(container's resolver)* | Comma-separated `host[:port]` servers asked for `dns-01` TXT records; all must agree. Point it at the authoritative server (see `examples/acme-dns01/`) |
+| `ACME_DNS_TIMEOUT_SECONDS` | `5` | Timeout of one `dns-01` lookup |
+| `ACME_DNS01_MAX_ATTEMPTS` | `10` | Lookups per `dns-01` challenge before it fails (the client's polls run them) |
+| `ACME_DNS01_RETRY_SECONDS` | `10` | Minimum gap between two lookups, also the `Retry-After` sent while one is pending |
 | `TOTP_ISSUER` | `Chancery` | Issuer name shown in authenticator apps for enrolled accounts |
 | `BASIC_AUTH_ENABLED` | `true` | Enable HTTP Basic Auth for programmatic access |
 | `BASIC_AUTH_REALM` | `chancery` | Basic Auth realm name in `WWW-Authenticate` header |

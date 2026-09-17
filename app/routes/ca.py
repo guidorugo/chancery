@@ -943,9 +943,10 @@ def set_acme(ca_id):
         ca.acme_enabled = enable
         ca.acme_profile_id = profile.id if profile else None
         ca.acme_require_eab = request.form.get("acme_require_eab") in ("on", "true", "1")
+        ca.acme_allow_wildcards = request.form.get("acme_allow_wildcards") in ("on", "true", "1")
         audit_service.log_action("update_ca_acme", target_type="ca", target_id=ca.id,
                                  details={"enabled": ca.acme_enabled, "profile": profile.key if profile else "custom",
-                                          "require_eab": ca.acme_require_eab})
+                                          "require_eab": ca.acme_require_eab, "allow_wildcards": ca.acme_allow_wildcards})
         db.session.commit()
     except ValueError as e:
         db.session.rollback()

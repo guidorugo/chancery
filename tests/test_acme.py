@@ -382,7 +382,7 @@ class TestOrdersAndValidation:
         assert [i["value"] for i in order["identifiers"]] == ["web.example.lan", "api.example.lan"]
         authz = c.get(order["authorizations"][0]).get_json()
         assert authz["status"] == "pending" and authz["identifier"] == {"type": "dns", "value": "web.example.lan"}
-        assert [ch["type"] for ch in authz["challenges"]] == ["http-01"] and len(authz["challenges"][0]["token"]) >= 43
+        assert [ch["type"] for ch in authz["challenges"]] == ["http-01", "dns-01"] and len(authz["challenges"][0]["token"]) >= 43
         assert _problem(c.post(order["finalize"], {"csr": "x"}))[0] == "orderNotReady"
         for authz_url in order["authorizations"]:
             chall_url = c.serve(authz_url)
@@ -594,12 +594,12 @@ class TestAdminSettings:
         ca = _ca(enabled=False)
         r = auth_admin.post(f"/ca/{ca.id}/acme", data={"acme_enabled": "on", "acme_profile": "web_server"}, headers=JSON)
         assert r.status_code == 200, r.data
-        assert r.get_json()["acme"] == {"enabled": True, "require_eab": False, "profile": "web_server"}
+        assert r.get_json()["acme"] == {"enabled": True, "require_eab": False, "allow_wildcards": False, "profile": "web_server"}
         assert AuditLog.query.filter_by(action="update_ca_acme").one().username == "testadmin"
         r = auth_admin.post(f"/ca/{ca.id}/acme", data={"acme_enabled": "on", "acme_profile": "bogus"}, headers=JSON)
         assert r.status_code == 400
         r = auth_admin.post(f"/ca/{ca.id}/acme", data={"acme_require_eab": "on"}, headers=JSON)
-        assert r.get_json()["acme"] == {"enabled": False, "require_eab": True, "profile": None}
+        assert r.get_json()["acme"] == {"enabled": False, "require_eab": True, "allow_wildcards": False, "profile": None}
         page = auth_admin.get(f"/ca/{ca.id}").data
         assert b"Enable ACME" in page and b"Require EAB key" in page
         detail = auth_admin.get(f"/ca/{ca.id}", headers=JSON).get_json()
