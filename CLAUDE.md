@@ -20,7 +20,7 @@ Handles CA creation, certificate signing/revocation, CSR management, CRL generat
 - `app/cli.py` - Flask CLI groups (`keys`, `certs`, `users`, `crl`, `metrics-token`) — see CLI commands below
 - `app/templates/` - Jinja2 templates with Bootstrap 5; `_macros.html` holds the shared `expiry_badge`/`status_badge` macros (see Status badges below)
 - `tests/` - pytest test suite
-- `scripts/seed_demo.sh` / `scripts/seed_demo.py` - demo-data seeder run inside the container (`--reset` recreates, `--remove` deletes only the tagged `Demo …` CAs / `*.demo.example.com` objects **plus whatever a demo CA issued**, since a certificate cannot outlive its CA; a real CA chained under a demo CA is refused unless `--remove --force`)
+- `scripts/seed_demo.sh` / `scripts/seed_demo.py` - demo-data seeder run inside the container (the wrapper resolves the container via `docker compose ps -q app` in the checkout, then `CONTAINER`, then `chancery-app-1`; `--help` needs no Docker — 3.0.1; `--reset` recreates, `--remove` deletes only the tagged `Demo …` CAs / `*.demo.example.com` objects **plus whatever a demo CA issued**, since a certificate cannot outlive its CA; a real CA chained under a demo CA is refused unless `--remove --force`)
 
 ## Build & Run
 
