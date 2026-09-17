@@ -59,8 +59,13 @@ echo "Database initialized."
 # Start gunicorn. CHANCERY_RUN_SCHEDULER=1 is set on this exec line ONLY, so
 # the background scheduler thread (F8) starts inside the serving workers and
 # never in the boot-time create_app() above or in `flask …` CLI runs.
-CHANCERY_RUN_SCHEDULER=1 exec gunicorn \
-    --bind 0.0.0.0:5000 \
-    --workers 2 \
-    --timeout 120 \
-    "app:create_app()"
+# G14-2: the root filesystem is read-only in the reference compose, so the
+# worker heartbeat files go to /dev/shm (always writable) and the access log
+# (ACCESS_LOG=true, default) goes to stdout. %(U)s is the path WITHOUT the
+# query string — search terms, `next=` targets and OCSP GET requests never
+# land in the log; the body is never logged.
+set -- --bind 0.0.0.0:5000 --workers 2 --timeout 120 --worker-tmp-dir /dev/shm
+if [ "${ACCESS_LOG:-true}" != "false" ]; then
+    set -- "$@" --access-logfile - --access-logformat '%(h)s %(t)s "%(m)s %(U)s" %(s)s %(b)s %(L)ss "%(a)s"'
+fi
+CHANCERY_RUN_SCHEDULER=1 exec gunicorn "$@" "app:create_app()"

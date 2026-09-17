@@ -9,9 +9,9 @@ scripts/
 .github/
 .gitignore
 .pytest_cache/
-__pycache__/
-*.pyc
-*.pyo
+**/__pycache__/
+**/*.pyc
+**/*.pyo
 tests/
 *.md
 .vscode/

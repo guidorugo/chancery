@@ -52,6 +52,11 @@ services:
       - RSA_SIGNATURE_HASH=${RSA_SIGNATURE_HASH:-sha256}
       # --- tunables (every documented variable is forwarded from .env; an empty
       # value means "app default" — see the README environment table) ----------
+      # G14-2: gunicorn's HTTP access log to stdout (method, path without the
+      # query string, status, bytes, latency; every request incl. /health
+      # probes). ACCESS_LOG=false switches it off.
+      - ACCESS_LOG=${ACCESS_LOG:-true}
+      - PYTHONDONTWRITEBYTECODE=1
       - APP_VERSION=${APP_VERSION:-}
       - SESSION_LIFETIME_MINUTES=${SESSION_LIFETIME_MINUTES:-}
       - MIN_PASSWORD_LENGTH=${MIN_PASSWORD_LENGTH:-}
@@ -73,6 +78,7 @@ services:
       - ACME_NONCE_LIFETIME_MINUTES=${ACME_NONCE_LIFETIME_MINUTES:-60}
       - ACME_DEFAULT_VALIDITY_DAYS=${ACME_DEFAULT_VALIDITY_DAYS:-90}
       - AUDIT_RETENTION_DAYS=${AUDIT_RETENTION_DAYS:-0}
+      # Must be under /app/data (the root filesystem is read-only, G14-2).
       - AUDIT_ARCHIVE_DIR=${AUDIT_ARCHIVE_DIR:-}
       - REQUIRE_2FA_FOR_ADMINS=${REQUIRE_2FA_FOR_ADMINS:-false}
       - TOTP_ISSUER=${TOTP_ISSUER:-Chancery}
@@ -177,6 +183,15 @@ services:
       - CHOWN
       - SETUID
       - SETGID
+    # G14-2 (3.5.0): read-only root filesystem. Everything the process writes
+    # lives in the data volume (SQLite DB, SoftHSM token + its lock files, audit
+    # archive); gunicorn's worker heartbeat and control socket get tmpfs scratch
+    # space (noexec, nosuid, size-capped). A compromised worker cannot drop a
+    # binary or patch the code it runs.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=64m,mode=1777
+      - /home/app:rw,nosuid,noexec,size=16m,uid=1000,gid=1000,mode=0700
 
 secrets:
   master_passphrase:
