@@ -3,7 +3,7 @@ audits certificate_expiring / certificate_expired / ca_expiring / ca_expired
 once per object (the audit row is what feeds the webhook), the per-job
 interval bookkeeping in `scheduler_jobs`, and `scheduler_error` on change."""
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import inspect as sa_inspect
@@ -16,7 +16,12 @@ from app.models.scheduler_lease import SchedulerJob, SchedulerLease
 from app.services import ca_service, cert_service, crl_service, scheduler_service, webhook_service
 
 PASSPHRASE = "test-passphrase"
-NOW = datetime(2026, 9, 15, 12, 0, 0)   # naive UTC, like every stored datetime
+# The scheduler is always ticked with an explicit `now=NOW`, so the clock only
+# has to be self-consistent — but CAs/certs given a validity of "NOW + a few
+# days" are still *issued* against the real clock, so NOW must track real time
+# (a fixed date became a time bomb: two days after it, issuance under a
+# "NOW + 2 days" CA failed with "The issuing CA has expired").
+NOW = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)   # naive UTC, like every stored datetime
 DAY = timedelta(days=1)
 
 
