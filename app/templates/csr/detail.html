@@ -1,98 +1,68 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header, kv, csr_status_badge, pem_block %}
 {% block title %}CSR: {{ csr.common_name }} - Chancery{% endblock %}
+{% block topbar %}CSR &middot; {{ csr.common_name }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center">
-    <h2>CSR: {{ csr.common_name }}</h2>
-    <div>
-        {% if current_user.is_admin and csr.status == 'pending' %}
-        {% if not dual_control_active() or csr.created_by != current_user.id or current_user.username == config.ADMIN_USERNAME %}
-        <a href="{{ url_for('csr.sign', csr_id=csr.id) }}" class="btn btn-sm btn-success">Sign</a>
-        {% endif %}
-        <form method="POST" action="{{ url_for('csr.reject', csr_id=csr.id) }}" class="d-inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-outline-danger">Reject</button>
-        </form>
-        {% endif %}
-    </div>
-</div>
+{% set badges %}{{ csr_status_badge(csr) }}{% endset %}
+{% call page_header("CSR: " ~ csr.common_name, id=csr.id, badges=badges) %}
+    <a href="{{ url_for('csr.list_csrs') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left" aria-hidden="true"></i> All CSRs</a>
+    {% if current_user.is_admin and csr.status == 'pending' %}
+    {% if not dual_control_active() or csr.created_by != current_user.id or current_user.username == config.ADMIN_USERNAME %}
+    <a href="{{ url_for('csr.sign', csr_id=csr.id) }}" class="btn btn-sm btn-success"><i class="bi bi-pen" aria-hidden="true"></i> Sign</a>
+    {% endif %}
+    <form method="POST" action="{{ url_for('csr.reject', csr_id=csr.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-outline-danger">Reject</button>
+    </form>
+    {% endif %}
+{% endcall %}
 
-<div class="row mt-3">
-    <div class="col-md-6">
+<div class="row g-3">
+    <div class="col-lg-6">
         <div class="card mb-3">
-            <div class="card-header">CSR Information</div>
+            <div class="card-header"><span><i class="bi bi-info-circle" aria-hidden="true"></i>CSR Information</span></div>
             <div class="card-body">
-                <table class="table table-sm">
-                    <tr><th>Common Name</th><td>{{ csr.common_name }}</td></tr>
-                    <tr>
-                        <th>Status</th>
-                        <td>
-                            {% if csr.status == 'pending' %}
-                            <span class="badge bg-warning text-dark">Pending</span>
-                            {% elif csr.status == 'approved' %}
-                            <span class="badge bg-success">Approved</span>
-                            {% else %}
-                            <span class="badge bg-secondary">Rejected</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% if csr.profile %}
-                    <tr><th>Requested Profile</th><td>{{ csr.profile.name }}</td></tr>
-                    {% endif %}
-                    {% if csr.ca %}
-                    <tr><th>Issuing CA</th><td><a href="{{ url_for('ca.detail', ca_id=csr.ca.id) }}">{{ csr.ca.name }}</a></td></tr>
-                    {% endif %}
-                    {% if csr.signer %}
-                    <tr><th>Signed By</th><td>{{ csr.signer.username }}</td></tr>
-                    {% endif %}
-                    {% if csr.certificate %}
-                    <tr><th>Certificate</th><td><a href="{{ url_for('certificates.detail', cert_id=csr.certificate.id) }}">View</a></td></tr>
-                    {% endif %}
-                    <tr><th>Created</th><td>{{ csr.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
-                </table>
+                <dl class="kv">
+                    {% call kv("Common Name") %}{{ csr.common_name }}{% endcall %}
+                    {% call kv("Status") %}{{ csr_status_badge(csr) }}{% endcall %}
+                    {% if csr.profile %}{% call kv("Requested Profile") %}{{ csr.profile.name }}{% endcall %}{% endif %}
+                    {% if csr.ca %}{% call kv("Issuing CA") %}<a href="{{ url_for('ca.detail', ca_id=csr.ca.id) }}">{{ csr.ca.name }}</a>{% endcall %}{% endif %}
+                    {% if csr.creator %}{% call kv("Requested By") %}{{ csr.creator.username }}{% endcall %}{% endif %}
+                    {% if csr.signer %}{% call kv("Signed By") %}{{ csr.signer.username }}{% endcall %}{% endif %}
+                    {% if csr.certificate %}{% call kv("Certificate") %}<a href="{{ url_for('certificates.detail', cert_id=csr.certificate.id) }}">View</a>{% endcall %}{% endif %}
+                    {% call kv("Created") %}{{ csr.created_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endcall %}
+                </dl>
             </div>
         </div>
 
         {% if san_list is defined and san_list %}
         <div class="card mb-3">
-            <div class="card-header">Subject Alternative Names</div>
+            <div class="card-header"><span><i class="bi bi-globe2" aria-hidden="true"></i>Subject Alternative Names</span></div>
             <div class="card-body">
                 <ul class="list-unstyled mb-0">
                 {% for san in san_list %}
-                    <li><code>{{ san }}</code></li>
+                    <li class="mb-1"><code>{{ san }}</code></li>
                 {% endfor %}
                 </ul>
             </div>
         </div>
         {% endif %}
     </div>
-    <div class="col-md-6">
+    <div class="col-lg-6">
         <div class="card mb-3">
-            <div class="card-header">CSR PEM</div>
-            <div class="card-body">
-                <pre class="bg-body-tertiary p-2" style="max-height:200px;overflow:auto;font-size:0.75rem">{{ csr.csr_pem }}</pre>
-            </div>
+            <div class="card-header"><span><i class="bi bi-file-earmark-code" aria-hidden="true"></i>CSR PEM</span></div>
+            <div class="card-body">{{ pem_block('csr-pem', csr.csr_pem) }}</div>
         </div>
 
         {% if key_pem is defined and key_pem %}
         <div class="card mb-3 border-warning">
-            <div class="card-header bg-warning text-dark">Private Key (save now!)</div>
+            <div class="card-header text-warning-emphasis"><span><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>Private Key (save now!)</span></div>
             <div class="card-body">
-                <pre class="bg-body-tertiary p-2" style="max-height:200px;overflow:auto;font-size:0.75rem">{{ key_pem }}</pre>
-                <button id="copyKeyBtn" class="btn btn-sm btn-outline-secondary">Copy to Clipboard</button>
+                <p class="small text-body-secondary">This key is not stored. Copy it now; it will not be shown again.</p>
+                {{ pem_block('csr-key', key_pem, 'Copy to Clipboard') }}
             </div>
         </div>
         {% endif %}
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-{% if key_pem is defined and key_pem %}
-<script nonce="{{ csp_nonce }}">
-function copyKey() {
-    navigator.clipboard.writeText({{ key_pem|tojson }});
-}
-document.getElementById('copyKeyBtn').addEventListener('click', copyKey);
-</script>
-{% endif %}
 {% endblock %}

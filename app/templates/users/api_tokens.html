@@ -1,11 +1,13 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header, empty_row %}
 {% block title %}API Tokens - Chancery{% endblock %}
+{% block topbar %}API Tokens{% endblock %}
 {% block content %}
 {% if current_user.is_admin %}
 {% set active_tab = 'api_tokens' %}
 {% include "users/_tabs.html" %}
 {% endif %}
-<h2>API Tokens</h2>
+{{ page_header("API Tokens", "Bearer credentials for scripts and automation, scoped and expiring.") }}
 <p class="text-body-secondary">A token authenticates scripts and automation with <code>Authorization: Bearer chy_api_…</code>
     instead of your password. It carries only the scopes you give it, never more than your role allows, and expires
     after at most {{ max_days }} days. The secret is shown once, right after creation.</p>
@@ -14,14 +16,15 @@
 <div class="alert alert-success">
     <strong>Token '{{ new_row.name }}' created.</strong> Copy it now — it will not be shown again.
     <pre class="mb-1 mt-2 user-select-all"><code id="new-token">{{ new_token }}</code></pre>
+    <button type="button" class="btn btn-sm btn-outline-secondary mb-2" data-copy-target="#new-token"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy token</button>
     <div class="small">Example: <code>curl -H "Authorization: Bearer {{ new_token[:16] }}…" {{ url_for('certificates.list_certs', _external=True) }}</code></div>
 </div>
 {% endif %}
 
 <div class="card mb-3">
-    <div class="card-header">Create a token</div>
+    <div class="card-header"><span><i class="bi bi-plus-circle" aria-hidden="true"></i>Create a token</span></div>
     <div class="card-body">
-        <form method="POST" action="{{ url_for('users.api_tokens') }}" class="row g-2 align-items-end">
+        <form method="POST" action="{{ url_for('users.api_tokens') }}" class="row g-3 align-items-end">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-3">
                 <label for="name" class="form-label">Name</label>
@@ -32,55 +35,57 @@
                 <input type="number" class="form-control" id="expires_in_days" name="expires_in_days" min="1" max="{{ max_days }}" value="30">
             </div>
             <div class="col-md-5">
-                <label class="form-label">Scopes</label>
+                <label class="form-label d-block">Scopes</label>
                 {% for scope, label in scope_labels.items() %}
-                <div class="form-check">
+                <div class="form-check form-check-inline">
                     <input class="form-check-input" type="checkbox" id="scope_{{ scope }}" name="scope_{{ scope }}" {% if scope == 'read' %}checked{% endif %}>
                     <label class="form-check-label" for="scope_{{ scope }}">{{ label }}</label>
                 </div>
                 {% endfor %}
             </div>
             <div class="col-md-2">
-                <button type="submit" class="btn btn-primary">Create token</button>
+                <button type="submit" class="btn btn-primary w-100">Create token</button>
             </div>
         </form>
     </div>
 </div>
 
 {% macro token_table(rows, show_user) %}
-<table class="table table-sm">
-    <thead><tr>{% if show_user %}<th>User</th>{% endif %}<th>Name</th><th>Scopes</th><th>Status</th><th>Expires</th><th>Last used</th><th>Token id</th><th></th></tr></thead>
+<div class="table-responsive">
+<table class="table table-sm table-hover mb-0">
+    <thead><tr>{% if show_user %}<th>User</th>{% endif %}<th>Name</th><th>Scopes</th><th>Status</th><th>Expires</th><th>Last used</th><th>Token id</th><th class="table-actions"></th></tr></thead>
     <tbody>
     {% for t in rows %}
         <tr>
             {% if show_user %}<td>{{ t.user.username }}</td>{% endif %}
-            <td>{{ t.name }}</td>
+            <td class="fw-semibold">{{ t.name }}</td>
             <td>{% for sc in t.scopes %}<span class="badge bg-secondary">{{ sc }}</span> {% endfor %}</td>
             <td>{% if t.status == 'active' %}<span class="badge bg-success">Active</span>{% elif t.status == 'expired' %}<span class="badge bg-secondary">Expired</span>{% else %}<span class="badge bg-danger">Revoked</span>{% endif %}</td>
-            <td>{{ t.expires_at.strftime('%Y-%m-%d') }}</td>
-            <td>{{ t.last_used_at.strftime('%Y-%m-%d %H:%M') if t.last_used_at else 'never' }}</td>
+            <td class="text-nowrap">{{ t.expires_at.strftime('%Y-%m-%d') }}</td>
+            <td class="text-nowrap">{{ t.last_used_at.strftime('%Y-%m-%d %H:%M') if t.last_used_at else 'never' }}</td>
             <td><code>{{ t.token_id }}</code></td>
-            <td>{% if t.status == 'active' %}
+            <td class="table-actions">{% if t.status == 'active' %}
                 <form method="POST" action="{{ url_for('users.revoke_api_token', token_id=t.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-sm btn-outline-danger">Revoke</button>
                 </form>{% endif %}</td>
         </tr>
     {% else %}
-        <tr><td colspan="{{ 8 if show_user else 7 }}" class="text-body-secondary text-center">No tokens.</td></tr>
+        {{ empty_row(8 if show_user else 7, 'No tokens.', 'key') }}
     {% endfor %}
     </tbody>
 </table>
+</div>
 {% endmacro %}
 
 <div class="card mb-3">
-    <div class="card-header">Your tokens</div>
-    <div class="card-body">{{ token_table(mine, false) }}</div>
+    <div class="card-header"><span><i class="bi bi-key" aria-hidden="true"></i>Your tokens</span></div>
+    {{ token_table(mine, false) }}
 </div>
 {% if current_user.is_admin %}
 <div class="card mb-3">
-    <div class="card-header">Other users' tokens</div>
-    <div class="card-body">{{ token_table(others, true) }}</div>
+    <div class="card-header"><span><i class="bi bi-people" aria-hidden="true"></i>Other users' tokens</span></div>
+    {{ token_table(others, true) }}
 </div>
 {% endif %}
 {% endblock %}

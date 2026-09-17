@@ -1,27 +1,31 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header, empty_row %}
 {% block title %}Users - Chancery{% endblock %}
+{% block topbar %}Preferences &middot; Users{% endblock %}
 {% block content %}
 {% set active_tab = 'users' %}
 {% include "users/_tabs.html" %}
-<div class="d-flex justify-content-between align-items-center">
-    <h2>Users</h2>
-    <a href="{{ url_for('users.create_user') }}" class="btn btn-primary">Create User</a>
-</div>
+{% call page_header("Users", "Local and directory accounts and their roles.") %}
+    <a href="{{ url_for('users.create_user') }}" class="btn btn-primary"><i class="bi bi-person-plus me-1" aria-hidden="true"></i>Create User</a>
+{% endcall %}
 
-<table class="table mt-3">
+<div class="card">
+<div class="table-responsive">
+<table class="table table-hover mb-0">
     <thead>
         <tr>
             <th>Username</th>
             <th>Role</th>
             <th>Status</th>
+            <th>Two-factor</th>
             <th>Created</th>
-            <th>Actions</th>
+            <th class="table-actions">Actions</th>
         </tr>
     </thead>
     <tbody>
     {% for user in users %}
         <tr>
-            <td>{{ user.username }}{% if user.is_ldap_user %} <span class="badge bg-secondary">LDAP</span>{% endif %}</td>
+            <td><span class="fw-semibold">{{ user.username }}</span>{% if user.is_ldap_user %} <span class="badge bg-secondary">LDAP</span>{% endif %}</td>
             <td>
                 {% if user.role == 'admin' %}
                 <span class="badge bg-primary">Admin</span>
@@ -36,8 +40,9 @@
                 <span class="badge bg-danger">Inactive</span>
                 {% endif %}
             </td>
-            <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
-            <td>
+            <td>{% if user.totp_enabled %}<span class="badge bg-success">on</span>{% else %}<span class="text-body-secondary small">off</span>{% endif %}</td>
+            <td class="text-nowrap">{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+            <td class="table-actions">
                 <a href="{{ url_for('users.edit_user', user_id=user.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
                 {% if not user.is_ldap_user %}
                 <a href="{{ url_for('users.reset_password', user_id=user.id) }}" class="btn btn-sm btn-outline-warning">Reset Password</a>
@@ -55,8 +60,10 @@
             </td>
         </tr>
     {% else %}
-        <tr><td colspan="5" class="text-muted text-center">No users found.</td></tr>
+        {{ empty_row(6, 'No users found.', 'people') }}
     {% endfor %}
     </tbody>
 </table>
+</div>
+</div>
 {% endblock %}

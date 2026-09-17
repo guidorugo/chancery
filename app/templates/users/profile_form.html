@@ -1,9 +1,12 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}{{ 'Edit' if profile else 'New' }} Profile - Chancery{% endblock %}
+{% block topbar %}{{ 'Edit' if profile else 'New' }} Profile{% endblock %}
 {% block content %}
 {% set active_tab = 'profiles' %}
 {% include "users/_tabs.html" %}
-<h2>{% if profile %}Edit Profile: {{ profile.name }}{% else %}New Certificate Profile{% endif %}</h2>
+{% set _title %}{% if profile %}Edit Profile: {{ profile.name }}{% else %}New Certificate Profile{% endif %}{% endset %}
+{{ page_header(_title) }}
 {% set f = fields %}
 {% set ku = f.get('key_usage') or {} %}
 {% set eku = f.get('extended_key_usage') or [] %}

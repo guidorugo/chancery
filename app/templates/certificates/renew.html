@@ -1,9 +1,12 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}Renew {{ cert.common_name }} - Chancery{% endblock %}
+{% block topbar %}Renew {{ cert.common_name }}{% endblock %}
 {% block content %}
-<h2>Renew Certificate</h2>
+{% set _title %}Renew Certificate{% endset %}
+{{ page_header(_title) }}
 
-<div class="card mt-3">
+<div class="card">
     <div class="card-body">
         <p>Issue a successor for <strong>{{ cert.common_name }}</strong> <span class="text-body-secondary">#{{ cert.id }}</span>
             from <a href="{{ url_for('ca.detail', ca_id=cert.ca_id) }}">{{ cert.ca.name }}</a> with the same subject,

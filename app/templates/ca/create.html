@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}Create CA - Chancery{% endblock %}
+{% block topbar %}Create CA{% endblock %}
 {% block content %}
-<h2>Create Certificate Authority</h2>
+{% set _title %}Create Certificate Authority{% endset %}
+{{ page_header(_title) }}
 
 <ul class="nav nav-tabs mt-3" role="tablist">
     <li class="nav-item">

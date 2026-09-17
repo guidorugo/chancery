@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, render_template, jsonify, current_app
 from flask_login import login_required, current_user
 
+from ..models.audit_log import AuditLog
 from ..models.ca import CertificateAuthority
 from ..models.certificate import Certificate
 from ..models.csr import CertificateSigningRequest
@@ -10,11 +11,11 @@ from ..responses import wants_json
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
-# The dashboard "Recent" panels stretch to the footer and trim client-side to
-# however many rows fit the window (see static/js/dashboard.js). Fetch a
-# generous pool so a tall screen has rows to fill with; the JSON API stays at a
-# stable 10.
-_RECENT_POOL = 50
+# Rows fetched for the "Recent" panels (the JSON API answers a stable 10; the
+# 3.0 dashboard shows the first RECENT_SHOWN and links to the filtered lists).
+_RECENT_POOL = 10
+RECENT_SHOWN = 8
+ATTENTION_ROWS = 6
 
 
 @dashboard_bp.route("/")
@@ -45,7 +46,22 @@ def index():
                 "recent_cas": [ca.to_dict() for ca in recent_cas[:10]],
                 "recent_certs": [c.to_dict() for c in recent_certs[:10]],
             })
-        return render_template("dashboard.html", stats=stats, recent_certs=recent_certs, recent_cas=recent_cas)
+        # 3.0 dashboard: what needs a hand, the signing CAs' health, recent activity.
+        attention = {
+            "expiring": Certificate.query.filter_by(is_revoked=False).filter(
+                Certificate.not_after >= now, Certificate.not_after <= soon)
+                .order_by(Certificate.not_after.asc()).limit(ATTENTION_ROWS).all(),
+            "pending_csrs": CertificateSigningRequest.query.filter_by(status="pending")
+                .order_by(CertificateSigningRequest.created_at.asc()).limit(ATTENTION_ROWS).all(),
+            "pending_cas": CertificateAuthority.query.filter_by(approval_status="pending", is_revoked=False)
+                .order_by(CertificateAuthority.created_at.asc()).limit(ATTENTION_ROWS).all(),
+        }
+        signing_cas = CertificateAuthority.signing_capable().order_by(CertificateAuthority.not_after.asc()).all()
+        activity = AuditLog.query.order_by(AuditLog.timestamp.desc()).limit(RECENT_SHOWN).all()
+        return render_template("dashboard.html", stats=stats, recent_certs=recent_certs[:RECENT_SHOWN],
+                               recent_cas=recent_cas[:RECENT_SHOWN], attention=attention,
+                               signing_cas=signing_cas, activity=activity,
+                               warning_days=current_app.config.get("CERT_EXPIRY_WARNING_DAYS", 30))
     else:
         stats = {
             "csr_pending": CertificateSigningRequest.query.filter_by(
@@ -66,4 +82,7 @@ def index():
                 "stats": stats,
                 "recent_csrs": [c.to_dict() for c in recent_csrs[:10]],
             })
-        return render_template("dashboard.html", stats=stats, recent_csrs=recent_csrs)
+        recent_certs = Certificate.query.filter_by(requested_by=current_user.id).order_by(
+            Certificate.created_at.desc()).limit(RECENT_SHOWN).all()
+        return render_template("dashboard.html", stats=stats, recent_csrs=recent_csrs[:RECENT_SHOWN],
+                               recent_certs=recent_certs)

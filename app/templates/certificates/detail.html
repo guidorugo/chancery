@@ -1,84 +1,62 @@
 {% extends "base.html" %}
-{% from "_macros.html" import expiry_badge, status_badge, renewal_badge %}
+{% from "_macros.html" import expiry_badge, status_badge, renewal_badge, page_header, kv, pem_block %}
 {% block title %}{{ cert.common_name }} #{{ cert.id }} - Chancery{% endblock %}
+{% block topbar %}Certificate &middot; {{ cert.common_name }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center">
-    <h2>{{ cert.common_name }} <span class="text-body-secondary">#{{ cert.id }}</span></h2>
-    <div>
-        <div class="btn-group">
-            <a href="{{ url_for('certificates.download', cert_id=cert.id, format='pem') }}" class="btn btn-sm btn-outline-primary">PEM</a>
-            <a href="{{ url_for('certificates.download', cert_id=cert.id, format='der') }}" class="btn btn-sm btn-outline-primary">DER</a>
-            <a href="{{ url_for('certificates.download', cert_id=cert.id, format='fullchain') }}" class="btn btn-sm btn-outline-primary" title="Leaf + issuing chain (fullchain.pem)">Full chain</a>
-            <a href="{{ url_for('certificates.download', cert_id=cert.id, format='chain') }}" class="btn btn-sm btn-outline-primary" title="Issuing CA chain only (chain.pem)">CA chain</a>
-        </div>
-        {% if cert.private_key_enc %}
-        {# C3: PKCS#12 and Key export private-key material — POST-only, so nothing sensitive lands in a GET URL/log #}
-        <form method="POST" action="{{ url_for('certificates.download', cert_id=cert.id) }}" class="d-inline-flex align-items-center ms-1">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="format" value="pkcs12">
-            <input type="password" name="password" placeholder="P12 password" required autocomplete="off" class="form-control form-control-sm me-1" style="width:11rem">
-            <button type="submit" class="btn btn-sm btn-outline-primary">PKCS#12</button>
-        </form>
-        {% if current_user.is_admin %}
-        <form method="POST" action="{{ url_for('certificates.download_key', cert_id=cert.id) }}" class="d-inline ms-1">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-sm btn-outline-warning">Key</button>
-        </form>
-        {% endif %}
-        {% endif %}
-        {% if current_user.is_admin %}
-        <a href="{{ url_for('certificates.renew', cert_id=cert.id) }}" class="btn btn-sm btn-outline-success ms-2" title="Issue a successor with the same subject, SANs and usages">Renew</a>
-        {% endif %}
-        {% if current_user.is_admin and not cert.is_revoked %}
-        <a href="{{ url_for('certificates.revoke', cert_id=cert.id) }}" class="btn btn-sm btn-danger ms-2">Revoke</a>
-        {% endif %}
+{% set badges %}{{ status_badge(cert) }}{{ renewal_badge(cert) }}{% endset %}
+{% call page_header(cert.common_name, id=cert.id, badges=badges, subtitle="Issued by " ~ cert.ca.name ~ " · valid until " ~ cert.not_after.strftime('%Y-%m-%d')) %}
+    <div class="btn-group">
+        <a href="{{ url_for('certificates.download', cert_id=cert.id, format='pem') }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-download" aria-hidden="true"></i> PEM</a>
+        <a href="{{ url_for('certificates.download', cert_id=cert.id, format='der') }}" class="btn btn-sm btn-outline-primary">DER</a>
+        <a href="{{ url_for('certificates.download', cert_id=cert.id, format='fullchain') }}" class="btn btn-sm btn-outline-primary" title="Leaf + issuing chain (fullchain.pem)">Full chain</a>
+        <a href="{{ url_for('certificates.download', cert_id=cert.id, format='chain') }}" class="btn btn-sm btn-outline-primary" title="Issuing CA chain only (chain.pem)">CA chain</a>
     </div>
-</div>
+    {% if cert.private_key_enc %}
+    {# C3: PKCS#12 and Key export private-key material — POST-only, so nothing sensitive lands in a GET URL/log #}
+    <form method="POST" action="{{ url_for('certificates.download', cert_id=cert.id) }}" class="d-inline-flex align-items-center">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="format" value="pkcs12">
+        <input type="password" name="password" placeholder="P12 password" required autocomplete="off" class="form-control form-control-sm me-1" style="width:11rem">
+        <button type="submit" class="btn btn-sm btn-outline-primary">PKCS#12</button>
+    </form>
+    {% if current_user.is_admin %}
+    <form method="POST" action="{{ url_for('certificates.download_key', cert_id=cert.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-key" aria-hidden="true"></i> Key</button>
+    </form>
+    {% endif %}
+    {% endif %}
+    {% if current_user.is_admin %}
+    <a href="{{ url_for('certificates.renew', cert_id=cert.id) }}" class="btn btn-sm btn-outline-success" title="Issue a successor with the same subject, SANs and usages"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Renew</a>
+    {% endif %}
+    {% if current_user.is_admin and not cert.is_revoked %}
+    <a href="{{ url_for('certificates.revoke', cert_id=cert.id) }}" class="btn btn-sm btn-danger"><i class="bi bi-x-octagon" aria-hidden="true"></i> Revoke</a>
+    {% endif %}
+{% endcall %}
 
-<div class="row mt-3">
-    <div class="col-md-6">
+<div class="row g-3">
+    <div class="col-lg-6">
         <div class="card mb-3">
-            <div class="card-header">Certificate Information</div>
+            <div class="card-header"><span><i class="bi bi-info-circle" aria-hidden="true"></i>Certificate Information</span></div>
             <div class="card-body">
-                <table class="table table-sm">
-                    <tr><th>Common Name</th><td>{{ cert.common_name }}</td></tr>
-                    <tr><th>Serial Number</th><td><code style="word-break:break-all">{{ cert.serial_number }}</code></td></tr>
-                    <tr>
-                        <th>Issuing CA</th>
-                        <td><a href="{{ url_for('ca.detail', ca_id=cert.ca_id) }}">{{ cert.ca.name }}</a></td>
-                    </tr>
-                    <tr><th>Key Type</th><td>{{ cert.key_type }} {{ cert.key_size }}</td></tr>
-                    {% if cert.profile %}
-                    <tr><th>Profile</th><td>{{ cert.profile.name }}{% if cert.profile.is_custom %} <span class="text-body-secondary">(unrestricted)</span>{% endif %}</td></tr>
-                    {% endif %}
+                <dl class="kv">
+                    {% call kv("Common Name") %}{{ cert.common_name }}{% endcall %}
+                    {% call kv("Serial Number") %}<code style="word-break:break-all">{{ cert.serial_number }}</code>{% endcall %}
+                    {% call kv("Issuing CA") %}<a href="{{ url_for('ca.detail', ca_id=cert.ca_id) }}">{{ cert.ca.name }}</a>{% endcall %}
+                    {% call kv("Key Type") %}{{ cert.key_type }} {{ cert.key_size }}{% endcall %}
+                    {% if cert.profile %}{% call kv("Profile") %}{{ cert.profile.name }}{% if cert.profile.is_custom %} <span class="text-body-secondary">(unrestricted)</span>{% endif %}{% endcall %}{% endif %}
                     {% set cps = cert.certificate_policies %}
-                    {% if cps %}
-                    <tr><th>Certificate Policies</th><td>{% for p in cps %}<div><code>{{ p.oid }}</code>{% if p.cps_uri %} <a href="{{ p.cps_uri }}" rel="noopener" target="_blank">CPS</a>{% endif %}</div>{% endfor %}</td></tr>
-                    {% endif %}
-                    <tr><th>Valid From</th><td>{{ cert.not_before.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
-                    <tr><th>Valid Until</th><td>{{ cert.not_after.strftime('%Y-%m-%d %H:%M UTC') }}{{ expiry_badge(cert) }}</td></tr>
-                    <tr>
-                        <th>Status</th>
-                        <td>
-                            {{ status_badge(cert) }}{{ renewal_badge(cert) }}
-                            {% if cert.is_revoked %} ({{ cert.revocation_reason }}, {{ cert.revoked_at.strftime('%Y-%m-%d %H:%M UTC') }}){% endif %}
-                        </td>
-                    </tr>
-                    {% if cert.renewed_from %}
-                    <tr><th>Renewed From</th><td><a href="{{ url_for('certificates.detail', cert_id=cert.renewed_from.id) }}">#{{ cert.renewed_from.id }}</a> (serial <code>{{ cert.renewed_from.serial_number[:16] }}…</code>)</td></tr>
-                    {% endif %}
-                    {% if cert.renewals %}
-                    <tr><th>Superseded By</th><td>{% for r in cert.renewals %}<a href="{{ url_for('certificates.detail', cert_id=r.id) }}">#{{ r.id }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
-                    {% endif %}
-                    <tr><th>Private Key</th><td>{{ "Available" if cert.private_key_enc else "Not stored" }}</td></tr>
-                    {% if cert.requester %}
-                    <tr><th>Requested By</th><td>{{ cert.requester.username }}</td></tr>
-                    {% endif %}
-                    {% if cert.issuer_user %}
-                    <tr><th>Issued By</th><td>{{ cert.issuer_user.username }}</td></tr>
-                    {% endif %}
-                    <tr><th>Created</th><td>{{ cert.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
-                </table>
+                    {% if cps %}{% call kv("Certificate Policies") %}{% for p in cps %}<div><code>{{ p.oid }}</code>{% if p.cps_uri %} <a href="{{ p.cps_uri }}" rel="noopener" target="_blank">CPS</a>{% endif %}</div>{% endfor %}{% endcall %}{% endif %}
+                    {% call kv("Valid From") %}{{ cert.not_before.strftime('%Y-%m-%d %H:%M UTC') }}{% endcall %}
+                    {% call kv("Valid Until") %}{{ cert.not_after.strftime('%Y-%m-%d %H:%M UTC') }}{{ expiry_badge(cert) }}{% endcall %}
+                    {% call kv("Status") %}{{ status_badge(cert) }}{{ renewal_badge(cert) }}{% if cert.is_revoked %} <span class="text-body-secondary">({{ cert.revocation_reason }}, {{ cert.revoked_at.strftime('%Y-%m-%d %H:%M UTC') }})</span>{% endif %}{% endcall %}
+                    {% if cert.renewed_from %}{% call kv("Renewed From") %}<a href="{{ url_for('certificates.detail', cert_id=cert.renewed_from.id) }}">#{{ cert.renewed_from.id }}</a> (serial <code>{{ cert.renewed_from.serial_number[:16] }}…</code>){% endcall %}{% endif %}
+                    {% if cert.renewals %}{% call kv("Superseded By") %}{% for r in cert.renewals %}<a href="{{ url_for('certificates.detail', cert_id=r.id) }}">#{{ r.id }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endcall %}{% endif %}
+                    {% call kv("Private Key") %}{{ "Available" if cert.private_key_enc else "Not stored" }}{% endcall %}
+                    {% if cert.requester %}{% call kv("Requested By") %}{{ cert.requester.username }}{% endcall %}{% endif %}
+                    {% if cert.issuer_user %}{% call kv("Issued By") %}{{ cert.issuer_user.username }}{% endcall %}{% endif %}
+                    {% call kv("Created") %}{{ cert.created_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endcall %}
+                </dl>
             </div>
         </div>
 
@@ -98,20 +76,20 @@
         {% endfor %}
         {% if subject_items %}
         <div class="card mb-3">
-            <div class="card-header">Subject Details</div>
+            <div class="card-header"><span><i class="bi bi-person-vcard" aria-hidden="true"></i>Subject Details</span></div>
             <div class="card-body">
-                <table class="table table-sm mb-0">
+                <dl class="kv">
                     {% for label, value in subject_items %}
-                    <tr><th>{{ label }}</th><td>{{ value }}</td></tr>
+                    {% call kv(label) %}{{ value }}{% endcall %}
                     {% endfor %}
-                </table>
+                </dl>
             </div>
         </div>
         {% endif %}
     </div>
-    <div class="col-md-6">
+    <div class="col-lg-6">
         <div class="card mb-3">
-            <div class="card-header">Key Usage &amp; Extensions</div>
+            <div class="card-header"><span><i class="bi bi-toggles" aria-hidden="true"></i>Key Usage &amp; Extensions</span></div>
             <div class="card-body">
                 {% set ku_labels = {
                     "digital_signature": "Digital Signature",
@@ -120,19 +98,16 @@
                     "data_encipherment": "Data Encipherment",
                     "key_agreement": "Key Agreement"
                 } %}
-                <h6>Key Usage</h6>
-                <ul class="list-unstyled mb-3">
+                <div class="divider-label mb-2">Key Usage</div>
+                <div class="d-flex flex-wrap gap-2 mb-3">
                     {% for flag, label in ku_labels.items() %}
-                    <li>
-                        {{ label }}:
-                        {% if key_usage.get(flag) %}
-                        <span class="badge bg-success">Yes</span>
-                        {% else %}
-                        <span class="badge bg-secondary">No</span>
-                        {% endif %}
-                    </li>
+                    {% if key_usage.get(flag) %}
+                    <span class="badge bg-success">{{ label }}</span>
+                    {% else %}
+                    <span class="badge bg-secondary" title="Not set">{{ label }}</span>
+                    {% endif %}
                     {% endfor %}
-                </ul>
+                </div>
 
                 {% set eku_labels = {
                     "serverAuth": "Server Authentication (TLS)",
@@ -142,26 +117,26 @@
                     "timeStamping": "Time Stamping",
                     "ocspSigning": "OCSP Signing"
                 } %}
-                <h6>Extended Key Usage</h6>
+                <div class="divider-label mb-2">Extended Key Usage</div>
                 {% if extended_key_usage %}
-                <ul class="list-unstyled mb-0">
+                <div class="d-flex flex-wrap gap-2">
                     {% for eku in extended_key_usage %}
-                    <li><span class="badge bg-info text-dark">{{ eku_labels.get(eku, eku) }}</span></li>
+                    <span class="badge bg-info text-dark">{{ eku_labels.get(eku, eku) }}</span>
                     {% endfor %}
-                </ul>
+                </div>
                 {% else %}
-                <span class="text-muted">None</span>
+                <span class="text-body-secondary">None</span>
                 {% endif %}
             </div>
         </div>
 
         {% if san_list %}
         <div class="card mb-3">
-            <div class="card-header">Subject Alternative Names</div>
+            <div class="card-header"><span><i class="bi bi-globe2" aria-hidden="true"></i>Subject Alternative Names</span></div>
             <div class="card-body">
                 <ul class="list-unstyled mb-0">
                 {% for san in san_list %}
-                    <li><code>{{ san }}</code></li>
+                    <li class="mb-1"><code>{{ san }}</code></li>
                 {% endfor %}
                 </ul>
             </div>
@@ -169,10 +144,8 @@
         {% endif %}
 
         <div class="card mb-3">
-            <div class="card-header">Certificate PEM</div>
-            <div class="card-body">
-                <pre class="bg-body-tertiary p-2" style="max-height:200px;overflow:auto;font-size:0.75rem">{{ cert.certificate_pem }}</pre>
-            </div>
+            <div class="card-header"><span><i class="bi bi-file-earmark-code" aria-hidden="true"></i>Certificate PEM</span></div>
+            <div class="card-body">{{ pem_block('cert-pem', cert.certificate_pem) }}</div>
         </div>
     </div>
 </div>

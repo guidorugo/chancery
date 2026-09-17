@@ -45,3 +45,45 @@
 {% macro renewal_badge(obj) -%}
   {%- if obj.renewals %} <span class="badge bg-secondary" title="Renewed as #{{ obj.renewals[-1].id }}">Superseded</span>{% endif -%}
 {%- endmacro %}
+
+{# ---- 3.0 UI helpers ------------------------------------------------------ #}
+
+{# Page header: title (+ optional #id, badges markup, subtitle) and an actions
+   slot filled by the caller block. Usage:
+     {% call page_header("Certificates") %}<a class="btn btn-primary">…</a>{% endcall %}
+     {% call page_header(ca.name, id=ca.id, badges=badges) %}…{% endcall %} #}
+{% macro page_header(title, subtitle=None, id=None, badges=None) -%}
+<div class="page-header">
+    <div>
+        <h2>{{ title }}{% if id %} <span class="text-body-secondary">#{{ id }}</span>{% endif %}{% if badges %} {{ badges }}{% endif %}</h2>
+        {% if subtitle %}<p class="page-subtitle">{{ subtitle }}</p>{% endif %}
+    </div>
+    {% if caller %}<div class="page-actions">{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{# One row of a <dl class="kv"> key/value list; the value is the caller block. #}
+{% macro kv(label) -%}
+<div><dt>{{ label }}</dt><dd>{{ caller() }}</dd></div>
+{%- endmacro %}
+
+{# Status badge for a CSR. #}
+{% macro csr_status_badge(csr) -%}
+  {%- if csr.status == 'pending' -%}<span class="badge bg-warning text-dark">Pending</span>
+  {%- elif csr.status == 'approved' -%}<span class="badge bg-success">Approved</span>
+  {%- elif csr.status == 'signing' -%}<span class="badge bg-info">Signing</span>
+  {%- else -%}<span class="badge bg-secondary">Rejected</span>{%- endif -%}
+{%- endmacro %}
+
+{# Empty-table row. #}
+{% macro empty_row(colspan, text, icon='inbox') -%}
+<tr><td colspan="{{ colspan }}"><div class="empty-state"><i class="bi bi-{{ icon }}" aria-hidden="true"></i>{{ text }}</div></td></tr>
+{%- endmacro %}
+
+{# PEM block with a copy button; `id` must be unique on the page. #}
+{% macro pem_block(id, text, label='Copy') -%}
+<div class="pem-block">
+    <pre id="{{ id }}">{{ text }}</pre>
+    <button type="button" class="btn btn-sm btn-outline-secondary copy-btn" data-copy-target="#{{ id }}"><i class="bi bi-clipboard" aria-hidden="true"></i> {{ label }}</button>
+</div>
+{%- endmacro %}

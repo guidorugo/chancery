@@ -86,7 +86,7 @@ def test_dashboard_html_includes_fit_script(auth_admin):
 
 def test_dashboard_fit_script_served(client):
     r = client.get("/static/js/dashboard.js")
-    assert r.status_code == 200 and b"fitTable" in r.data
+    assert r.status_code == 200 and b"Dashboard helpers" in r.data
 
 
 def test_missing_resource_json_404(auth_admin):

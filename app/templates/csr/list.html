@@ -1,47 +1,49 @@
 {% extends "base.html" %}
-{% from "_macros.html" import pager %}
+{% from "_macros.html" import pager, csr_status_badge, page_header, empty_row %}
 {% block title %}CSRs - Chancery{% endblock %}
+{% block topbar %}Certificate Signing Requests{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center">
-    <h2>Certificate Signing Requests</h2>
-    <a href="{{ url_for('csr.create') }}" class="btn btn-primary">Create CSR</a>
-</div>
+{% call page_header("Certificate Signing Requests", "Requests waiting to be signed, and their outcome.") %}
+    <a href="{{ url_for('csr.create') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Create CSR</a>
+{% endcall %}
 
-<form method="GET" class="row g-2 mt-2 align-items-end" id="csr-filters">
+<form method="GET" class="filter-bar row g-2 align-items-end" id="csr-filters">
     <div class="col-md-4">
-        <label for="q" class="form-label small mb-0">Search</label>
+        <label for="q" class="form-label">Search</label>
         <input type="search" class="form-control form-control-sm" id="q" name="q" value="{{ listing.filters.get('q', '') }}" placeholder="Common name or SAN">
     </div>
-    <div class="col-md-2">
-        <label for="status" class="form-label small mb-0">Status</label>
+    <div class="col-6 col-md-2">
+        <label for="status" class="form-label">Status</label>
         <select class="form-select form-select-sm" id="status" name="status">
             <option value="">Any</option>
             {% for s in status_filters %}<option value="{{ s }}" {% if listing.filters.get('status') == s %}selected{% endif %}>{{ s | capitalize }}</option>{% endfor %}
         </select>
     </div>
     {% if current_user.is_admin %}
-    <div class="col-md-2">
-        <label for="ca_id" class="form-label small mb-0">Issuing CA</label>
+    <div class="col-6 col-md-2">
+        <label for="ca_id" class="form-label">Issuing CA</label>
         <select class="form-select form-select-sm" id="ca_id" name="ca_id">
             <option value="">Any</option>
             {% for ca in cas %}<option value="{{ ca.id }}" {% if listing.filters.get('ca_id') == ca.id|string %}selected{% endif %}>{{ ca.name }}</option>{% endfor %}
         </select>
     </div>
-    <div class="col-md-2">
-        <label for="profile" class="form-label small mb-0">Profile</label>
+    <div class="col-6 col-md-2">
+        <label for="profile" class="form-label">Profile</label>
         <select class="form-select form-select-sm" id="profile" name="profile">
             <option value="">Any</option>
             {% for p in profiles %}<option value="{{ p.key }}" {% if listing.filters.get('profile') == p.key %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
         </select>
     </div>
     {% endif %}
-    <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-sm btn-outline-primary">Filter</button>
+    <div class="col-6 col-md-2 d-flex gap-1">
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel" aria-hidden="true"></i> Filter</button>
         {% if listing.filters %}<a href="{{ url_for('csr.list_csrs') }}" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
     </div>
 </form>
 
-<table class="table mt-3">
+<div class="card">
+<div class="table-responsive">
+<table class="table table-hover mb-0">
     <thead>
         <tr>
             <th>Common Name</th>
@@ -50,32 +52,24 @@
             <th>Certificate</th>
             <th>Created</th>
             {% if current_user.is_admin %}
-            <th>Actions</th>
+            <th class="table-actions">Actions</th>
             {% endif %}
         </tr>
     </thead>
     <tbody>
     {% for csr in csrs %}
         <tr>
-            <td><a href="{{ url_for('csr.detail', csr_id=csr.id) }}">{{ csr.common_name }}</a></td>
-            <td>
-                {% if csr.status == 'pending' %}
-                <span class="badge bg-warning text-dark">Pending</span>
-                {% elif csr.status == 'approved' %}
-                <span class="badge bg-success">Approved</span>
-                {% else %}
-                <span class="badge bg-secondary">Rejected</span>
-                {% endif %}
-            </td>
+            <td><a href="{{ url_for('csr.detail', csr_id=csr.id) }}" class="fw-semibold">{{ csr.common_name }}</a></td>
+            <td>{{ csr_status_badge(csr) }}</td>
             <td>{{ csr.ca.name if csr.ca else '-' }}</td>
             <td>
                 {% if csr.certificate %}
                 <a href="{{ url_for('certificates.detail', cert_id=csr.certificate.id) }}">View</a>
                 {% else %}-{% endif %}
             </td>
-            <td>{{ csr.created_at.strftime('%Y-%m-%d') }}</td>
+            <td class="text-nowrap">{{ csr.created_at.strftime('%Y-%m-%d') }}</td>
             {% if current_user.is_admin %}
-            <td>
+            <td class="table-actions">
                 {% if csr.status == 'pending' %}
                 {% if not dual_control_active() or csr.created_by != current_user.id or current_user.username == config.ADMIN_USERNAME %}
                 <a href="{{ url_for('csr.sign', csr_id=csr.id) }}" class="btn btn-sm btn-outline-success">Sign</a>
@@ -89,9 +83,11 @@
             {% endif %}
         </tr>
     {% else %}
-        <tr><td colspan="{{ 6 if current_user.is_admin else 5 }}" class="text-body-secondary text-center">No CSRs found.</td></tr>
+        {{ empty_row(6 if current_user.is_admin else 5, 'No CSRs found.', 'file-earmark-plus') }}
     {% endfor %}
     </tbody>
 </table>
+</div>
+</div>
 {{ pager(listing) }}
 {% endblock %}

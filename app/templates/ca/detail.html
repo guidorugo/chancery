@@ -1,109 +1,105 @@
 {% extends "base.html" %}
-{% from "_macros.html" import expiry_badge, status_badge %}
+{% from "_macros.html" import expiry_badge, status_badge, page_header, kv, pem_block, empty_row %}
 {% block title %}{{ ca.name }} #{{ ca.id }} - Chancery{% endblock %}
+{% block topbar %}CA &middot; {{ ca.name }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center">
-    <h2>
-        {{ ca.name }} <span class="text-body-secondary">#{{ ca.id }}</span>
-        {% if ca.is_revoked %}
-        <span class="badge bg-danger">Revoked</span>
-        {% elif ca.expiry_status == 'expired' %}
-        <span class="badge bg-secondary">Expired</span>
-        {% elif ca.approval_status == 'pending' %}
-        <span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="Awaiting approval by a second admin; cannot issue certificates, sign CRLs, or answer OCSP.">Pending approval</span>
-        {% endif %}
-        {% if not ca.has_signing_key %}
-        <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Imported without a private key: cannot issue certificates, sign CRLs, or answer OCSP.">Cert-only</span>
-        {% endif %}
-        {% if ca.key_backend == 'softhsm' %}
-        <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Signing key held in a PKCS#11 token (SoftHSM); non-exportable.">HSM</span>
-        {% endif %}
-    </h2>
-    <div>
-        <div class="btn-group">
-            <a href="{{ url_for('public.download_ca_cert', ca_id=ca.id) }}" class="btn btn-outline-primary btn-sm">Cert</a>
-            <a href="{{ url_for('ca.download', ca_id=ca.id, format='chain') }}" class="btn btn-outline-primary btn-sm">Chain</a>
-        </div>
-        {% if ca.is_exportable %}
-        {# Private-key export is POST-only so the key PEM never lands in a GET URL/log.
-           Hidden for HSM CAs: the key is non-exportable by design. #}
-        <form method="POST" action="{{ url_for('ca.download', ca_id=ca.id) }}" class="d-inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="format" value="key">
-            <button type="submit" class="btn btn-outline-warning btn-sm">Key</button>
-        </form>
-        {% endif %}
-        {% if not ca.is_revoked %}
-        {% if ca.approval_status == 'pending' %}
-        {% if not dual_control_active() or ca.created_by != current_user.id or current_user.username == config.ADMIN_USERNAME %}
-        <form method="POST" action="{{ url_for('ca.approve', ca_id=ca.id) }}" class="d-inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-success btn-sm">Approve CA</button>
-        </form>
-        {% endif %}
-        {% elif ca.has_signing_key %}
-        <form method="POST" action="{{ url_for('ca.generate_crl', ca_id=ca.id) }}" class="d-inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-outline-warning btn-sm">Generate CRL</button>
-        </form>
-        {% endif %}
-        <a href="{{ url_for('ca.revoke', ca_id=ca.id) }}" class="btn btn-outline-danger btn-sm">Revoke CA</a>
-        {% endif %}
+{% set badges %}
+    {% if ca.is_revoked %}
+    <span class="badge bg-danger">Revoked</span>
+    {% elif ca.expiry_status == 'expired' %}
+    <span class="badge bg-secondary">Expired</span>
+    {% elif ca.approval_status == 'pending' %}
+    <span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="Awaiting approval by a second admin; cannot issue certificates, sign CRLs, or answer OCSP.">Pending approval</span>
+    {% endif %}
+    {% if not ca.has_signing_key %}
+    <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Imported without a private key: cannot issue certificates, sign CRLs, or answer OCSP.">Cert-only</span>
+    {% endif %}
+    {% if ca.key_backend == 'softhsm' %}
+    <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Signing key held in a PKCS#11 token (SoftHSM); non-exportable.">HSM</span>
+    {% endif %}
+{% endset %}
+{% call page_header(ca.name, id=ca.id, badges=badges, subtitle=("Root CA" if ca.is_root else "Intermediate CA") ~ " · " ~ ca.common_name ~ " · " ~ ca.key_type ~ " " ~ ca.key_size) %}
+    <div class="btn-group">
+        <a href="{{ url_for('public.download_ca_cert', ca_id=ca.id) }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-download" aria-hidden="true"></i> Cert</a>
+        <a href="{{ url_for('ca.download', ca_id=ca.id, format='chain') }}" class="btn btn-outline-primary btn-sm">Chain</a>
     </div>
-</div>
+    {% if ca.is_exportable %}
+    {# Private-key export is POST-only so the key PEM never lands in a GET URL/log.
+       Hidden for HSM CAs: the key is non-exportable by design. #}
+    <form method="POST" action="{{ url_for('ca.download', ca_id=ca.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="format" value="key">
+        <button type="submit" class="btn btn-outline-warning btn-sm"><i class="bi bi-key" aria-hidden="true"></i> Key</button>
+    </form>
+    {% endif %}
+    {% if not ca.is_revoked %}
+    {% if ca.approval_status == 'pending' %}
+    {% if not dual_control_active() or ca.created_by != current_user.id or current_user.username == config.ADMIN_USERNAME %}
+    <form method="POST" action="{{ url_for('ca.approve', ca_id=ca.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-check2-circle" aria-hidden="true"></i> Approve CA</button>
+    </form>
+    {% endif %}
+    {% elif ca.has_signing_key %}
+    <form method="POST" action="{{ url_for('ca.generate_crl', ca_id=ca.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline-warning btn-sm"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> Generate CRL</button>
+    </form>
+    {% endif %}
+    <a href="{{ url_for('ca.revoke', ca_id=ca.id) }}" class="btn btn-outline-danger btn-sm"><i class="bi bi-x-octagon" aria-hidden="true"></i> Revoke CA</a>
+    {% endif %}
+{% endcall %}
 
-<div class="row mt-3">
-    <div class="col-md-6">
+<div class="row g-3">
+    <div class="col-lg-6">
         <div class="card mb-3">
-            <div class="card-header">CA Information</div>
+            <div class="card-header"><span><i class="bi bi-info-circle" aria-hidden="true"></i>CA Information</span></div>
             <div class="card-body">
-                <table class="table table-sm">
-                    <tr><th>Common Name</th><td>{{ ca.common_name }}</td></tr>
-                    <tr><th>Type</th><td>{{ "Root CA" if ca.is_root else "Intermediate CA" }}</td></tr>
-                    {% if ca.parent %}
-                    <tr><th>Parent CA</th><td><a href="{{ url_for('ca.detail', ca_id=ca.parent.id) }}">{{ ca.parent.name }}</a></td></tr>
-                    {% endif %}
-                    <tr><th>Serial Number</th><td><code>{{ ca.serial_number }}</code></td></tr>
-                    <tr><th>Key Type</th><td>{{ ca.key_type }} {{ ca.key_size }}</td></tr>
-                    <tr><th>Key Protection</th><td>
+                <dl class="kv">
+                    {% call kv("Common Name") %}{{ ca.common_name }}{% endcall %}
+                    {% call kv("Type") %}{{ "Root CA" if ca.is_root else "Intermediate CA" }}{% endcall %}
+                    {% if ca.parent %}{% call kv("Parent CA") %}<a href="{{ url_for('ca.detail', ca_id=ca.parent.id) }}">{{ ca.parent.name }}</a>{% endcall %}{% endif %}
+                    {% call kv("Serial Number") %}<code>{{ ca.serial_number }}</code>{% endcall %}
+                    {% call kv("Key Type") %}{{ ca.key_type }} {{ ca.key_size }}{% endcall %}
+                    {% call kv("Key Protection") %}
                         {% if ca.key_backend == 'softhsm' %}
                         <span class="badge bg-info text-dark">HSM (SoftHSM / PKCS#11)</span>
                         {% if ca.key_label %}<code class="ms-1">{{ ca.key_label }}</code>{% endif %}
                         {% else %}
                         Software (encrypted at rest)
                         {% endif %}
-                    </td></tr>
-                    <tr><th>Private Key</th><td>
+                    {% endcall %}
+                    {% call kv("Private Key") %}
                         {% if ca.key_backend == 'softhsm' %}Held in HSM token (non-exportable)
                         {% elif ca.has_private_key %}Available
                         {% else %}Not stored (certificate-only import){% endif %}
-                    </td></tr>
-                    <tr><th>Valid From</th><td>{{ ca.not_before.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
-                    <tr><th>Valid Until</th><td>{{ ca.not_after.strftime('%Y-%m-%d %H:%M UTC') }}{{ expiry_badge(ca) }}</td></tr>
-                    <tr><th>Path Length</th><td>{{ ca.path_length if ca.path_length is not none else "Unlimited" }}</td></tr>
+                    {% endcall %}
+                    {% call kv("Valid From") %}{{ ca.not_before.strftime('%Y-%m-%d %H:%M UTC') }}{% endcall %}
+                    {% call kv("Valid Until") %}{{ ca.not_after.strftime('%Y-%m-%d %H:%M UTC') }}{{ expiry_badge(ca) }}{% endcall %}
+                    {% call kv("Path Length") %}{{ ca.path_length if ca.path_length is not none else "Unlimited" }}{% endcall %}
                     {% set nc = ca.name_constraints %}
-                    <tr><th>Name Constraints</th><td>
+                    {% call kv("Name Constraints") %}
                         {% if nc %}
                         {% if nc.permitted %}<div><span class="text-body-secondary">Permitted:</span> {% for e in nc.permitted %}<code>{{ e }}</code>{% if not loop.last %} {% endif %}{% endfor %}</div>{% endif %}
                         {% if nc.excluded %}<div><span class="text-body-secondary">Excluded:</span> {% for e in nc.excluded %}<code>{{ e }}</code>{% if not loop.last %} {% endif %}{% endfor %}</div>{% endif %}
                         {% else %}None{% endif %}
-                    </td></tr>
+                    {% endcall %}
                     {% set cps = ca.certificate_policies %}
-                    <tr><th>Certificate Policies</th><td>
+                    {% call kv("Certificate Policies") %}
                         {% if cps %}{% for p in cps %}<div><code>{{ p.oid }}</code>{% if p.cps_uri %} <a href="{{ p.cps_uri }}" rel="noopener" target="_blank">CPS</a>{% endif %}</div>{% endfor %}
                         {% else %}None{% endif %}
-                    </td></tr>
-                    <tr><th>CRL Number</th><td>{{ ca.crl_number }}</td></tr>
-                    <tr><th>Created</th><td>{{ ca.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
+                    {% endcall %}
+                    {% call kv("CRL Number") %}{{ ca.crl_number }}{% endcall %}
+                    {% call kv("Created") %}{{ ca.created_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endcall %}
                     {% if ca.is_revoked %}
-                    <tr><th>Revoked At</th><td>{{ ca.revoked_at.strftime('%Y-%m-%d %H:%M UTC') }}</td></tr>
-                    <tr><th>Revocation Reason</th><td>{{ ca.revocation_reason | replace('_', ' ') | title }}</td></tr>
+                    {% call kv("Revoked At") %}{{ ca.revoked_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endcall %}
+                    {% call kv("Revocation Reason") %}{{ ca.revocation_reason | replace('_', ' ') | title }}{% endcall %}
                     {% endif %}
-                </table>
+                </dl>
             </div>
         </div>
         <div class="card mb-3">
-            <div class="card-header">Allowed Certificate Profiles</div>
+            <div class="card-header"><span><i class="bi bi-card-checklist" aria-hidden="true"></i>Allowed Certificate Profiles</span></div>
             <div class="card-body">
                 {% set allowed = ca.allowed_profile_ids %}
                 <form method="POST" action="{{ url_for('ca.set_profiles', ca_id=ca.id) }}">
@@ -127,136 +123,9 @@
                 </form>
             </div>
         </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card mb-3">
-            <div class="card-header">Public Endpoints</div>
-            <div class="card-body">
-                <p><strong>CA Certificate:</strong><br>
-                    <a href="{{ url_for('public.download_ca_cert', ca_id=ca.id) }}">{{ url_for('public.download_ca_cert', ca_id=ca.id, _external=True) }}</a>
-                </p>
-                {% if ca.has_signing_key %}
-                <p><strong>CRL (DER):</strong><br>
-                    <a href="{{ url_for('public.download_crl_der', ca_id=ca.id) }}">{{ url_for('public.download_crl_der', ca_id=ca.id, _external=True) }}</a>
-                </p>
-                <p><strong>CRL (PEM):</strong><br>
-                    <a href="{{ url_for('public.download_crl_pem', ca_id=ca.id) }}">{{ url_for('public.download_crl_pem', ca_id=ca.id, _external=True) }}</a>
-                </p>
-                <p><strong>OCSP Responder:</strong><br>
-                    <code>{{ url_for('public.ocsp_responder', ca_id=ca.id, _external=True) }}</code>
-                </p>
-                <div class="border-top pt-2" id="ocsp-responder">
-                    <strong>OCSP signing:</strong>
-                    {% if ocsp_delegated %}
-                    <span class="badge bg-info text-dark" title="Responses are signed by a short-lived responder certificate issued by this CA (OCSP_DELEGATED_RESPONDER)">Delegated responder</span>
-                    {% else %}
-                    <span class="badge bg-secondary" title="Responses are signed by the CA key itself; set OCSP_DELEGATED_RESPONDER=true to delegate">CA key</span>
-                    {% endif %}
-                    {% if ocsp_responder %}
-                    <div class="small mt-1">Responder certificate serial <code>{{ ocsp_responder.serial_number[:16] }}…</code>,
-                        {% if ocsp_responder.valid %}valid until {{ ocsp_responder.not_after[:10] }} ({{ ocsp_responder.days_left }} days left){% else %}<span class="text-danger">not valid</span>{% endif %}
-                        {% if not ocsp_delegated %}<span class="text-body-secondary">(unused while delegation is off)</span>{% endif %}
-                    </div>
-                    {% elif ocsp_delegated %}
-                    <div class="small mt-1 text-body-secondary">No responder certificate yet — the scheduler or the first OCSP request will issue one.</div>
-                    {% endif %}
-                    {% if current_user.is_admin and ca.has_signing_key and not ca.is_revoked and ca.approval_status == 'approved' %}
-                    <form method="POST" action="{{ url_for('ca.rotate_ocsp_responder', ca_id=ca.id) }}" class="d-inline mt-1">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Issue a new responder certificate now">Rotate responder</button>
-                    </form>
-                    {% endif %}
-                </div>
-                {% else %}
-                <p class="text-body-secondary mb-0">CRL and OCSP are unavailable - this CA was imported without its private key.</p>
-                {% endif %}
-            </div>
-        </div>
-        <div class="card mb-3" id="ca-certificates">
-            <div class="card-header">CA Certificates</div>
-            <div class="card-body">
-                <table class="table table-sm mb-2">
-                    <thead><tr><th>Kind</th><th>Issuer</th><th>Serial</th><th>Valid until</th><th>Status</th><th></th></tr></thead>
-                    <tbody>
-                        <tr>
-                            <td><span class="badge bg-primary">Primary</span></td>
-                            <td>{% if ca.parent %}<a href="{{ url_for('ca.detail', ca_id=ca.parent.id) }}">{{ ca.parent.name }}</a>{% elif ca.is_root %}self{% else %}external{% endif %}</td>
-                            <td><code>{{ ca.serial_number[:16] }}…</code></td>
-                            <td>{{ ca.not_after.strftime('%Y-%m-%d') }}</td>
-                            <td><span class="badge bg-success">Active</span></td>
-                            <td><a href="{{ url_for('public.download_ca_cert', ca_id=ca.id) }}" class="btn btn-sm btn-outline-primary">Cert</a>
-                                <a href="{{ url_for('ca.download', ca_id=ca.id, format='chain') }}" class="btn btn-sm btn-outline-primary">Chain</a></td>
-                        </tr>
-                        {% for alt in ca.alternate_certificates %}
-                        <tr>
-                            <td>{% if alt.kind == 'cross' %}<span class="badge bg-info text-dark">Cross-signed</span>{% elif alt.kind == 'previous' %}<span class="badge bg-secondary">Previous</span>{% else %}<span class="badge bg-warning text-dark">Re-issue</span>{% endif %}</td>
-                            <td>{% if alt.issuer %}<a href="{{ url_for('ca.detail', ca_id=alt.issuer.id) }}">{{ alt.issuer.name }}</a>{% if alt.issuer.is_revoked %} <span class="badge bg-danger">issuer revoked</span>{% endif %}{% elif alt.kind == 'cross' %}external{% else %}self{% endif %}</td>
-                            <td><code>{{ alt.serial_number[:16] }}…</code></td>
-                            <td>{{ alt.not_after.strftime('%Y-%m-%d') }}</td>
-                            <td>{% if alt.approval_status == 'pending' %}<span class="badge bg-warning text-dark">Pending approval</span>{% elif alt.is_usable %}<span class="badge bg-success">Usable</span>{% else %}<span class="badge bg-secondary">Unusable</span>{% endif %}</td>
-                            <td class="text-nowrap">
-                                {% if alt.approval_status == 'approved' %}
-                                <a href="{{ url_for('public.download_ca_alt_cert', ca_id=ca.id, alt_id=alt.id) }}" class="btn btn-sm btn-outline-primary">Cert</a>
-                                {% if alt.is_usable %}<a href="{{ url_for('ca.download', ca_id=ca.id, format='chain', via=alt.id) }}" class="btn btn-sm btn-outline-primary">Chain</a>{% endif %}
-                                {% elif current_user.is_admin %}
-                                <form method="POST" action="{{ url_for('ca.approve_alternate', ca_id=ca.id, alt_id=alt.id) }}" class="d-inline">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-success">Approve</button>
-                                </form>
-                                {% endif %}
-                                {% if current_user.is_admin %}
-                                <form method="POST" action="{{ url_for('ca.delete_alternate', ca_id=ca.id, alt_id=alt.id) }}" class="d-inline">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
-                                </form>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                {% if current_user.is_admin and not ca.is_revoked and ca.approval_status == 'approved' %}
-                <div class="row g-2">
-                    {% if ca.has_signing_key or ca.parent %}
-                    <div class="col-md-6">
-                        <form method="POST" action="{{ url_for('ca.reissue', ca_id=ca.id) }}" class="d-flex gap-1 align-items-center">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="number" min="1" class="form-control form-control-sm" name="validity_days" placeholder="days (default: as issued)" style="max-width:12rem">
-                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="New certificate for the same key: same subject and extensions, new serial and validity. Issued certificates keep validating.">Re-issue certificate</button>
-                        </form>
-                    </div>
-                    {% endif %}
-                    {% if cross_issuers %}
-                    <div class="col-md-6">
-                        <form method="POST" action="{{ url_for('ca.cross_sign', ca_id=ca.id) }}" class="d-flex gap-1 align-items-center">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <select class="form-select form-select-sm" name="issuer_ca_id" style="max-width:16rem">
-                                {% for c in cross_issuers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-                            </select>
-                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Have another CA certify this CA's key (a cross-certificate), so relying parties that trust that CA can validate this hierarchy too.">Cross-sign</button>
-                        </form>
-                    </div>
-                    {% endif %}
-                    <div class="col-12">
-                        <form method="POST" action="{{ url_for('ca.import_alternate', ca_id=ca.id) }}">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <textarea class="form-control form-control-sm font-monospace" name="cert_pem" rows="2" placeholder="-----BEGIN CERTIFICATE----- (a cross-certificate for this CA's key issued elsewhere)"></textarea>
-                            <button type="submit" class="btn btn-sm btn-outline-secondary mt-1">Import cross-signed certificate</button>
-                        </form>
-                    </div>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-        <div class="card mb-3">
-            <div class="card-header">Certificate Chain (PEM)</div>
-            <div class="card-body">
-                <pre class="bg-body-tertiary p-2" style="max-height:200px;overflow:auto;font-size:0.75rem">{{ chain }}</pre>
-            </div>
-        </div>
         {% if ca.is_exportable %}
         <div class="card mb-3">
-            <div class="card-header">Export PKCS#12</div>
+            <div class="card-header"><span><i class="bi bi-box-arrow-down" aria-hidden="true"></i>Export PKCS#12</span></div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('ca.download', ca_id=ca.id) }}" class="row g-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -273,33 +142,154 @@
         </div>
         {% endif %}
     </div>
+    <div class="col-lg-6">
+        <div class="card mb-3">
+            <div class="card-header"><span><i class="bi bi-globe2" aria-hidden="true"></i>Public Endpoints</span></div>
+            <div class="card-body">
+                <dl class="kv">
+                    {% call kv("CA Certificate") %}<a href="{{ url_for('public.download_ca_cert', ca_id=ca.id) }}" class="text-mono">{{ url_for('public.download_ca_cert', ca_id=ca.id, _external=True) }}</a>{% endcall %}
+                    {% if ca.has_signing_key %}
+                    {% call kv("CRL (DER)") %}<a href="{{ url_for('public.download_crl_der', ca_id=ca.id) }}" class="text-mono">{{ url_for('public.download_crl_der', ca_id=ca.id, _external=True) }}</a>{% endcall %}
+                    {% call kv("CRL (PEM)") %}<a href="{{ url_for('public.download_crl_pem', ca_id=ca.id) }}" class="text-mono">{{ url_for('public.download_crl_pem', ca_id=ca.id, _external=True) }}</a>{% endcall %}
+                    {% call kv("OCSP Responder") %}<code>{{ url_for('public.ocsp_responder', ca_id=ca.id, _external=True) }}</code>{% endcall %}
+                    {% endif %}
+                </dl>
+                {% if ca.has_signing_key %}
+                <div class="border-top pt-3 mt-2" id="ocsp-responder">
+                    <div class="divider-label mb-1">OCSP signing</div>
+                    {% if ocsp_delegated %}
+                    <span class="badge bg-info text-dark" title="Responses are signed by a short-lived responder certificate issued by this CA (OCSP_DELEGATED_RESPONDER)">Delegated responder</span>
+                    {% else %}
+                    <span class="badge bg-secondary" title="Responses are signed by the CA key itself; set OCSP_DELEGATED_RESPONDER=true to delegate">CA key</span>
+                    {% endif %}
+                    {% if ocsp_responder %}
+                    <div class="small mt-1">Responder certificate serial <code>{{ ocsp_responder.serial_number[:16] }}…</code>,
+                        {% if ocsp_responder.valid %}valid until {{ ocsp_responder.not_after[:10] }} ({{ ocsp_responder.days_left }} days left){% else %}<span class="text-danger">not valid</span>{% endif %}
+                        {% if not ocsp_delegated %}<span class="text-body-secondary">(unused while delegation is off)</span>{% endif %}
+                    </div>
+                    {% elif ocsp_delegated %}
+                    <div class="small mt-1 text-body-secondary">No responder certificate yet — the scheduler or the first OCSP request will issue one.</div>
+                    {% endif %}
+                    {% if current_user.is_admin and ca.has_signing_key and not ca.is_revoked and ca.approval_status == 'approved' %}
+                    <form method="POST" action="{{ url_for('ca.rotate_ocsp_responder', ca_id=ca.id) }}" class="d-inline mt-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Issue a new responder certificate now">Rotate responder</button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% else %}
+                <p class="text-body-secondary mb-0">CRL and OCSP are unavailable - this CA was imported without its private key.</p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card mb-3">
+            <div class="card-header"><span><i class="bi bi-file-earmark-code" aria-hidden="true"></i>Certificate Chain (PEM)</span></div>
+            <div class="card-body">{{ pem_block('ca-chain', chain) }}</div>
+        </div>
+    </div>
 </div>
 
-<div class="card mt-3">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">Issued Certificates</h5>
-        {% if not ca.is_revoked and ca.has_signing_key and ca.approval_status != 'pending' and (not dual_control_active() or current_user.username == config.ADMIN_USERNAME) %}
-        <a href="{{ url_for('certificates.create') }}" class="btn btn-sm btn-primary">Issue Certificate</a>
+    <div class="card mb-3" id="ca-certificates">
+        <div class="card-header"><span><i class="bi bi-files" aria-hidden="true"></i>CA Certificates</span></div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead><tr><th>Kind</th><th>Issuer</th><th>Serial</th><th>Valid until</th><th>Status</th><th class="table-actions"></th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><span class="badge bg-primary">Primary</span></td>
+                        <td>{% if ca.parent %}<a href="{{ url_for('ca.detail', ca_id=ca.parent.id) }}">{{ ca.parent.name }}</a>{% elif ca.is_root %}self{% else %}external{% endif %}</td>
+                        <td><code>{{ ca.serial_number[:16] }}…</code></td>
+                        <td class="text-nowrap">{{ ca.not_after.strftime('%Y-%m-%d') }}</td>
+                        <td><span class="badge bg-success">Active</span></td>
+                        <td class="table-actions"><a href="{{ url_for('public.download_ca_cert', ca_id=ca.id) }}" class="btn btn-sm btn-outline-primary">Cert</a>
+                            <a href="{{ url_for('ca.download', ca_id=ca.id, format='chain') }}" class="btn btn-sm btn-outline-primary">Chain</a></td>
+                    </tr>
+                    {% for alt in ca.alternate_certificates %}
+                    <tr>
+                        <td>{% if alt.kind == 'cross' %}<span class="badge bg-info text-dark">Cross-signed</span>{% elif alt.kind == 'previous' %}<span class="badge bg-secondary">Previous</span>{% else %}<span class="badge bg-warning text-dark">Re-issue</span>{% endif %}</td>
+                        <td>{% if alt.issuer %}<a href="{{ url_for('ca.detail', ca_id=alt.issuer.id) }}">{{ alt.issuer.name }}</a>{% if alt.issuer.is_revoked %} <span class="badge bg-danger">issuer revoked</span>{% endif %}{% elif alt.kind == 'cross' %}external{% else %}self{% endif %}</td>
+                        <td><code>{{ alt.serial_number[:16] }}…</code></td>
+                        <td class="text-nowrap">{{ alt.not_after.strftime('%Y-%m-%d') }}</td>
+                        <td>{% if alt.approval_status == 'pending' %}<span class="badge bg-warning text-dark">Pending approval</span>{% elif alt.is_usable %}<span class="badge bg-success">Usable</span>{% else %}<span class="badge bg-secondary">Unusable</span>{% endif %}</td>
+                        <td class="table-actions">
+                            {% if alt.approval_status == 'approved' %}
+                            <a href="{{ url_for('public.download_ca_alt_cert', ca_id=ca.id, alt_id=alt.id) }}" class="btn btn-sm btn-outline-primary">Cert</a>
+                            {% if alt.is_usable %}<a href="{{ url_for('ca.download', ca_id=ca.id, format='chain', via=alt.id) }}" class="btn btn-sm btn-outline-primary">Chain</a>{% endif %}
+                            {% elif current_user.is_admin %}
+                            <form method="POST" action="{{ url_for('ca.approve_alternate', ca_id=ca.id, alt_id=alt.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                            </form>
+                            {% endif %}
+                            {% if current_user.is_admin %}
+                            <form method="POST" action="{{ url_for('ca.delete_alternate', ca_id=ca.id, alt_id=alt.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if current_user.is_admin and not ca.is_revoked and ca.approval_status == 'approved' %}
+        <div class="card-body border-top">
+            <div class="row g-2">
+                {% if ca.has_signing_key or ca.parent %}
+                <div class="col-md-6">
+                    <form method="POST" action="{{ url_for('ca.reissue', ca_id=ca.id) }}" class="d-flex gap-1 align-items-center">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="number" min="1" class="form-control form-control-sm" name="validity_days" placeholder="days (default: as issued)" style="max-width:12rem">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary text-nowrap" title="New certificate for the same key: same subject and extensions, new serial and validity. Issued certificates keep validating.">Re-issue certificate</button>
+                    </form>
+                </div>
+                {% endif %}
+                {% if cross_issuers %}
+                <div class="col-md-6">
+                    <form method="POST" action="{{ url_for('ca.cross_sign', ca_id=ca.id) }}" class="d-flex gap-1 align-items-center">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <select class="form-select form-select-sm" name="issuer_ca_id" style="max-width:16rem">
+                            {% for c in cross_issuers %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Have another CA certify this CA's key (a cross-certificate), so relying parties that trust that CA can validate this hierarchy too.">Cross-sign</button>
+                    </form>
+                </div>
+                {% endif %}
+                <div class="col-12">
+                    <form method="POST" action="{{ url_for('ca.import_alternate', ca_id=ca.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <textarea class="form-control form-control-sm font-monospace" name="cert_pem" rows="2" placeholder="-----BEGIN CERTIFICATE----- (a cross-certificate for this CA's key issued elsewhere)"></textarea>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary mt-1">Import cross-signed certificate</button>
+                    </form>
+                </div>
+            </div>
+        </div>
         {% endif %}
     </div>
-    <div class="card-body">
-        <table class="table table-sm">
-            <thead><tr><th>CN</th><th>Serial</th><th>Status</th><th>Valid Until</th><th>Actions</th></tr></thead>
+<div class="card mt-1">
+    <div class="card-header">
+        <span><i class="bi bi-file-earmark-lock2" aria-hidden="true"></i>Issued Certificates</span>
+        {% if not ca.is_revoked and ca.has_signing_key and ca.approval_status != 'pending' and (not dual_control_active() or current_user.username == config.ADMIN_USERNAME) %}
+        <a href="{{ url_for('certificates.create') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Issue Certificate</a>
+        {% endif %}
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead><tr><th>CN</th><th>Serial</th><th>Status</th><th>Valid Until</th><th class="table-actions">Actions</th></tr></thead>
             <tbody>
             {% for cert in ca.certificates %}
             <tr>
-                <td><a href="{{ url_for('certificates.detail', cert_id=cert.id) }}">{{ cert.common_name }}</a></td>
+                <td><a href="{{ url_for('certificates.detail', cert_id=cert.id) }}" class="fw-semibold">{{ cert.common_name }}</a></td>
                 <td><code>{{ cert.serial_number[:16] }}...</code></td>
-                <td>
-                    {{ status_badge(cert) }}
-                </td>
-                <td>{{ cert.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(cert) }}</td>
-                <td>
+                <td>{{ status_badge(cert) }}</td>
+                <td class="text-nowrap">{{ cert.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(cert) }}</td>
+                <td class="table-actions">
                     <a href="{{ url_for('certificates.detail', cert_id=cert.id) }}" class="btn btn-sm btn-outline-primary">View</a>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="5" class="text-muted text-center">No certificates issued yet.</td></tr>
+            {{ empty_row(5, 'No certificates issued yet.', 'file-earmark-lock2') }}
             {% endfor %}
             </tbody>
         </table>
@@ -308,16 +298,17 @@
 
 {% if ca.children %}
 <div class="card mt-3">
-    <div class="card-header"><h5 class="mb-0">Sub CAs</h5></div>
-    <div class="card-body">
-        <table class="table table-sm">
-            <thead><tr><th>Name</th><th>Common Name</th><th>Valid Until</th></tr></thead>
+    <div class="card-header"><span><i class="bi bi-diagram-3" aria-hidden="true"></i>Sub CAs</span></div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead><tr><th>Name</th><th>Common Name</th><th>Status</th><th>Valid Until</th></tr></thead>
             <tbody>
             {% for child in ca.children %}
             <tr>
-                <td><a href="{{ url_for('ca.detail', ca_id=child.id) }}">{{ child.name }}</a></td>
+                <td><a href="{{ url_for('ca.detail', ca_id=child.id) }}" class="fw-semibold">{{ child.name }}</a></td>
                 <td>{{ child.common_name }}</td>
-                <td>{{ child.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(child) }}</td>
+                <td>{{ status_badge(child) }}</td>
+                <td class="text-nowrap">{{ child.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(child) }}</td>
             </tr>
             {% endfor %}
             </tbody>

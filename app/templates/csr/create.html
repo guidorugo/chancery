@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}Create CSR - Chancery{% endblock %}
+{% block topbar %}Create CSR{% endblock %}
 {% block content %}
-<h2>Create or Upload CSR</h2>
+{% set _title %}Create or Upload CSR{% endset %}
+{{ page_header(_title) }}
 
 <ul class="nav nav-tabs mt-3" role="tablist">
     <li class="nav-item">

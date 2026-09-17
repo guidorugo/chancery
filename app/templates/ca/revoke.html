@@ -1,9 +1,12 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}Revoke {{ ca.name }} - Chancery{% endblock %}
+{% block topbar %}Revoke {{ ca.name }}{% endblock %}
 {% block content %}
-<h2>Revoke Certificate Authority</h2>
+{% set _title %}Revoke Certificate Authority{% endset %}
+{{ page_header(_title) }}
 
-<div class="card mt-3">
+<div class="card">
     <div class="card-body">
         <p>Are you sure you want to revoke the CA <strong>{{ ca.name }}</strong>?</p>
         <p>Type: {{ "Root CA" if ca.is_root else "Intermediate CA" }}</p>

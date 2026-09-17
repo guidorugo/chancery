@@ -1,46 +1,48 @@
 {% extends "base.html" %}
-{% from "_macros.html" import expiry_badge, status_badge, pager %}
+{% from "_macros.html" import expiry_badge, status_badge, pager, page_header, empty_row %}
 {% block title %}Certificate Authorities - Chancery{% endblock %}
+{% block topbar %}Certificate Authorities{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center">
-    <h2>Certificate Authorities</h2>
-    <a href="{{ url_for('ca.create') }}" class="btn btn-primary">Create CA</a>
-</div>
+{% call page_header("Certificate Authorities", "Roots and intermediates, their keys and what they have issued.") %}
+    <a href="{{ url_for('ca.create') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Create CA</a>
+{% endcall %}
 
-<form method="GET" class="row g-2 mt-2 align-items-end" id="ca-filters">
+<form method="GET" class="filter-bar row g-2 align-items-end" id="ca-filters">
     <div class="col-md-4">
-        <label for="q" class="form-label small mb-0">Search</label>
+        <label for="q" class="form-label">Search</label>
         <input type="search" class="form-control form-control-sm" id="q" name="q" value="{{ listing.filters.get('q', '') }}" placeholder="Name, common name or serial">
     </div>
-    <div class="col-md-2">
-        <label for="status" class="form-label small mb-0">Status</label>
+    <div class="col-6 col-md-2">
+        <label for="status" class="form-label">Status</label>
         <select class="form-select form-select-sm" id="status" name="status">
             <option value="">Any</option>
             {% for s in status_filters %}<option value="{{ s }}" {% if listing.filters.get('status') == s %}selected{% endif %}>{{ s | capitalize }}</option>{% endfor %}
         </select>
     </div>
-    <div class="col-md-2">
-        <label for="type" class="form-label small mb-0">Type</label>
+    <div class="col-6 col-md-2">
+        <label for="type" class="form-label">Type</label>
         <select class="form-select form-select-sm" id="type" name="type">
             <option value="">Any</option>
             {% for t in type_filters %}<option value="{{ t }}" {% if listing.filters.get('type') == t %}selected{% endif %}>{{ t | capitalize }}</option>{% endfor %}
         </select>
     </div>
-    <div class="col-md-2">
-        <label for="backend" class="form-label small mb-0">Key protection</label>
+    <div class="col-6 col-md-2">
+        <label for="backend" class="form-label">Key protection</label>
         <select class="form-select form-select-sm" id="backend" name="backend">
             <option value="">Any</option>
             <option value="software" {% if listing.filters.get('backend') == 'software' %}selected{% endif %}>Software</option>
             <option value="softhsm" {% if listing.filters.get('backend') == 'softhsm' %}selected{% endif %}>HSM</option>
         </select>
     </div>
-    <div class="col-md-2 d-flex gap-1">
-        <button type="submit" class="btn btn-sm btn-outline-primary">Filter</button>
+    <div class="col-6 col-md-2 d-flex gap-1">
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel" aria-hidden="true"></i> Filter</button>
         {% if listing.filters %}<a href="{{ url_for('ca.list_cas') }}" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
     </div>
 </form>
 
-<table class="table mt-3">
+<div class="card">
+<div class="table-responsive">
+<table class="table table-hover mb-0">
     <thead>
         <tr>
             <th>Name</th>
@@ -50,22 +52,20 @@
             <th>Key</th>
             <th>Valid Until</th>
             <th>Issued Certs</th>
-            <th>Actions</th>
+            <th class="table-actions">Actions</th>
         </tr>
     </thead>
     <tbody>
     {% for ca in cas %}
         <tr>
-            <td><a href="{{ url_for('ca.detail', ca_id=ca.id) }}">{{ ca.name }}</a>{% if not ca.has_signing_key %} <span class="badge bg-secondary">Cert-only</span>{% endif %}{% if ca.key_backend == 'softhsm' %} <span class="badge bg-info text-dark">HSM</span>{% endif %}</td>
+            <td><a href="{{ url_for('ca.detail', ca_id=ca.id) }}" class="fw-semibold">{{ ca.name }}</a>{% if not ca.has_signing_key %} <span class="badge bg-secondary">Cert-only</span>{% endif %}{% if ca.key_backend == 'softhsm' %} <span class="badge bg-info text-dark">HSM</span>{% endif %}</td>
             <td>{{ ca.common_name }}</td>
             <td>{{ "Root" if ca.is_root else "Intermediate" }}</td>
-            <td>
-                {{ status_badge(ca) }}
-            </td>
-            <td>{{ ca.key_type }} {{ ca.key_size }}</td>
-            <td>{{ ca.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(ca) }}</td>
+            <td>{{ status_badge(ca) }}</td>
+            <td class="text-nowrap">{{ ca.key_type }} {{ ca.key_size }}</td>
+            <td class="text-nowrap">{{ ca.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(ca) }}</td>
             <td>{{ ca.certificates.count() }}</td>
-            <td>
+            <td class="table-actions">
                 <a href="{{ url_for('ca.detail', ca_id=ca.id) }}" class="btn btn-sm btn-outline-primary">View</a>
                 {% if not ca.is_revoked %}
                 <a href="{{ url_for('ca.revoke', ca_id=ca.id) }}" class="btn btn-sm btn-outline-danger">Revoke</a>
@@ -73,9 +73,11 @@
             </td>
         </tr>
     {% else %}
-        <tr><td colspan="8" class="text-body-secondary text-center">No CAs found.</td></tr>
+        {{ empty_row(8, 'No CAs found.', 'diagram-3') }}
     {% endfor %}
     </tbody>
 </table>
+</div>
+</div>
 {{ pager(listing) }}
 {% endblock %}
