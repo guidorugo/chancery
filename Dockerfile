@@ -42,6 +42,12 @@ COPY app/ app/
 COPY entrypoint.sh entrypoint-app.sh ./
 RUN chmod +x entrypoint.sh entrypoint-app.sh
 
+# G14-2: the container runs with a read-only root filesystem, so bytecode
+# cannot be cached at run time — compile it here (readable by everyone) and
+# tell Python not to try at run time.
+RUN python -m compileall -q app/
+ENV PYTHONDONTWRITEBYTECODE=1
+
 RUN mkdir -p /app/data
 
 EXPOSE 5000
