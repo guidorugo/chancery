@@ -12,6 +12,7 @@ from flask import current_app
 from flask.cli import AppGroup
 
 from .extensions import db
+from .models.audit_log import AuditLog
 from .models.ca import CertificateAuthority
 from .services.crypto_utils import decrypt_private_key
 from .services.keybackend import get_backend, hsm_available
@@ -762,3 +763,79 @@ def acme_maintain():
     from .services.acme import service as acme_service
 
     click.echo(json.dumps(acme_service.maintain()))
+
+
+audit_cli = AppGroup("audit", help="Audit-log integrity, export and retention (3.3.0, F16).")
+
+
+@audit_cli.command("verify")
+@click.option("--from-id", type=int, default=None, help="Start at this row id (its prev_hash is taken as given).")
+@click.option("--json", "as_json", is_flag=True, help="Machine-readable report.")
+def audit_verify(from_id, as_json):
+    """Recompute the hash chain and report the first bad row (exit 1 when broken)."""
+    from .services import audit_chain
+
+    report = audit_chain.verify(from_id=from_id)
+    if as_json:
+        click.echo(json.dumps(report))
+    elif report["ok"]:
+        click.echo(f"OK: {report['checked']} sealed rows verified from {report['start']}; head #{report['head_id']} "
+                   f"{(report['head_hash'] or '')[:16]}…; {report['unsealed']} unsealed row(s) pending.")
+    else:
+        click.echo(f"BROKEN at #{report['first_bad_id']}: {report['reason']} (start: {report['start']}).")
+    if not report["ok"]:
+        raise SystemExit(1)
+
+
+@audit_cli.command("seal")
+def audit_seal():
+    """Seal unsealed rows now (the scheduler does this every tick)."""
+    from .services import audit_chain
+
+    click.echo(json.dumps(audit_chain.seal()))
+
+
+@audit_cli.command("anchor")
+def audit_anchor():
+    """Append an audit_anchor row now (the scheduler does this daily)."""
+    from .services import audit_chain
+
+    click.echo(json.dumps(audit_chain.anchor(actor="cli")))
+
+
+@audit_cli.command("prune")
+@click.option("--dry-run", is_flag=True, help="Report what would be archived and deleted.")
+def audit_prune(dry_run):
+    """Archive + delete sealed rows older than AUDIT_RETENTION_DAYS behind a checkpoint."""
+    from .services import audit_chain
+
+    click.echo(json.dumps(audit_chain.prune(dry_run=dry_run, actor="cli")))
+
+
+@audit_cli.command("export")
+@click.option("--since", default=None, help="YYYY-MM-DD (inclusive).")
+@click.option("--until", default=None, help="YYYY-MM-DD (inclusive).")
+@click.option("--action", default=None, help="Exact action name, or a prefix ending in *.")
+@click.option("--user", "username", default=None, help="Username substring.")
+@click.option("--format", "fmt", type=click.Choice(["csv", "json", "jsonl"]), default="jsonl")
+@click.option("--out", type=click.Path(dir_okay=False), default=None, help="File to write (default: stdout).")
+def audit_export(since, until, action, username, fmt, out):
+    """Export audit rows (with their hashes) as CSV, JSON or JSON lines."""
+    from .routes.users import _audit_filters
+    from .services import audit_chain
+
+    try:
+        query, _filters = _audit_filters({"from": since or "", "to": until or "", "action": action or "",
+                                          "user": username or ""})
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
+    query = query.order_by(AuditLog.id)
+    producer = {"csv": audit_chain.iter_csv, "json": audit_chain.iter_json, "jsonl": audit_chain.iter_jsonl}[fmt]
+    if out:
+        with open(out, "w", encoding="utf-8") as fh:
+            for chunk in producer(query):
+                fh.write(chunk)
+        click.echo(f"Wrote {out}.")
+    else:
+        for chunk in producer(query):
+            click.echo(chunk, nl=False)

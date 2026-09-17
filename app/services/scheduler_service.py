@@ -302,11 +302,32 @@ def job_acme_maintenance(now):
     return acme_service.maintain(now.replace(tzinfo=None) if getattr(now, "tzinfo", None) else now)
 
 
+def job_audit_seal(now):
+    """Every tick (F16): seal unsealed audit rows in id order (single writer = the lease holder)."""
+    from . import audit_chain
+    return audit_chain.seal(now.replace(tzinfo=None) if getattr(now, "tzinfo", None) else now)
+
+
+def job_audit_anchor(now):
+    """Daily (F16): append an audit_anchor row (head hash + count) for out-of-band record keeping."""
+    from . import audit_chain
+    return audit_chain.anchor(actor="scheduler")
+
+
+def job_audit_prune(now):
+    """Daily (F16, G10-3): with AUDIT_RETENTION_DAYS > 0, archive + delete old sealed rows behind a checkpoint."""
+    from . import audit_chain
+    return audit_chain.prune(now.replace(tzinfo=None) if getattr(now, "tzinfo", None) else now, actor="scheduler")
+
+
 JOBS = (
     ("crl_refresh", job_crl_refresh, 0),
     ("expiry_events", job_expiry_events, DAILY),
     ("ocsp_responders", job_ocsp_responders, 3600),
     ("acme_maintenance", job_acme_maintenance, 3600),
+    ("audit_seal", job_audit_seal, 0),
+    ("audit_anchor", job_audit_anchor, DAILY),
+    ("audit_prune", job_audit_prune, DAILY),
 )
 
 

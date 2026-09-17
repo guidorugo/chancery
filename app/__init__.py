@@ -74,7 +74,7 @@ def create_app(config_class=Config):
         app.limiter.limit(app.config.get("ACME_RATE_LIMIT", "300/minute"))(acme_bp)
 
     from .cli import (keys_cli, certs_cli, users_cli, crl_cli, metrics_cli, profiles_cli,
-                      scheduler_cli, ocsp_cli, api_token_cli, acme_cli)
+                      scheduler_cli, ocsp_cli, api_token_cli, acme_cli, audit_cli)
     app.cli.add_command(keys_cli)
     app.cli.add_command(certs_cli)
     app.cli.add_command(users_cli)
@@ -85,6 +85,7 @@ def create_app(config_class=Config):
     app.cli.add_command(ocsp_cli)
     app.cli.add_command(api_token_cli)
     app.cli.add_command(acme_cli)
+    app.cli.add_command(audit_cli)
 
     with app.app_context():
         from . import models  # noqa: F401
@@ -754,6 +755,14 @@ def _migrate_schema():
                 db.session.execute(text(ddl))
 
     # Migrate certificate_authorities table
+    if "audit_logs" in inspector.get_table_names():  # F16: hash chain
+        columns = {col["name"] for col in inspector.get_columns("audit_logs")}
+        for name, ddl in (("prev_hash", "ALTER TABLE audit_logs ADD COLUMN prev_hash VARCHAR(64)"),
+                          ("entry_hash", "ALTER TABLE audit_logs ADD COLUMN entry_hash VARCHAR(64)")):
+            if name not in columns:
+                db.session.execute(text(ddl))
+        db.session.commit()
+
     if "certificate_authorities" in inspector.get_table_names():
         columns = {col["name"] for col in inspector.get_columns("certificate_authorities")}
         if "crl_pem" not in columns:
