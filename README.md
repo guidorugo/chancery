@@ -516,10 +516,10 @@ curl -u admin:PASSWORD -X POST -o cert.key http://localhost:5000/certificates/1/
 ./scripts/seed_demo.sh --reset            # remove and recreate them
 ./scripts/seed_demo.sh --remove           # delete them (and anything a demo CA issued)
 ./scripts/seed_demo.sh --remove --force   # also delete real CAs chained under a demo CA
-CONTAINER=my-app ./scripts/seed_demo.sh   # target a container not named chancery-app-1
+CONTAINER=my-app-1 ./scripts/seed_demo.sh # override the auto-detected container (name or id)
 ```
 
-Everything it creates is tagged (`Demo …` CA names, `*.demo.example.com` CNs). `--remove` deletes only those, plus certificates and CSRs that a demo CA issued (a certificate cannot outlive its CA) — they are listed. A non-demo CA chained under a demo CA makes `--remove` refuse unless `--force` is given.
+The wrapper finds the `app` container of the compose project it lives in, so the project name (`chancery-app-1`, `cert-manager-app-1`, …) does not matter; `--help` works without Docker. Everything it creates is tagged (`Demo …` CA names, `*.demo.example.com` CNs). `--remove` deletes only those, plus certificates and CSRs that a demo CA issued (a certificate cannot outlive its CA) — they are listed. A non-demo CA chained under a demo CA makes `--remove` refuse unless `--force` is given.
 
 ## Running Tests
 
