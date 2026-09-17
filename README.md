@@ -23,7 +23,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Audit Logging**: Every sensitive action logged with user, timestamp, IP, and details
 - **User Management**: Admin UI for creating users, assigning roles, and managing accounts
 - **Scoped API tokens**: `Authorization: Bearer chy_api_…` credentials for scripts and automation, created per user (Preferences → API Tokens, or `flask api-token`), with a subset of scopes (`read`, `issue`, `revoke`, `admin`), a mandatory expiry and one-click revocation — never more than the owner's role. Prefer them over Basic Auth for anything automated
-- **Two-factor login (TOTP)**: Any user (local or LDAP) can enrol an authenticator app (RFC 6238, QR code or manual key) at *Two-factor* in the navbar; the login then asks for a 6-digit code after the password, with eight single-use recovery codes as the fallback. Codes are replay-protected and failed codes count toward the login lockout. `REQUIRE_2FA_FOR_ADMINS=true` forces every administrator to enrol before doing anything else; an admin (or `flask users reset-2fa`) can clear a lost authenticator. Password changes, admin resets and any 2FA change log the account out of all other sessions
+- **Two-factor login (TOTP)**: Any user (local or LDAP) can enrol an authenticator app (RFC 6238, QR code or manual key) at *Two-factor* in the navbar; the login then asks for a 6-digit code after the password, with eight single-use recovery codes as the fallback. Codes are replay-protected and failed codes count toward the login lockout. `REQUIRE_2FA=admins|all` forces enrolment before anything else (and refuses Basic Auth until enrolled); an admin (or `flask users reset-2fa`) can clear a lost authenticator. Password changes, admin resets and any 2FA change log the account out of all other sessions
 - **HTTP Basic Auth**: Stateless API access via `curl -u user:pass` for scripts and automation, alongside session-based browser auth
 - **Dark Theme**: Light/dark mode toggle with OS-preference default and per-browser persistence
 - **Security**: Private keys encrypted at rest with Fernet (PBKDF2-derived key, 600k iterations), session hardening, per-IP rate limiting and per-account login lockout (both on by default), insecure-default rejection plus a startup warning for short `SECRET_KEY` / `MASTER_PASSPHRASE` / PKCS#11 PIN values
@@ -230,6 +230,22 @@ openssl ocsp \
 ```
 
 Both the POST form and the RFC 6960 GET form (`GET /public/ocsp/1/<url-encoded base64 request>`, what Windows CryptoAPI uses for small requests) are served. A request that is not valid DER gets an OCSP `malformedRequest` response at HTTP 200, not an HTTP error.
+
+## Two-factor authentication and recovering access
+
+Any account can enrol an authenticator app at *Two-factor* in the navbar. `REQUIRE_2FA=admins` or `REQUIRE_2FA=all` in `.env` makes it mandatory for administrators or for everyone:
+
+- **Enrol before you enforce.** The next login of every affected account becomes: password → *(new password, on a first login)* → enrol an authenticator → app. The bootstrap admin's very first login therefore changes the seed password first and enrols second. Nothing else is reachable until enrolment is done (logout and the enrolment page are).
+- **Scripts.** An affected account is refused Basic Auth until it has enrolled, and an enrolled account is refused Basic Auth altogether — use a scoped API token (Preferences → API Tokens) for automation. Existing API tokens keep working.
+- **No opt-out.** While the policy applies to an account, its owner cannot disable the second factor; only the recovery paths below clear it, and enrolment is forced again at the next login.
+
+Recovery, from least to most drastic:
+
+1. **Authenticator unavailable, recovery codes at hand:** sign in with a recovery code (each works once), then generate new codes on the Two-factor page. Chancery warns when two or fewer remain.
+2. **Authenticator and codes lost:** another administrator presses *Reset two-factor* on the user's edit page (audit `totp_reset`). The user's sessions end; they enrol again at the next login.
+3. **The only administrator locked out:** run the break-glass CLI in the container — `docker compose exec -u app app flask users reset-2fa <username>` — then log in and enrol again. `flask users unlock <username>` clears a brute-force lockout (failed codes count toward it), and a forgotten password is replaced with `flask users reset-password <username> --new-file <path|->` (the new password is read from a file or stdin, never from the command line; a change is forced at the next login). `ADMIN_PASSWORD` is not consulted once the first admin exists.
+
+Turning enforcement off again (`REQUIRE_2FA=off`) keeps every enrolment in place; users may then disable their own second factor.
 
 ## Rotating the master passphrase
 
@@ -586,7 +602,8 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `RATE_LIMIT_DEFAULT` | `60/minute` | Default rate limit when enabled |
 | `LOGIN_LOCKOUT_THRESHOLD` | `5` | Failed logins per local account before a temporary lock (`0` disables). The last active admin is never hard-locked, so an attacker cannot lock everyone out |
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Lock duration once the threshold is hit; cleared early by an admin or `flask users unlock <username>` |
-| `REQUIRE_2FA_FOR_ADMINS` | `false` | Force every administrator to enrol a TOTP second factor before using the app (same gate as the first-login password change; logout and the enrolment page stay reachable) |
+| `REQUIRE_2FA` | `off` | Force enrolment of a TOTP second factor: `admins` (every administrator) or `all` (every account). An affected user who has not enrolled is sent to the enrolment page at login (after the first-login password change) and is refused Basic Auth until enrolled; the second factor cannot be disabled by the user while the policy applies. Unknown values refuse startup. See *Recovering access* below |
+| `REQUIRE_2FA_FOR_ADMINS` | `false` | 2.27 alias for `REQUIRE_2FA=admins` |
 | `TOTP_ISSUER` | `Chancery` | Issuer name shown in authenticator apps for enrolled accounts |
 | `BASIC_AUTH_ENABLED` | `true` | Enable HTTP Basic Auth for programmatic access |
 | `BASIC_AUTH_REALM` | `chancery` | Basic Auth realm name in `WWW-Authenticate` header |

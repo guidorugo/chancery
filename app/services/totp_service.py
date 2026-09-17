@@ -112,3 +112,26 @@ def consume_recovery_code(hashes, code):
         if check_password_hash(h, normalised):
             return hashes[:i] + hashes[i + 1:], True
     return hashes, False
+
+
+# --- enforcement (2.28.0) ----------------------------------------------------
+ENFORCEMENT_MODES = ("off", "admins", "all")
+
+
+def enforcement_mode(config):
+    """`REQUIRE_2FA`: off (default), admins, all. The 2.27 boolean
+    `REQUIRE_2FA_FOR_ADMINS=true` still means `admins`."""
+    mode = (config.get("REQUIRE_2FA") or "off").lower()
+    if mode == "off" and config.get("REQUIRE_2FA_FOR_ADMINS"):
+        mode = "admins"
+    return mode
+
+
+def enforced_for(user, config):
+    """True when `user` must have a second factor enrolled to use the app."""
+    mode = enforcement_mode(config)
+    if mode == "all":
+        return True
+    if mode == "admins":
+        return bool(getattr(user, "is_admin", False))
+    return False

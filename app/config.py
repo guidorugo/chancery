@@ -172,8 +172,10 @@ class Config:
     # F12 (2.26.0): scoped API tokens (`Authorization: Bearer chy_api_…`); the
     # longest lifetime an operator may give a token.
     API_TOKEN_MAX_DAYS = int(os.environ.get("API_TOKEN_MAX_DAYS") or "365")
-    # F13 (2.27.0): force every admin to enrol a TOTP second factor on next login.
+    # F13 (2.27.0): force every admin to enrol a TOTP second factor on next login
+    # (kept as an alias); 2.28.0: REQUIRE_2FA=off|admins|all is the real switch.
     REQUIRE_2FA_FOR_ADMINS = (os.environ.get("REQUIRE_2FA_FOR_ADMINS") or "false").lower() == "true"
+    REQUIRE_2FA = (os.environ.get("REQUIRE_2FA") or "off").lower()
     TOTP_ISSUER = os.environ.get("TOTP_ISSUER") or "Chancery"
     BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "chancery")
     # Verified Basic Auth credentials are cached in memory for this many

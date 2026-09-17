@@ -13,6 +13,7 @@ from ..services import audit_service, auth_service, crypto_utils, totp_service
 from ..services.audit_service import sanitize_username_for_log
 
 PRE_2FA_TTL_SECONDS = 300
+LOW_RECOVERY_CODES = 2      # warn loudly when this many (or fewer) recovery codes are left
 
 
 def _finish_login(user, auth_method, next_page=None, second_factor=None):
@@ -203,7 +204,12 @@ def two_factor():
         auth_service.clear_lockout(user)
         response = _finish_login(user, pending.get("method", "local"), pending.get("next"), second_factor=kind)
         if kind == "recovery":
-            flash(f"You signed in with a recovery code; {len(user.recovery_codes)} remain.", "warning")
+            left = len(user.recovery_codes)
+            if left <= LOW_RECOVERY_CODES:
+                flash(f"You signed in with a recovery code; only {left} remain. Generate new recovery codes now "
+                      "(Two-factor page) so you are not locked out.", "danger")
+            else:
+                flash(f"You signed in with a recovery code; {left} remain.", "warning")
         return response
     return render_template("auth/two_factor.html")
 
@@ -215,10 +221,11 @@ def two_factor_setup():
     show the recovery codes once. When already enabled, the page shows the
     status with disable / regenerate-codes forms."""
     issuer = current_app.config.get("TOTP_ISSUER", "Chancery")
-    forced = bool(current_app.config.get("REQUIRE_2FA_FOR_ADMINS")) and current_user.is_admin and not current_user.totp_enabled
+    enforced = totp_service.enforced_for(current_user, current_app.config)
+    forced = enforced and not current_user.totp_enabled
     if current_user.totp_enabled:
-        return render_template("auth/two_factor_setup.html", enabled=True, forced=False,
-                               remaining=len(current_user.recovery_codes))
+        return render_template("auth/two_factor_setup.html", enabled=True, forced=False, enforced=enforced,
+                               remaining=len(current_user.recovery_codes), low=LOW_RECOVERY_CODES)
     if request.method == "POST":
         secret = session.get("totp_setup_secret")
         if not secret:
@@ -241,7 +248,8 @@ def two_factor_setup():
         db.session.commit()
         session.pop("totp_setup_secret", None)
         flash("Two-factor authentication is enabled. Store the recovery codes below now — they will not be shown again.", "success")
-        return render_template("auth/two_factor_setup.html", enabled=True, forced=False, remaining=len(codes), new_codes=codes)
+        return render_template("auth/two_factor_setup.html", enabled=True, forced=False, enforced=enforced,
+                               remaining=len(codes), new_codes=codes, low=LOW_RECOVERY_CODES)
     secret = session.get("totp_setup_secret") or totp_service.generate_secret()
     session["totp_setup_secret"] = secret
     url = totp_service.otpauth_url(issuer, current_user.username, secret)
@@ -253,6 +261,13 @@ def two_factor_setup():
 @login_required
 def two_factor_disable():
     if not current_user.totp_enabled:
+        return redirect(url_for("auth.two_factor_setup"))
+    if totp_service.enforced_for(current_user, current_app.config):
+        # 2.28.0: under REQUIRE_2FA the second factor is not optional. Losing the
+        # authenticator is handled by an admin reset (or `flask users reset-2fa`),
+        # after which enrolment is forced again at the next login.
+        flash("Two-factor authentication is required for your account and cannot be disabled here. "
+              "If you lose your authenticator, an administrator can reset it.", "warning")
         return redirect(url_for("auth.two_factor_setup"))
     if current_user.has_usable_password() and not current_user.check_password(request.form.get("password", "")):
         flash("Current password is incorrect.", "danger")
@@ -281,7 +296,9 @@ def two_factor_recovery_codes():
     audit_service.log_action("recovery_codes_regenerated", target_type="user", target_id=current_user.id)
     db.session.commit()
     flash("New recovery codes generated; the old ones no longer work.", "success")
-    return render_template("auth/two_factor_setup.html", enabled=True, forced=False, remaining=len(codes), new_codes=codes)
+    return render_template("auth/two_factor_setup.html", enabled=True, forced=False,
+                           enforced=totp_service.enforced_for(current_user, current_app.config),
+                           remaining=len(codes), new_codes=codes, low=LOW_RECOVERY_CODES)
 
 
 def _clear_totp(user):
