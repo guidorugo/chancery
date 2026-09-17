@@ -33,6 +33,7 @@ def create_app(config_class=Config):
     _check_security(app)
 
     _check_signature_policy(app)
+    _check_require_2fa(app)
     _validate_ldap_config(app)
     _validate_key_backend_config(app)
     _configure_session(app)
@@ -149,10 +150,12 @@ def _setup_password_change_guard(app):
         if getattr(current_user, "must_change_password", False):
             flash("Please set a new password before continuing.", "warning")
             return redirect(url_for("auth.change_password"))
-        # F13: REQUIRE_2FA_FOR_ADMINS forces enrolment through the same gate.
-        if (app.config.get("REQUIRE_2FA_FOR_ADMINS") and getattr(current_user, "is_admin", False)
-                and not getattr(current_user, "totp_enabled", False)):
-            flash("Administrators must enrol a second factor before continuing.", "warning")
+        # F13 / 2.28.0: REQUIRE_2FA (admins|all) forces enrolment through the
+        # same gate — after the password change, so the bootstrap admin's first
+        # login goes: seed password -> new password -> enrol -> app.
+        from .services import totp_service
+        if totp_service.enforced_for(current_user, app.config) and not getattr(current_user, "totp_enabled", False):
+            flash("A second factor is required for your account. Enrol an authenticator to continue.", "warning")
             return redirect(url_for("auth.two_factor_setup"))
 
 
@@ -245,6 +248,16 @@ def _setup_basic_auth(app):
             response.status_code = 403
             return response
 
+        # 2.28.0: an account that REQUIRE_2FA obliges to enrol must not keep
+        # working with the bare password over Basic Auth either — enrol in the
+        # web UI, then use a scoped API token for scripts.
+        from .services import totp_service
+        if totp_service.enforced_for(result.user, app.config):
+            response = jsonify({"error": "Two-factor authentication is required for this account (REQUIRE_2FA); "
+                                         "enrol an authenticator in the web UI, then use an API token for scripts."})
+            response.status_code = 403
+            return response
+
     def _check_api_token(presented):
         """F12: `Authorization: Bearer chy_api_…` authenticates like Basic Auth
         (CSRF bypass, JSON errors, forced-password gate) but is additionally
@@ -319,6 +332,16 @@ def _setup_basic_auth(app):
 # refused — nothing may stop booting over this).
 MIN_RECOMMENDED_SECRET_KEY_LEN = 32
 MIN_RECOMMENDED_PASSPHRASE_LEN = 20
+
+
+def _check_require_2fa(app):
+    """2.28.0: refuse to start with an unknown REQUIRE_2FA — a typo must not
+    silently leave enforcement off."""
+    from .services import totp_service
+    mode = (app.config.get("REQUIRE_2FA") or "off").lower()
+    if mode not in totp_service.ENFORCEMENT_MODES:
+        print(f"FATAL: REQUIRE_2FA={mode!r} is not one of {', '.join(totp_service.ENFORCEMENT_MODES)}.")
+        sys.exit(1)
 
 
 def _check_signature_policy(app):

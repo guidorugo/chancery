@@ -26,7 +26,7 @@ JSON = {"Accept": "application/json"}
 
 @pytest.fixture(autouse=True)
 def _restore_cfg(app):
-    saved = {k: app.config.get(k) for k in ("LOGIN_LOCKOUT_THRESHOLD", "LOGIN_LOCKOUT_MINUTES", "REQUIRE_2FA_FOR_ADMINS")}
+    saved = {k: app.config.get(k) for k in ("LOGIN_LOCKOUT_THRESHOLD", "LOGIN_LOCKOUT_MINUTES", "REQUIRE_2FA_FOR_ADMINS", "REQUIRE_2FA")}
     yield
     app.config.update(saved)
 
@@ -259,7 +259,7 @@ class TestEnrolment:
         r = client.get("/ca/")
         assert r.status_code == 302 and r.headers["Location"].endswith("/auth/2fa/setup")
         r = client.get("/auth/2fa/setup")
-        assert r.status_code == 200 and b"Administrators on this Chancery must use a second factor" in r.data
+        assert r.status_code == 200 and b"A second factor is required for your account" in r.data
         assert client.post("/auth/logout").status_code == 302   # logout stays reachable
         # requesters are not forced
         _login(client, "testrequester", "requesterpass")
@@ -374,3 +374,134 @@ class TestSchemaAndRegistry:
         db.session.add(u)
         db.session.commit()
         assert db.session.get(User, u.id).session_version == 1 and not db.session.get(User, u.id).totp_enabled
+
+
+class TestEnforcement:
+    """2.28.0: REQUIRE_2FA=off|admins|all."""
+
+    def test_mode_helper_and_alias(self, app):
+        assert totp_service.enforcement_mode({}) == "off"
+        assert totp_service.enforcement_mode({"REQUIRE_2FA": "ALL"}) == "all"
+        assert totp_service.enforcement_mode({"REQUIRE_2FA": "off", "REQUIRE_2FA_FOR_ADMINS": True}) == "admins"
+        admin = type("U", (), {"is_admin": True})(); user = type("U", (), {"is_admin": False})()
+        assert totp_service.enforced_for(admin, {"REQUIRE_2FA": "admins"}) and not totp_service.enforced_for(user, {"REQUIRE_2FA": "admins"})
+        assert totp_service.enforced_for(user, {"REQUIRE_2FA": "all"}) and not totp_service.enforced_for(admin, {"REQUIRE_2FA": "off"})
+
+    def test_unknown_value_refuses_startup(self):
+        from app import create_app
+        from app.config import Config
+
+        class BadConfig(Config):
+            TESTING = True
+            SQLALCHEMY_DATABASE_URI = "sqlite://"
+            SECRET_KEY = "strong-secret-key-for-tests-xxxxxxxx"
+            MASTER_PASSPHRASE = "strong-passphrase-for-tests"
+            WTF_CSRF_ENABLED = False
+            REQUIRE_2FA = "sometimes"
+        with pytest.raises(SystemExit):
+            create_app(BadConfig)
+
+    def test_all_forces_requesters_too(self, app, client, csr_requester):
+        app.config["REQUIRE_2FA"] = "all"
+        _login(client, "testrequester", "requesterpass")
+        r = client.get("/csr/")
+        assert r.status_code == 302 and r.headers["Location"].endswith("/auth/2fa/setup")
+        client.get("/auth/2fa/setup")
+        with client.session_transaction() as sess:
+            secret = sess["totp_setup_secret"]
+        r = client.post("/auth/2fa/setup", data={"code": _code(secret)})
+        assert b"download-codes" in r.data           # recovery codes offered as a download
+        assert client.get("/csr/").status_code == 200
+
+    def test_first_login_order_password_then_enrol(self, app, client, db):
+        """The bootstrap admin's first login: seed password -> new password ->
+        enrol -> app. Enforcement never blocks the password change."""
+        app.config["REQUIRE_2FA"] = "admins"
+        boot = User(username="bootadmin", role="admin", must_change_password=True)
+        boot.set_password("seed-password-1")
+        db.session.add(boot); db.session.commit()
+        r = _login(client, "bootadmin", "seed-password-1")
+        assert r.headers["Location"].endswith("/auth/change-password")
+        r = client.get("/ca/")
+        assert r.status_code == 302 and r.headers["Location"].endswith("/auth/change-password")
+        r = client.post("/auth/change-password", data={"current_password": "seed-password-1",
+                                                       "new_password": "a-brand-new-password", "confirm_password": "a-brand-new-password"})
+        assert r.status_code == 302
+        r = client.get("/ca/")
+        assert r.status_code == 302 and r.headers["Location"].endswith("/auth/2fa/setup")
+        r = client.get("/auth/2fa/setup")
+        assert r.status_code == 200 and b"A second factor is required for your account" in r.data
+        with client.session_transaction() as sess:
+            secret = sess["totp_setup_secret"]
+        client.post("/auth/2fa/setup", data={"code": _code(secret)})
+        assert client.get("/ca/").status_code == 200
+        # next login asks for the code
+        client.post("/auth/logout")
+        r = _login(client, "bootadmin", "a-brand-new-password")
+        assert r.headers["Location"].endswith("/auth/2fa")
+
+    def test_basic_auth_refused_until_enrolled(self, app, client, admin_user, csr_requester):
+        app.config["REQUIRE_2FA"] = "admins"
+        r = client.get("/ca/", headers=_basic("testadmin", "adminpass"))
+        assert r.status_code == 403 and "REQUIRE_2FA" in r.get_json()["error"]
+        assert client.get("/csr/", headers=_basic("testrequester", "requesterpass")).status_code == 200
+        app.config["REQUIRE_2FA"] = "all"
+        assert client.get("/csr/", headers=_basic("testrequester", "requesterpass")).status_code == 403
+        # a token still opens the API for a not-yet-enrolled account
+        plaintext, _row = api_token_service.create(admin_user, "ci", ["read"], 30)
+        _db.session.commit()
+        assert client.get("/ca/", headers={"Authorization": f"Bearer {plaintext}", **JSON}).status_code == 200
+        app.config["REQUIRE_2FA"] = "off"
+        assert client.get("/ca/", headers=_basic("testadmin", "adminpass")).status_code == 200
+
+    def test_disable_refused_under_enforcement(self, app, auth_admin, admin_user):
+        _enable(admin_user)
+        app.config["REQUIRE_2FA"] = "admins"
+        r = auth_admin.get("/auth/2fa/setup")
+        assert b"Required by policy" in r.data and b"Disable 2FA" not in r.data
+        r = auth_admin.post("/auth/2fa/disable", data={"password": "adminpass", "code": _code()}, follow_redirects=True)
+        assert b"cannot be disabled" in r.data and _fresh(admin_user.id).totp_enabled
+        app.config["REQUIRE_2FA"] = "off"
+        r = auth_admin.post("/auth/2fa/disable", data={"password": "adminpass", "code": _code(offset=1)}, follow_redirects=True)
+        assert b"is disabled" in r.data and not _fresh(admin_user.id).totp_enabled
+
+    def test_admin_reset_forces_reenrolment(self, app, auth_admin, admin_user, csr_requester):
+        app.config["REQUIRE_2FA"] = "all"
+        _enable(admin_user, secret="GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")   # the acting admin complies with the policy
+        _enable(csr_requester)
+        r = auth_admin.post(f"/users/{csr_requester.id}/reset-2fa", follow_redirects=True)
+        assert b"must enrol again at their next login" in r.data
+        victim = app.test_client()
+        r = _login(victim, "testrequester", "requesterpass")
+        assert r.headers["Location"] == "/"            # no second factor to ask for any more ...
+        r = victim.get("/csr/")
+        assert r.status_code == 302 and r.headers["Location"].endswith("/auth/2fa/setup")   # ... but enrolment is forced
+
+    def test_low_recovery_codes_warning(self, app, client, admin_user):
+        codes = _enable(admin_user)
+        _, hashes = totp_service.generate_recovery_codes()
+        u = _fresh(admin_user.id)
+        u.recovery_codes_json = json.dumps(hashes[:2]); _db.session.commit()
+        plain, _h = totp_service.generate_recovery_codes()   # fresh known codes
+        u.recovery_codes_json = json.dumps(_h[:2]); _db.session.commit()
+        _login(client, "testadmin", "adminpass")
+        r = client.post("/auth/2fa", data={"code": plain[0]}, follow_redirects=True)
+        assert b"only 1 remain" in r.data
+        r = client.get("/auth/2fa/setup")
+        assert b"Only 1 recovery code left" in r.data
+
+    def test_cli_reset_2fa_note_and_reset_password(self, app, admin_user, tmp_path):
+        app.config["REQUIRE_2FA"] = "admins"
+        _enable(admin_user)
+        runner = app.test_cli_runner()
+        r = runner.invoke(args=["users", "reset-2fa", "testadmin"])
+        assert r.exit_code == 0 and "must enrol an authenticator again" in r.output
+        pw = tmp_path / "pw"; pw.write_text("a-new-strong-password\n")
+        r = runner.invoke(args=["users", "reset-password", "testadmin", "--new-file", str(pw)])
+        assert r.exit_code == 0 and "must choose a new one" in r.output, r.output
+        u = _fresh(admin_user.id)
+        assert u.check_password("a-new-strong-password") and u.must_change_password and u.session_version >= 3
+        assert AuditLog.query.filter_by(action="reset_user_password").one().username == "cli"
+        r = runner.invoke(args=["users", "reset-password", "testadmin", "--new-file", "-"], input="short\n")
+        assert r.exit_code != 0 and "at least" in r.output
+        assert runner.invoke(args=["users", "reset-password", "nobody", "--new-file", str(pw)]).exit_code != 0
