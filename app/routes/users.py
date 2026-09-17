@@ -1,4 +1,6 @@
-from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, jsonify
+from datetime import datetime, timedelta, timezone
+
+from flask import Blueprint, Response, current_app, render_template, redirect, url_for, flash, request, jsonify, stream_with_context
 from flask_login import current_user, login_required
 
 from ..decorators import admin_required
@@ -517,14 +519,69 @@ def profile_delete(profile_id):
     return redirect(url_for("users.profiles"))
 
 
+def _audit_filters(args):
+    """F16: the audit query narrowed by `from`/`to` (YYYY-MM-DD, inclusive),
+    `action` (exact, or a prefix ending in *), `user` (username substring),
+    `target_type`, `target_id` and `q` (details substring). Returns
+    (query, applied filters); raises ValueError on a bad value."""
+    query = AuditLog.query
+    filters = {}
+
+    def _day(key):
+        raw = (args.get(key) or "").strip()
+        if not raw:
+            return None
+        try:
+            value = datetime.strptime(raw, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"'{key}' must be a date like 2026-09-17.")
+        filters[key] = raw
+        return value
+
+    start, end = _day("from"), _day("to")
+    if start:
+        query = query.filter(AuditLog.timestamp >= start)
+    if end:
+        query = query.filter(AuditLog.timestamp < end + timedelta(days=1))
+    action = (args.get("action") or "").strip()
+    if action:
+        filters["action"] = action
+        query = query.filter(AuditLog.action.like(action[:-1] + "%")) if action.endswith("*") else query.filter(AuditLog.action == action)
+    user = (args.get("user") or "").strip()
+    if user:
+        filters["user"] = user
+        query = query.filter(AuditLog.username.ilike(f"%{user}%"))
+    target_type = (args.get("target_type") or "").strip()
+    if target_type:
+        filters["target_type"] = target_type
+        query = query.filter(AuditLog.target_type == target_type)
+    target_id = (args.get("target_id") or "").strip()
+    if target_id:
+        if not target_id.isdigit():
+            raise ValueError("'target_id' must be a number.")
+        filters["target_id"] = target_id
+        query = query.filter(AuditLog.target_id == int(target_id))
+    text = (args.get("q") or "").strip()
+    if text:
+        filters["q"] = text
+        query = query.filter(AuditLog.details.ilike(f"%{text}%"))
+    return query, filters
+
+
 @users_bp.route("/audit-log")
 @admin_required
 def audit_log():
+    from ..services import audit_chain
     page = request.args.get("page", 1, type=int)
-    per_page = 50
-    logs = AuditLog.query.order_by(AuditLog.timestamp.desc()).paginate(
-        page=page, per_page=per_page, error_out=False
-    )
+    per_page = min(max(request.args.get("per_page", 50, type=int), 1), 500)
+    try:
+        query, filters = _audit_filters(request.args)
+    except ValueError as exc:
+        if wants_json():
+            return api_error(str(exc), 400)
+        flash(str(exc), "danger")
+        return redirect(url_for("users.audit_log"))
+    logs = query.order_by(AuditLog.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
     if wants_json():
         return jsonify({
             "items": [log.to_dict() for log in logs.items],
@@ -532,8 +589,34 @@ def audit_log():
             "per_page": logs.per_page,
             "total": logs.total,
             "pages": logs.pages,
+            "filters": filters,
+            "integrity": audit_chain.status(),
         })
-    return render_template("users/audit_log.html", logs=logs)
+    return render_template("users/audit_log.html", logs=logs, filters=filters, integrity=audit_chain.status())
+
+
+@users_bp.route("/audit-log/export")
+@admin_required
+def audit_log_export():
+    """F16: stream the (filtered) audit log as CSV, JSON or JSON lines, hashes included."""
+    from ..services import audit_chain
+    from ..services.filenames import content_disposition
+    fmt = (request.args.get("format") or "csv").lower()
+    if fmt not in ("csv", "json", "jsonl"):
+        return api_error("format must be csv, json or jsonl.", 400)
+    try:
+        query, filters = _audit_filters(request.args)
+    except ValueError as exc:
+        return api_error(str(exc), 400)
+    query = query.order_by(AuditLog.id)
+    audit_service.log_action("export_audit_log", target_type="audit_log", details={"format": fmt, "filters": filters})
+    db.session.commit()
+    producer = {"csv": audit_chain.iter_csv, "json": audit_chain.iter_json, "jsonl": audit_chain.iter_jsonl}[fmt]
+    mimetype = {"csv": "text/csv", "json": "application/json", "jsonl": "application/x-ndjson"}[fmt]
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    response = Response(stream_with_context(producer(query)), mimetype=mimetype)
+    response.headers["Content-Disposition"] = content_disposition(f"chancery-audit-{stamp}", fmt)
+    return response
 
 
 # --- F12: scoped API tokens ------------------------------------------------------

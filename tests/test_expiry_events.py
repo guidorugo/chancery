@@ -192,12 +192,12 @@ class TestCadence:
             _root()
             first = scheduler_service.tick(now=NOW)              # lease acquired, both jobs run
             assert first["lease"] is True
-            assert set(first["jobs"]) == {"crl_refresh", "expiry_events", "ocsp_responders", "acme_maintenance"} and first["skipped"] == []
+            assert set(first["jobs"]) == {"crl_refresh", "expiry_events", "ocsp_responders", "acme_maintenance", "audit_seal", "audit_anchor", "audit_prune"} and first["skipped"] == []
             row = db.session.get(SchedulerJob, "expiry_events")
             assert row.last_run_at == NOW and row.last_error is None
 
             later = scheduler_service.tick(now=NOW + timedelta(minutes=1))
-            assert later["skipped"] == ["expiry_events", "ocsp_responders", "acme_maintenance"] and "crl_refresh" in later["jobs"]
+            assert later["skipped"] == ["expiry_events", "ocsp_responders", "acme_maintenance", "audit_anchor", "audit_prune"] and "crl_refresh" in later["jobs"]
             assert db.session.get(SchedulerJob, "expiry_events").last_run_at == NOW
 
             forced = scheduler_service.tick(now=NOW + timedelta(minutes=2), force=True)
@@ -293,7 +293,7 @@ class TestSurface:
             r = app.test_cli_runner().invoke(args=["scheduler", "tick", "--force"])
             assert r.exit_code == 0, r.output
             out = json.loads(r.output)
-            assert set(out["jobs"]) == {"crl_refresh", "expiry_events", "ocsp_responders", "acme_maintenance"} and out["skipped"] == []
+            assert set(out["jobs"]) == {"crl_refresh", "expiry_events", "ocsp_responders", "acme_maintenance", "audit_seal", "audit_anchor", "audit_prune"} and out["skipped"] == []
             r = app.test_cli_runner().invoke(args=["scheduler", "status"])
             assert r.exit_code == 0, r.output
             status = json.loads(r.output)

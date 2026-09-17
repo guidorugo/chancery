@@ -89,6 +89,11 @@ EVENT_CATALOG = {
         ("acme_issuance_failed", "ACME finalize refused"),
         ("acme_certificate_revoked", "Certificate revoked through ACME"),
     ],
+    "Audit integrity": [
+        ("audit_anchor", "Daily audit-chain anchor (head hash + row count)"),
+        ("audit_checkpoint", "Audit rows archived and pruned (retention checkpoint)"),
+        ("export_audit_log", "Audit log exported"),
+    ],
     "Users & authentication": [
         ("create_user", "User created"),
         ("update_user_role", "User role changed"),

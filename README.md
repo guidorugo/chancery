@@ -23,6 +23,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Audit Logging**: Every sensitive action logged with user, timestamp, IP, and details
 - **User Management**: Admin UI for creating users, assigning roles, and managing accounts
 - **Scoped API tokens**: `Authorization: Bearer chy_api_…` credentials for scripts and automation, created per user (Preferences → API Tokens, or `flask api-token`), with a subset of scopes (`read`, `issue`, `revoke`, `admin`), a mandatory expiry and one-click revocation — never more than the owner's role. Prefer them over Basic Auth for anything automated
+- **Tamper-evident audit log**: every row is hash-chained and sealed by the scheduler, a daily anchor event carries the head hash to your webhook receiver, `flask audit verify` reports the first altered or missing row; the page filters and exports (CSV/JSON) with hashes, and optional retention archives old rows behind a checkpoint
 - **ACME server (RFC 8555)**: certbot, acme.sh, lego, Caddy and friends enrol from your CA without a human — one directory per CA at `/acme/<ca_id>/directory`, `http-01` validation, accounts gated by admin-issued external account binding (EAB) keys by default, issuance through the CA's chosen certificate profile, revocation by the account or the certificate key. Off until `ACME_ENABLED=true` and the CA page's *Enable ACME* switch
 - **Two-factor login (TOTP)**: Any user (local or LDAP) can enrol an authenticator app (RFC 6238, QR code or manual key) at *Two-factor* in the navbar; the login then asks for a 6-digit code after the password, with eight single-use recovery codes as the fallback. Codes are replay-protected and failed codes count toward the login lockout. `REQUIRE_2FA=admins|all` forces enrolment before anything else (and refuses Basic Auth until enrolled); an admin (or `flask users reset-2fa`) can clear a lost authenticator. Password changes, admin resets and any 2FA change log the account out of all other sessions
 - **HTTP Basic Auth**: Stateless API access via `curl -u user:pass` for scripts and automation, alongside session-based browser auth
@@ -265,6 +266,21 @@ Caddy: `acme_ca https://ca.example.lan/acme/3/directory` plus `acme_eab { key_id
 **Transport.** RFC 8555 requires the directory over HTTPS and certbot, lego and Caddy refuse a plain `http://` server (acme.sh tolerates it). Run Chancery behind TLS (`deploy/docker-compose.tls.yml`) for ACME even when you use the UI over plain HTTP, and trust the CA certificate (or the front-end's certificate) on the clients.
 
 **Bookkeeping.** Certificates obtained through ACME carry `issuance_source: acme` in the JSON API; the audit log records `acme_account_created`, `acme_order_created`, `acme_challenge_validated` / `acme_challenge_failed`, `acme_certificate_issued`, `acme_certificate_revoked` and the admin actions `update_ca_acme`, `create_acme_eab_key`, `revoke_acme_eab_key` (all available as webhook events). The scheduler expires stale orders and prunes nonces hourly (`flask acme maintain` does it now). Under dual control, enabling ACME on a CA is the approved act: the CA's creator cannot switch it on; orders afterwards are automated issuance and need no second admin.
+
+## Audit log: hash chain, anchors, export and retention
+
+Every audit row is part of a **hash chain**: `entry_hash = SHA-256(prev_hash ‖ canonical row JSON)`, where `prev_hash` is the previous row's hash. Rows are written unsealed by whatever produced them and sealed in id order by the scheduler's lease holder on every tick (so several gunicorn workers cannot fork the chain); rows younger than `AUDIT_SEAL_GRACE_SECONDS` (5) or behind an id gap — an insert still in flight — wait for the next tick. Editing or deleting a row, or re-linking `prev_hash`, breaks the chain from that row on:
+
+```bash
+docker compose exec -u app app flask audit verify            # OK / BROKEN at #<id>: <reason>, exit 1 when broken
+docker compose exec -u app app flask audit verify --from-id 1200
+```
+
+Once a day the scheduler appends an **`audit_anchor`** row (head id, head hash, sealed count). Subscribe to that event on the Webhooks page and the receiver (n8n, a mailbox, a ticket) holds an out-of-band record that a rewritten chain cannot satisfy. The Audit Log page shows the head, pending rows, the last anchor and checkpoint.
+
+**Export and filters.** The page filters by date range, action (exact, or a prefix like `acme_*`), user, target and details text; *Export CSV* / *Export JSON* stream the filtered rows with their hashes (`GET /users/audit-log/export?format=csv|json|jsonl&from=&to=&action=&user=&target_type=&target_id=&q=`, every export is itself audited as `export_audit_log`). From the shell: `flask audit export --since 2026-09-01 --format csv --out /app/data/audit-sep.csv`.
+
+**Retention.** `AUDIT_RETENTION_DAYS=0` (default) keeps everything. With a value, the daily `audit_prune` job archives sealed rows older than the window to `AUDIT_ARCHIVE_DIR` (default `<database directory>/audit-archive/audit-<first>-<last>-<timestamp>.jsonl`, hashes included, mode 0600), deletes them and appends an **`audit_checkpoint`** row carrying the last pruned id and hash — `flask audit verify` then starts from the checkpoint. Unsealed rows and anything after a gap are never pruned. `flask audit prune --dry-run` shows what would go.
 
 ## Two-factor authentication and recovering access
 
@@ -585,6 +601,7 @@ Operational commands run through the Flask CLI inside the container. Run them **
 | `flask users unlock <username>` | Clear a login lockout / failed-attempt counter from the shell — for when the locked account is the only admin and nobody can unlock it from the Users page |
 | `flask users reset-2fa <username>` | Clear a user's TOTP second factor (lost authenticator) and log out their sessions; they can enrol again. Break-glass for a locked-out sole admin (audited `totp_reset`) |
 | `flask acme eab-create --ca-id <id> [--name <label>]` / `eab-list [--ca-id <id>]` / `eab-revoke <kid>` / `maintain` | ACME external-account-binding keys (the MAC key is printed once) and the hourly maintenance run |
+| `flask audit verify [--from-id N] [--json]` / `seal` / `anchor` / `prune [--dry-run]` / `export [--since] [--until] [--action] [--user] [--format csv\|json\|jsonl] [--out]` | Audit-chain integrity (exit 1 when broken), sealing, daily anchor, retention pruning and filtered export from the shell |
 | `flask metrics-token create --name <n> --expires-in-days <N>` / `list` / `revoke <name-or-id>` | Manage bearer tokens for `/metrics` |
 | `flask api-token create --user <u> --name <n> --scopes read,issue --expires-in-days <N>` / `list [--user <u>]` / `revoke <id> [--yes]` | Scoped API tokens (F12); the secret is printed once |
 
@@ -641,6 +658,9 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `LOGIN_LOCKOUT_MINUTES` | `15` | Lock duration once the threshold is hit; cleared early by an admin or `flask users unlock <username>` |
 | `REQUIRE_2FA` | `off` | Force enrolment of a TOTP second factor: `admins` (every administrator) or `all` (every account). An affected user who has not enrolled is sent to the enrolment page at login (after the first-login password change) and is refused Basic Auth until enrolled; the second factor cannot be disabled by the user while the policy applies. Unknown values refuse startup. See *Recovering access* below |
 | `REQUIRE_2FA_FOR_ADMINS` | `false` | 2.27 alias for `REQUIRE_2FA=admins` |
+| `AUDIT_RETENTION_DAYS` | `0` | Archive + delete sealed audit rows older than this many days behind a checkpoint (0 = keep everything) |
+| `AUDIT_ARCHIVE_DIR` | `<db dir>/audit-archive` | Where pruned rows are written as JSON lines |
+| `AUDIT_SEAL_GRACE_SECONDS` | `5` | Rows younger than this are left unsealed until the next tick |
 | `ACME_ENABLED` | `false` | Serve ACME directories (each CA still needs *Enable ACME* on its page) |
 | `ACME_BASE_URL` | *(request host)* | Absolute base for the URLs in ACME responses, e.g. `https://ca.example.lan`, when the server is reached under another name than the one it sees |
 | `ACME_RATE_LIMIT` | `300/minute` | Per-IP rate-limit bucket for `/acme/*` |

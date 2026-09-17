@@ -5,24 +5,69 @@
 {% block content %}
 {% set active_tab = 'audit' %}
 {% include "users/_tabs.html" %}
-{{ page_header("Audit Log", "Every security-relevant action, newest first.") }}
+{% call page_header("Audit Log", "Every security-relevant action, newest first, in a hash chain sealed by the scheduler.") %}
+    <a href="{{ url_for('users.audit_log_export', format='csv', **filters) }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-filetype-csv" aria-hidden="true"></i> Export CSV</a>
+    <a href="{{ url_for('users.audit_log_export', format='json', **filters) }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-filetype-json" aria-hidden="true"></i> Export JSON</a>
+{% endcall %}
+
+<div class="filter-bar row g-2 align-items-end" id="audit-integrity">
+    <div class="col-md-12 small">
+        <i class="bi bi-link-45deg" aria-hidden="true"></i>
+        {% if integrity.head_id %}<strong>Chain sealed through #{{ integrity.head_id }}</strong> <code title="{{ integrity.head_hash }}">{{ integrity.head_hash[:16] }}…</code>{% else %}<strong>Chain not sealed yet</strong>{% endif %}
+        &middot; {{ integrity.unsealed }} unsealed row{{ 's' if integrity.unsealed != 1 }} pending
+        {% if integrity.last_anchor %}&middot; last anchor #{{ integrity.last_anchor.id }} at {{ integrity.last_anchor.timestamp[:16].replace('T', ' ') }} UTC{% endif %}
+        {% if integrity.last_checkpoint %}&middot; pruned through #{{ integrity.last_checkpoint.details.pruned_through_id }}{% endif %}
+        &middot; retention {% if integrity.retention_days %}{{ integrity.retention_days }} days{% else %}unlimited{% endif %}
+        <span class="text-body-secondary">&middot; verify with <code>flask audit verify</code></span>
+    </div>
+</div>
+
+<form method="GET" class="filter-bar row g-2 align-items-end" id="audit-filters">
+    <div class="col-6 col-md-2">
+        <label for="from" class="form-label">From</label>
+        <input type="date" class="form-control form-control-sm" id="from" name="from" value="{{ filters.get('from', '') }}">
+    </div>
+    <div class="col-6 col-md-2">
+        <label for="to" class="form-label">To</label>
+        <input type="date" class="form-control form-control-sm" id="to" name="to" value="{{ filters.get('to', '') }}">
+    </div>
+    <div class="col-6 col-md-2">
+        <label for="action" class="form-label">Action</label>
+        <input type="text" class="form-control form-control-sm" id="action" name="action" value="{{ filters.get('action', '') }}" placeholder="login_failure or acme_*">
+    </div>
+    <div class="col-6 col-md-2">
+        <label for="user" class="form-label">User</label>
+        <input type="text" class="form-control form-control-sm" id="user" name="user" value="{{ filters.get('user', '') }}">
+    </div>
+    <div class="col-6 col-md-2">
+        <label for="q" class="form-label">Details contain</label>
+        <input type="search" class="form-control form-control-sm" id="q" name="q" value="{{ filters.get('q', '') }}">
+    </div>
+    <div class="col-6 col-md-2 d-flex gap-1">
+        <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel" aria-hidden="true"></i> Filter</button>
+        {% if filters %}<a href="{{ url_for('users.audit_log') }}" class="btn btn-sm btn-outline-secondary">Clear</a>{% endif %}
+    </div>
+</form>
 
 <div class="card">
 <div class="table-responsive">
 <table class="table table-sm table-hover mb-0">
     <thead>
         <tr>
+            <th>#</th>
             <th>Timestamp</th>
             <th>User</th>
             <th>Action</th>
             <th>Target</th>
             <th>IP Address</th>
             <th>Details</th>
+            <th>Hash</th>
         </tr>
     </thead>
     <tbody>
     {% for entry in logs.items %}
         <tr>
+            <td class="text-body-secondary">{{ entry.id }}</td>
             <td class="text-nowrap">{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}</td>
             <td>{{ entry.username }}</td>
             <td><code>{{ entry.action }}</code></td>
@@ -37,9 +82,10 @@
                 <small class="text-body-secondary text-mono">{{ entry.details }}</small>
                 {% else %}-{% endif %}
             </td>
+            <td>{% if entry.entry_hash %}<code title="{{ entry.entry_hash }}">{{ entry.entry_hash[:8] }}</code>{% else %}<span class="badge bg-secondary" title="Sealed by the scheduler's next tick">pending</span>{% endif %}</td>
         </tr>
     {% else %}
-        {{ empty_row(6, 'No audit log entries.', 'journal-text') }}
+        {{ empty_row(8, 'No audit log entries.', 'journal-text') }}
     {% endfor %}
     </tbody>
 </table>
@@ -51,7 +97,7 @@
     <ul class="pagination justify-content-center">
         {% if logs.has_prev %}
         <li class="page-item">
-            <a class="page-link" href="{{ url_for('users.audit_log', page=logs.prev_num) }}">Previous</a>
+            <a class="page-link" href="{{ url_for('users.audit_log', page=logs.prev_num, **filters) }}">Previous</a>
         </li>
         {% else %}
         <li class="page-item disabled"><span class="page-link">Previous</span></li>
@@ -62,7 +108,7 @@
                 {% if p == logs.page %}
                 <li class="page-item active"><span class="page-link">{{ p }}</span></li>
                 {% else %}
-                <li class="page-item"><a class="page-link" href="{{ url_for('users.audit_log', page=p) }}">{{ p }}</a></li>
+                <li class="page-item"><a class="page-link" href="{{ url_for('users.audit_log', page=p, **filters) }}">{{ p }}</a></li>
                 {% endif %}
             {% else %}
                 <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
@@ -71,7 +117,7 @@
 
         {% if logs.has_next %}
         <li class="page-item">
-            <a class="page-link" href="{{ url_for('users.audit_log', page=logs.next_num) }}">Next</a>
+            <a class="page-link" href="{{ url_for('users.audit_log', page=logs.next_num, **filters) }}">Next</a>
         </li>
         {% else %}
         <li class="page-item disabled"><span class="page-link">Next</span></li>

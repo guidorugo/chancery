@@ -16,6 +16,15 @@ class AuditLog(db.Model):
     target_id = db.Column(db.Integer, nullable=True)
     details = db.Column(db.Text, nullable=True)
     ip_address = db.Column(db.String(45), nullable=False)
+    # F16 (3.3.0): hash chain. NULL until the scheduler's lease holder seals
+    # the row (in id order); prev_hash is the previous row's entry_hash ("" for
+    # the first row), entry_hash = SHA-256(prev_hash || canonical row JSON).
+    prev_hash = db.Column(db.String(64), nullable=True)
+    entry_hash = db.Column(db.String(64), nullable=True)
+
+    @property
+    def sealed(self):
+        return bool(self.entry_hash)
 
     def to_dict(self):
         return {
@@ -28,6 +37,8 @@ class AuditLog(db.Model):
             "target_id": self.target_id,
             "details": json_or_none(self.details),
             "ip_address": self.ip_address,
+            "prev_hash": self.prev_hash,
+            "entry_hash": self.entry_hash,
         }
 
     def __repr__(self):
