@@ -100,6 +100,8 @@ EVENT_CATALOG = {
         ("activate_user", "User activated"),
         ("deactivate_user", "User deactivated"),
         ("reset_user_password", "User password reset"),
+        ("approve_user", "User activation / promotion approved (dual control)"),
+        ("request_user_promotion", "Promotion to admin requested (dual control)"),
         ("change_password", "Password changed"),
         ("login_success", "Login succeeded"),
         ("login_failure", "Login failed (can be noisy)"),

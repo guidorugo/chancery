@@ -88,6 +88,8 @@ def login():
 
         if result.reason == auth_service.REASON_DEACTIVATED:
             flash("Your account has been deactivated.", "danger")
+        elif result.reason == auth_service.REASON_PENDING:
+            flash("Your account is awaiting approval by an administrator.", "warning")
         elif result.reason == auth_service.REASON_LDAP_UNREACHABLE:
             flash("Directory service is unavailable. Try again later or use a local account.", "danger")
         else:

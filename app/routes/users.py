@@ -10,7 +10,7 @@ from ..models.audit_log import AuditLog
 from ..responses import wants_json
 from ..models.certificate_profile import CertificateProfile
 from ..responses import api_error
-from ..services import (audit_service, auth_service, ldap_service,
+from ..services import (audit_service, auth_service, dual_control_service, ldap_service,
                         ldap_settings_service, webhook_service, profile_service)
 
 users_bp = Blueprint("users", __name__, url_prefix="/users")
@@ -50,20 +50,30 @@ def create_user():
             flash(f"Password must be at least {min_len} characters.", "danger")
             return render_template("users/create.html")
 
-        user = User(username=username, role=role)
+        user = User(username=username, role=role, created_by=current_user.id)
         user.set_password(password)
         # G6-2: an admin-chosen password is a bootstrap credential — the user
         # picks their own on first login, exactly like the seeded admin.
         user.must_change_password = True
+        # F19: under dual control a new account starts inactive and pending
+        # until a different admin approves it (the bootstrap admin is exempt).
+        gated = dual_control_service.is_active() and not dual_control_service.is_exempt(current_user)
+        if gated:
+            user.is_active_user = False
+            user.approval_status = "pending"
+            user.pending_by = current_user.id
         db.session.add(user)
         db.session.flush()
         audit_service.log_action("create_user", target_type="user", target_id=user.id,
-                                 details={"role": role})
+                                 details={"role": role, "approval_status": user.approval_status})
         db.session.commit()
-        flash(f"User '{username}' created.", "success")
+        if gated:
+            flash(f"User '{username}' created and awaiting approval by another admin before it can log in.", "warning")
+        else:
+            flash(f"User '{username}' created.", "success")
         return redirect(url_for("users.list_users"))
 
-    return render_template("users/create.html")
+    return render_template("users/create.html", gated=dual_control_service.is_active() and not dual_control_service.is_exempt(current_user))
 
 
 @users_bp.route("/<int:user_id>/edit", methods=["GET", "POST"])
@@ -88,7 +98,19 @@ def edit_user(user_id):
                 return render_template("users/edit.html", user=user)
 
         old_role = user.role
+        gated = dual_control_service.is_active() and not dual_control_service.is_exempt(current_user)
+        if new_role == "admin" and old_role != "admin" and gated:
+            # F19: granting admin is a power grant — a second admin approves it.
+            user.pending_role = "admin"
+            user.pending_by = current_user.id
+            audit_service.log_action("request_user_promotion", target_type="user", target_id=user.id,
+                                     details={"old_role": old_role, "new_role": new_role})
+            db.session.commit()
+            flash(f"Promotion of '{user.username}' to admin awaits approval by another admin.", "warning")
+            return redirect(url_for("users.list_users"))
         user.role = new_role
+        if new_role != "admin":
+            user.pending_role = None          # a demotion cancels a pending promotion
         audit_service.log_action("update_user_role", target_type="user", target_id=user.id,
                                  details={"old_role": old_role, "new_role": new_role})
         db.session.commit()
@@ -108,6 +130,10 @@ def toggle_active(user_id):
 
     if user.id == current_user.id:
         flash("You cannot deactivate your own account.", "danger")
+        return redirect(url_for("users.list_users"))
+
+    if not user.is_active_user and user.is_pending:
+        flash(f"'{user.username}' is awaiting approval — use Approve.", "warning")   # F19
         return redirect(url_for("users.list_users"))
 
     if user.is_active_user and user.role == "admin":
@@ -141,6 +167,19 @@ def reset_password(user_id):
         flash("Cannot set a local password for an LDAP-managed user.", "warning")
         return redirect(url_for("users.list_users"))
 
+    # F19: under dual control, resetting another admin's password is a power
+    # grant — the account is deactivated until a different admin approves it;
+    # the bootstrap account is never reset here (it rotates its own password,
+    # or `flask users reset-password` does, audited).
+    gated = (dual_control_service.is_active() and not dual_control_service.is_exempt(current_user)
+             and user.role == "admin" and user.id != current_user.id)
+    if gated and dual_control_service.is_exempt(user):
+        msg = "Dual-control mode: the bootstrap admin's password is not reset here — it rotates its own, or use `flask users reset-password`."
+        if wants_json():
+            return api_error(msg, 403)
+        flash(msg, "danger")
+        return redirect(url_for("users.list_users"))
+
     if request.method == "POST":
         new_password = request.form.get("password", "")
         if not new_password:
@@ -153,16 +192,70 @@ def reset_password(user_id):
 
         user.set_password(new_password)
         user.must_change_password = True  # G6-2: rotate on first login
+        user.password_reset_by = current_user.id
+        user.password_reset_at = datetime.now(timezone.utc).replace(tzinfo=None)
         # AUTH-4: a password reset should also lift any brute-force lockout so
         # the account is immediately usable again.
         auth_service.clear_lockout(user)
         auth_service.bump_session_version(user)  # G6-5: the old password's sessions and cached Basic Auth drop
-        audit_service.log_action("reset_user_password", target_type="user", target_id=user.id)
+        if gated:
+            user.is_active_user = False
+            user.approval_status = "pending"
+            user.pending_by = current_user.id
+        audit_service.log_action("reset_user_password", target_type="user", target_id=user.id,
+                                 details={"pending_approval": gated})
         db.session.commit()
-        flash(f"Password for '{user.username}' has been reset.", "success")
+        if gated:
+            flash(f"Password for '{user.username}' has been reset; the account is deactivated until another admin approves it.", "warning")
+        else:
+            flash(f"Password for '{user.username}' has been reset.", "success")
         return redirect(url_for("users.list_users"))
 
-    return render_template("users/reset_password.html", user=user)
+    return render_template("users/reset_password.html", user=user, gated=gated)
+
+
+@users_bp.route("/<int:user_id>/approve", methods=["POST"])
+@admin_required
+def approve_user(user_id):
+    """F19: activate a pending account and/or apply a pending promotion. While
+    dual control is active the approver must differ from the admin who set it
+    up (cool-down included); when inactive any admin may clear a leftover."""
+    user = db.session.get(User, user_id)
+    if not user:
+        if wants_json():
+            return api_error("User not found.", 404)
+        flash("User not found.", "danger")
+        return redirect(url_for("users.list_users"))
+    if not user.awaits_approval:
+        if wants_json():
+            return api_error("This user is not awaiting approval.", 409)
+        flash("This user is not awaiting approval.", "warning")
+        return redirect(url_for("users.list_users"))
+    reason = dual_control_service.refuse_reason(current_user, user.pending_by, "a user") if dual_control_service.is_active() else None
+    if reason:
+        if wants_json():
+            return api_error(reason, 403)
+        flash(reason, "warning")
+        return redirect(url_for("users.list_users"))
+    applied = {"activated": False, "role": None}
+    if user.pending_role:
+        applied["role"] = user.pending_role
+        user.role = user.pending_role
+        user.pending_role = None
+    if user.is_pending:
+        user.approval_status = "approved"
+        user.is_active_user = True
+        applied["activated"] = True
+        auth_service.clear_lockout(user)
+    user.approved_by = current_user.id
+    user.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    user.pending_by = None
+    audit_service.log_action("approve_user", target_type="user", target_id=user.id, details=applied)
+    db.session.commit()
+    if wants_json():
+        return jsonify(user.to_dict())
+    flash(f"User '{user.username}' approved.", "success")
+    return redirect(url_for("users.list_users"))
 
 
 def _ldap_form_to_cfg(form):

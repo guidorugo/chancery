@@ -28,6 +28,7 @@ from .ldap_service import LdapUnavailableError
 # Failure reasons returned in AuthResult.reason
 REASON_INVALID = "invalid_credentials"
 REASON_DEACTIVATED = "account_deactivated"
+REASON_PENDING = "account_pending"   # F19: awaiting approval by a second admin
 REASON_LDAP_UNREACHABLE = "ldap_unreachable"
 REASON_LDAP_NO_ROLE = "ldap_no_role"
 REASON_LOCKED = "account_locked"
@@ -61,7 +62,7 @@ def authenticate(username, password):
             _register_failed_attempt(user)
             return AuthResult(None, REASON_INVALID, "local")
         if not user.is_active:
-            return AuthResult(user, REASON_DEACTIVATED, "local")
+            return AuthResult(user, REASON_PENDING if getattr(user, "is_pending", False) else REASON_DEACTIVATED, "local")
         _reset_lockout(user)
         return AuthResult(user, None, "local")
 

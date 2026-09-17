@@ -461,10 +461,9 @@ def approve(ca_id):
         flash("This CA is not awaiting approval.", "warning")
         return redirect(url_for("ca.detail", ca_id=ca_id))
 
-    if (dual_control_service.is_active()
-            and ca.created_by == current_user.id
-            and not dual_control_service.is_exempt(current_user)):
-        msg = "Dual-control mode: a CA must be approved by a different admin than its creator."
+    reason = dual_control_service.refuse_reason(current_user, ca.created_by, "a CA") if dual_control_service.is_active() else None
+    if reason:
+        msg = reason
         if wants_json():
             return api_error(msg, 403)
         flash(msg, "warning")
@@ -862,9 +861,9 @@ def approve_alternate(ca_id, alt_id):
         return _alt_error(ca, "Alternate certificate not found.", 404)
     if row.approval_status != "pending":
         return _alt_error(ca, "This certificate is not awaiting approval.", 409)
-    if (dual_control_service.is_active() and row.created_by == current_user.id
-            and not dual_control_service.is_exempt(current_user)):
-        return _alt_error(ca, "Dual-control mode: a CA certificate must be approved by a different admin than its creator.", 403)
+    reason = dual_control_service.refuse_reason(current_user, row.created_by, "a CA certificate") if dual_control_service.is_active() else None
+    if reason:
+        return _alt_error(ca, reason, 403)
     kind = row.kind
     try:
         result = ca_service.approve_alternate(row, current_user.id)

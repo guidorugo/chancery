@@ -742,6 +742,18 @@ def _migrate_schema():
             db.session.execute(text(
                 "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0"
             ))
+        for name, ddl in (  # F19: dual control for user management
+            ("approval_status", "ALTER TABLE users ADD COLUMN approval_status VARCHAR(20) NOT NULL DEFAULT 'approved'"),
+            ("created_by", "ALTER TABLE users ADD COLUMN created_by INTEGER REFERENCES users(id)"),
+            ("approved_by", "ALTER TABLE users ADD COLUMN approved_by INTEGER REFERENCES users(id)"),
+            ("approved_at", "ALTER TABLE users ADD COLUMN approved_at DATETIME"),
+            ("pending_role", "ALTER TABLE users ADD COLUMN pending_role VARCHAR(20)"),
+            ("pending_by", "ALTER TABLE users ADD COLUMN pending_by INTEGER REFERENCES users(id)"),
+            ("password_reset_by", "ALTER TABLE users ADD COLUMN password_reset_by INTEGER REFERENCES users(id)"),
+            ("password_reset_at", "ALTER TABLE users ADD COLUMN password_reset_at DATETIME"),
+        ):
+            if name not in columns:
+                db.session.execute(text(ddl))
         # F13: TOTP second factor + session versioning (G6-4)
         for name, ddl in (
             ("totp_secret_enc", "ALTER TABLE users ADD COLUMN totp_secret_enc BLOB"),
