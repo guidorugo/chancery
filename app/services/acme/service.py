@@ -20,7 +20,7 @@ from ...models.acme import AcmeAccount, AcmeAuthorization, AcmeChallenge, AcmeEa
 from ...models.certificate import Certificate
 from .. import audit_service, cert_service, crl_service, csr_service, name_constraints, public_url
 from ..crypto_utils import decrypt_secret, encrypt_secret
-from . import jws, validation
+from . import dns01, jws, validation
 from .problem import AcmeProblem, error_object
 
 ACTOR = "acme"
@@ -28,6 +28,20 @@ _HOSTNAME = re.compile(r"^(?=.{1,253}$)(?!-)([a-z0-9-]{1,63}(?<!-)\.)*[a-z0-9-]{
 REASON_CODES = {0: "unspecified", 1: "key_compromise", 2: "ca_compromise", 3: "affiliation_changed",
                 4: "superseded", 5: "cessation_of_operation", 6: "certificate_hold",
                 9: "privilege_withdrawn", 10: "aa_compromise"}
+CHALLENGE_TYPES = ("http-01", "dns-01")
+
+
+def parse_challenge_types(raw):
+    """`ACME_CHALLENGE_TYPES` → tuple in canonical order; ValueError on junk."""
+    wanted = [t.strip().lower() for t in (raw or "").split(",") if t.strip()]
+    unknown = [t for t in wanted if t not in CHALLENGE_TYPES]
+    if unknown or not wanted:
+        raise ValueError(f"ACME_CHALLENGE_TYPES must list one or both of {', '.join(CHALLENGE_TYPES)}, got {raw!r}.")
+    return tuple(t for t in CHALLENGE_TYPES if t in wanted)
+
+
+def challenge_types():
+    return parse_challenge_types(current_app.config.get("ACME_CHALLENGE_TYPES") or "http-01,dns-01")
 
 
 def utcnow():
@@ -227,9 +241,13 @@ def _parse_identifiers(raw, ca):
         if not isinstance(value, str):
             raise AcmeProblem("malformed", "Identifier value must be a string.")
         value = value.strip().lower().rstrip(".")
-        if value.startswith("*."):
-            raise AcmeProblem("rejectedIdentifier", f"Wildcard identifier {value!r} needs dns-01, which this server does not offer.")
-        if not _HOSTNAME.match(value) or re.match(r"^\d+\.\d+\.\d+\.\d+$", value):
+        base = value[2:] if value.startswith("*.") else value
+        if base != value:                       # wildcard (3.6.0): one leading label, dns-01 only
+            if not ca.acme_allow_wildcards:
+                raise AcmeProblem("rejectedIdentifier", f"Wildcard identifier {value!r}: this CA does not allow wildcard names.")
+            if "dns-01" not in challenge_types():
+                raise AcmeProblem("rejectedIdentifier", f"Wildcard identifier {value!r} needs dns-01, which this server does not offer (ACME_CHALLENGE_TYPES).")
+        if "*" in base or not _HOSTNAME.match(base) or re.match(r"^\d+\.\d+\.\d+\.\d+$", base):
             raise AcmeProblem("rejectedIdentifier", f"{value!r} is not a valid DNS identifier.")
         if value not in seen:
             seen.add(value)
@@ -250,13 +268,18 @@ def new_order(ca, account, payload):
     order = AcmeOrder(account_id=account.id, ca_id=ca.id, identifiers_json=json.dumps(identifiers), expires=expires)
     db.session.add(order)
     db.session.flush()
+    offered = challenge_types()
     for ident in identifiers:
-        authz = AcmeAuthorization(order_id=order.id, account_id=account.id, ca_id=ca.id,
-                                  identifier_type="dns", identifier_value=ident["value"], expires=expires)
+        wildcard = ident["value"].startswith("*.")
+        # §7.1.4: an authorization names the base domain, never the wildcard.
+        authz = AcmeAuthorization(order_id=order.id, account_id=account.id, ca_id=ca.id, identifier_type="dns",
+                                  identifier_value=ident["value"][2:] if wildcard else ident["value"],
+                                  wildcard=wildcard, expires=expires)
         db.session.add(authz)
         db.session.flush()
-        db.session.add(AcmeChallenge(authorization_id=authz.id, type="http-01",
-                                     token=jws.b64url_encode(secrets.token_bytes(32))))
+        for typ in (("dns-01",) if wildcard else offered):
+            db.session.add(AcmeChallenge(authorization_id=authz.id, type=typ,
+                                         token=jws.b64url_encode(secrets.token_bytes(32))))
     db.session.flush()
     account.last_seen_at = now
     audit_service.log_action("acme_order_created", target_type="acme_order", target_id=order.id, actor=ACTOR,
@@ -283,9 +306,19 @@ def refresh_order(order, now=None):
     return order
 
 
-def _refresh_authz(authz, now):
+def _refresh_authz(authz, now, attempt=False):
+    """Expire a stale authorization; with `attempt`, run the next due dns-01
+    lookup of a `processing` challenge (polls of the authorization or the
+    challenge drive the retries; order polls only read)."""
     if authz.status == "pending" and authz.expires <= now:
         authz.status = "expired"
+    elif authz.status == "pending" and attempt:
+        for challenge in authz.challenges:
+            if (challenge.type == "dns-01" and challenge.status == "processing"
+                    and challenge.next_attempt_at is not None and challenge.next_attempt_at <= now):
+                _attempt_dns01(authz.ca_id, authz.account, challenge, now)
+                refresh_order(authz.order, now)
+                break
     return authz
 
 
@@ -304,6 +337,8 @@ def authz_dict(ca, authz):
     d = {"identifier": {"type": authz.identifier_type, "value": authz.identifier_value},
          "status": authz.status, "expires": rfc3339(authz.expires),
          "challenges": [challenge_dict(ca, c) for c in authz.challenges]}
+    if authz.wildcard:
+        d["wildcard"] = True
     return d
 
 
@@ -328,7 +363,7 @@ def load_authz(ca, account, authz_id):
     authz = db.session.get(AcmeAuthorization, authz_id)
     if authz is None or authz.ca_id != ca.id or authz.account_id != account.id:
         raise AcmeProblem("malformed", "Unknown authorization.", status=404)
-    _refresh_authz(authz, utcnow())
+    _refresh_authz(authz, utcnow(), attempt=True)
     return authz
 
 
@@ -339,6 +374,7 @@ def load_challenge(ca, account, challenge_id):
     authz = challenge.authorization
     if authz.ca_id != ca.id or authz.account_id != account.id:
         raise AcmeProblem("malformed", "Unknown challenge.", status=404)
+    _refresh_authz(authz, utcnow(), attempt=True)
     return challenge
 
 
@@ -362,25 +398,59 @@ def respond_challenge(ca, account, challenge):
         refresh_order(authz.order, now)
         raise AcmeProblem("malformed", "The order has expired.")
     challenge.status = "processing"
-    expected = jws.key_authorization(challenge.token, account.jwk)
-    ok, err_type, detail = validation.fetch_http01(authz.identifier_value, challenge.token, expected)
+    if challenge.type == "dns-01":
+        _attempt_dns01(ca.id, account, challenge, now)
+    else:
+        expected = jws.key_authorization(challenge.token, account.jwk)
+        ok, err_type, detail = validation.fetch_http01(authz.identifier_value, challenge.token, expected)
+        _settle(ca.id, account, challenge, now, ok, err_type, detail)
+    refresh_order(authz.order, now)
+    return challenge
+
+
+def _settle(ca_id, account, challenge, now, ok, err_type, detail, extra=None):
+    """Final state of a challenge and its authorization, with the audit row."""
+    authz = challenge.authorization
+    details = {"ca_id": ca_id, "account_id": account.id, "identifier": authz.display_identifier, "type": challenge.type}
+    details.update(extra or {})
     if ok:
         challenge.status = "valid"
         challenge.validated_at = now
+        challenge.error_json = None
         authz.status = "valid"
         audit_service.log_action("acme_challenge_validated", target_type="acme_order", target_id=authz.order_id,
-                                 actor=ACTOR, details={"ca_id": ca.id, "account_id": account.id,
-                                                       "identifier": authz.identifier_value, "type": challenge.type})
+                                 actor=ACTOR, details=details)
     else:
         challenge.status = "invalid"
         challenge.error_json = json.dumps(error_object(err_type, detail))
         authz.status = "invalid"
+        details.update({"error": err_type, "detail": detail})
         audit_service.log_action("acme_challenge_failed", target_type="acme_order", target_id=authz.order_id,
-                                 actor=ACTOR, details={"ca_id": ca.id, "account_id": account.id,
-                                                       "identifier": authz.identifier_value, "type": challenge.type,
-                                                       "error": err_type, "detail": detail})
-    refresh_order(authz.order, now)
-    return challenge
+                                 actor=ACTOR, details=details)
+
+
+def _attempt_dns01(ca_id, account, challenge, now):
+    """One dns-01 lookup (3.6.0). Success settles the authorization; a miss
+    keeps the challenge `processing` and schedules the next attempt — the
+    client's polls run it — until ACME_DNS01_MAX_ATTEMPTS or the
+    authorization's expiry, when the challenge fails with the last error."""
+    authz = challenge.authorization
+    expected = dns01.txt_value(jws.key_authorization(challenge.token, account.jwk))
+    ok, err_type, detail = dns01.validate(authz.identifier_value, expected)
+    challenge.attempts = (challenge.attempts or 0) + 1
+    limit = max(1, int(current_app.config.get("ACME_DNS01_MAX_ATTEMPTS", 10)))
+    retry = max(1, int(current_app.config.get("ACME_DNS01_RETRY_SECONDS", 10)))
+    extra = {"attempts": challenge.attempts, "resolvers": current_app.config.get("ACME_DNS_RESOLVERS") or "system"}
+    if ok:
+        challenge.next_attempt_at = None
+        _settle(ca_id, account, challenge, now, True, None, None, extra)
+    elif challenge.attempts < limit and authz.expires > now + timedelta(seconds=retry):
+        challenge.next_attempt_at = now + timedelta(seconds=retry)
+        challenge.error_json = json.dumps(error_object(err_type, f"Attempt {challenge.attempts}/{limit}: {detail}"))
+    else:
+        challenge.next_attempt_at = None
+        _settle(ca_id, account, challenge, now, False, err_type,
+                f"Gave up after {challenge.attempts} attempt(s): {detail}", extra)
 
 
 # --- finalize / certificate ---------------------------------------------------

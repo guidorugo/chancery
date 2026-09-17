@@ -190,7 +190,7 @@
                 {% else %}<span class="badge bg-secondary">Off</span>{% endif %}
             </div>
             <div class="card-body">
-                <p class="small text-body-secondary mb-2">Automated issuance (RFC 8555, http-01) for certbot, acme.sh, lego or Caddy. Directory:
+                <p class="small text-body-secondary mb-2">Automated issuance (RFC 8555, http-01 and dns-01) for certbot, acme.sh, lego or Caddy. Directory:
                     <code class="user-select-all">{{ acme_directory_url }}</code>{% if acme_accounts %} &middot; {{ acme_accounts }} account{{ 's' if acme_accounts != 1 }}{% endif %}</p>
                 {% if current_user.is_admin and not ca.is_revoked and ca.has_signing_key and ca.approval_status == 'approved' %}
                 <form method="POST" action="{{ url_for('ca.set_acme', ca_id=ca.id) }}" class="row g-2 align-items-end mb-3">
@@ -203,6 +203,10 @@
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="acme_require_eab" name="acme_require_eab" {% if ca.acme_require_eab %}checked{% endif %}>
                             <label class="form-check-label" for="acme_require_eab">Require EAB key</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="acme_allow_wildcards" name="acme_allow_wildcards" {% if ca.acme_allow_wildcards %}checked{% endif %}>
+                            <label class="form-check-label" for="acme_allow_wildcards" title="Proven with dns-01 only; one certificate then covers every name one label below the base">Allow wildcard names (dns-01)</label>
                         </div>
                     </div>
                     <div class="col-sm-5">

@@ -189,6 +189,15 @@ class Config:
     ACME_NONCE_LIFETIME_MINUTES = int(os.environ.get("ACME_NONCE_LIFETIME_MINUTES") or "60")
     ACME_DEFAULT_VALIDITY_DAYS = int(os.environ.get("ACME_DEFAULT_VALIDITY_DAYS") or "90")
     ACME_MAX_IDENTIFIERS = int(os.environ.get("ACME_MAX_IDENTIFIERS") or "100")
+    # 3.6.0: dns-01 and wildcard names. Challenge types offered per authorization
+    # (a wildcard always gets dns-01 only); resolvers to ask (all must agree; empty
+    # = the container's resolver); lookup timeout; retry budget driven by the
+    # client's polls.
+    ACME_CHALLENGE_TYPES = os.environ.get("ACME_CHALLENGE_TYPES") or "http-01,dns-01"
+    ACME_DNS_RESOLVERS = os.environ.get("ACME_DNS_RESOLVERS") or ""
+    ACME_DNS_TIMEOUT_SECONDS = float(os.environ.get("ACME_DNS_TIMEOUT_SECONDS") or "5")
+    ACME_DNS01_MAX_ATTEMPTS = int(os.environ.get("ACME_DNS01_MAX_ATTEMPTS") or "10")
+    ACME_DNS01_RETRY_SECONDS = int(os.environ.get("ACME_DNS01_RETRY_SECONDS") or "10")
     # F16 (3.3.0): audit-log integrity and retention.
     AUDIT_RETENTION_DAYS = int(os.environ.get("AUDIT_RETENTION_DAYS") or "0")     # 0 = keep everything
     AUDIT_ARCHIVE_DIR = os.environ.get("AUDIT_ARCHIVE_DIR") or None                 # default: <db dir>/audit-archive

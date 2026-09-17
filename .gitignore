@@ -41,3 +41,8 @@ instance/
 
 # OS
 .DS_Store
+
+# dns-01 example: generated TSIG secret + rendered BIND config (examples/acme-dns01/setup.sh)
+examples/acme-dns01/named.conf
+examples/acme-dns01/tsig.secret
+examples/acme-dns01/tsig.key

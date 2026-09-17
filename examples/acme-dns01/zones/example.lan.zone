@@ -1,0 +1,13 @@
+; dns-01 validation zone. Nothing else has to live here: ACME clients add and
+; remove `_acme-challenge` TXT records, Chancery reads them from this server.
+; Rename the zone (also in named.conf.template) to the domain your
+; certificates use. The serial is bumped by BIND itself on dynamic updates.
+$TTL 60
+@       IN  SOA  dns.example.lan. hostmaster.example.lan. (
+                 2026091801  ; serial
+                 3600        ; refresh
+                 600         ; retry
+                 86400       ; expire
+                 60 )        ; negative-answer TTL (short: a "not yet" is retried quickly)
+@       IN  NS   dns.example.lan.
+dns     IN  A    192.0.2.53  ; this server's LAN address — informational for a private validation zone

@@ -34,6 +34,7 @@ def create_app(config_class=Config):
 
     _check_signature_policy(app)
     _check_require_2fa(app)
+    _check_acme_challenge_types(app)
     _validate_ldap_config(app)
     _validate_key_backend_config(app)
     _configure_session(app)
@@ -346,6 +347,17 @@ def _check_require_2fa(app):
     mode = (app.config.get("REQUIRE_2FA") or "off").lower()
     if mode not in totp_service.ENFORCEMENT_MODES:
         print(f"FATAL: REQUIRE_2FA={mode!r} is not one of {', '.join(totp_service.ENFORCEMENT_MODES)}.")
+        sys.exit(1)
+
+
+def _check_acme_challenge_types(app):
+    """3.6.0: refuse to start with an unknown ACME_CHALLENGE_TYPES — a typo
+    must not silently offer no challenge (or the wrong one)."""
+    from .services.acme.service import parse_challenge_types
+    try:
+        parse_challenge_types(app.config.get("ACME_CHALLENGE_TYPES") or "http-01,dns-01")
+    except ValueError as exc:
+        print(f"FATAL: {exc}")
         sys.exit(1)
 
 
@@ -848,6 +860,7 @@ def _migrate_schema():
             ("acme_enabled", "ALTER TABLE certificate_authorities ADD COLUMN acme_enabled BOOLEAN NOT NULL DEFAULT 0"),
             ("acme_profile_id", "ALTER TABLE certificate_authorities ADD COLUMN acme_profile_id INTEGER REFERENCES certificate_profiles(id)"),
             ("acme_require_eab", "ALTER TABLE certificate_authorities ADD COLUMN acme_require_eab BOOLEAN NOT NULL DEFAULT 1"),
+            ("acme_allow_wildcards", "ALTER TABLE certificate_authorities ADD COLUMN acme_allow_wildcards BOOLEAN NOT NULL DEFAULT 0"),  # 3.6.0
         ):
             if name not in columns:
                 db.session.execute(text(ddl))
@@ -920,6 +933,19 @@ def _migrate_schema():
         ):
             if name not in columns:
                 db.session.execute(text(ddl))
+
+    # 3.6.0 (dns-01): wildcard flag on authorizations, retry bookkeeping on
+    # challenges. Fresh databases get the columns from create_all().
+    for table, entries in (
+        ("acme_authorizations", (("wildcard", "ALTER TABLE acme_authorizations ADD COLUMN wildcard BOOLEAN NOT NULL DEFAULT 0"),)),
+        ("acme_challenges", (("attempts", "ALTER TABLE acme_challenges ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"),
+                             ("next_attempt_at", "ALTER TABLE acme_challenges ADD COLUMN next_attempt_at DATETIME"))),
+    ):
+        if table in inspector.get_table_names():
+            columns = {col["name"] for col in inspector.get_columns(table)}
+            for name, ddl in entries:
+                if name not in columns:
+                    db.session.execute(text(ddl))
 
     # Migrate certificate_signing_requests table
     if "certificate_signing_requests" in inspector.get_table_names():

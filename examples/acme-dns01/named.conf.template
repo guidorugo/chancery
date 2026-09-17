@@ -1,0 +1,26 @@
+// BIND 9 configuration for the dns-01 validation zone. setup.sh renders this
+// into named.conf with a fresh TSIG secret (named.conf is gitignored).
+options {
+    directory "/var/cache/bind";
+    recursion no;                  // authoritative only: it answers for the zones below
+    allow-query { any; };
+    allow-transfer { none; };
+    listen-on { any; };
+    listen-on-v6 { none; };
+    dnssec-validation no;
+};
+
+// The credential ACME clients use for RFC 2136 dynamic updates.
+key "@@KEY_NAME@@" {
+    algorithm hmac-sha256;
+    secret "@@SECRET@@";
+};
+
+zone "example.lan" {
+    type primary;
+    file "/var/lib/bind/example.lan.zone";
+    // The key may add/remove TXT records anywhere in the zone and nothing
+    // else. One key per host is tighter:
+    //   grant <key> name _acme-challenge.host.example.lan TXT;
+    update-policy { grant @@KEY_NAME@@ zonesub TXT; };
+};
