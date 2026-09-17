@@ -589,7 +589,7 @@ completeness test.
 **Pairs with G2-1.** The README rotation procedure ends with both secrets delivered as
 `_FILE` secrets; a rotation drops sessions once.
 
-## F19. Dual control for user management (2.17.0, M) — G3-1
+## F19. Dual control for user management (shipped as v3.4.0, PR #178) — G3-1
 
 **Current state.** With dual control active, one admin can create a second admin or
 reset another admin's password (`app/routes/users.py:24-52, 120-147`) and then act as
