@@ -511,7 +511,7 @@ array when no `page` is given (compat) and returns
 `{items, page, per_page, total}` when it is. Tests: each filter, requester scoping
 preserved, pagination envelope, legacy array unchanged.
 
-## F16. Audit log export and hash chain (2.17.0, M)
+## F16. Audit log export and hash chain (shipped as v3.3.0, PR #176)
 
 **Current state.** `audit_logs` has no integrity fields (`app/models/audit_log.py`);
 the page paginates but cannot filter or export.
