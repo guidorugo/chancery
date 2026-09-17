@@ -102,9 +102,9 @@
                         <span class="avatar" aria-hidden="true">{{ current_user.username[:1] | upper }}</span>
                         <span class="user-name d-none d-sm-inline">{{ current_user.username }}</span>
                         {% if current_user.is_admin %}
-                        <span class="badge bg-primary">Admin</span>
+                        <span class="badge bg-primary d-none d-md-inline">Admin</span>
                         {% else %}
-                        <span class="badge bg-info">CSR Requester</span>
+                        <span class="badge bg-info d-none d-md-inline">CSR Requester</span>
                         {% endif %}
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">

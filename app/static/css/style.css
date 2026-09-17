@@ -83,12 +83,14 @@ a:hover { text-decoration: underline; }
 /* ---------- shell ---------- */
 .app { display: flex; min-height: 100vh; }
 .app-sidebar {
-    width: var(--chy-sidebar-width); flex: 0 0 var(--chy-sidebar-width);
     background: var(--chy-sidebar-bg); color: var(--chy-sidebar-fg);
-    display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh;
+    display: flex; flex-direction: column;
 }
+/* Below lg Bootstrap's offcanvas positions the sidebar (fixed, slid out);
+   above it the sidebar is an in-flow sticky column. */
 .app-sidebar.offcanvas-lg { --bs-offcanvas-width: var(--chy-sidebar-width); --bs-offcanvas-bg: var(--chy-sidebar-bg); --bs-offcanvas-color: var(--chy-sidebar-fg); }
 @media (min-width: 992px) {
+    .app-sidebar { width: var(--chy-sidebar-width); flex: 0 0 var(--chy-sidebar-width); position: sticky; top: 0; height: 100vh; }
     /* Bootstrap's responsive offcanvas forces a transparent background above
        the breakpoint; the sidebar must stay dark there too. */
     .app-sidebar.offcanvas-lg { transform: none; visibility: visible; background-color: var(--chy-sidebar-bg) !important; color: var(--chy-sidebar-fg); }
@@ -125,7 +127,7 @@ a:hover { text-decoration: underline; }
 .app-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .app-topbar {
     height: var(--chy-topbar-height); display: flex; align-items: center; gap: .75rem;
-    padding: 0 1.5rem; background: var(--chy-surface); border-bottom: 1px solid var(--bs-border-color);
+    padding: 0 1rem; background: var(--chy-surface); border-bottom: 1px solid var(--bs-border-color);
     position: sticky; top: 0; z-index: 1020;
 }
 .topbar-title { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -140,7 +142,9 @@ a:hover { text-decoration: underline; }
 .dropdown-menu { border-radius: var(--chy-radius-sm); box-shadow: 0 10px 30px rgba(15, 23, 42, .12); border-color: var(--bs-border-color); }
 .dropdown-item { padding: .45rem 1rem; }
 .app-content { flex: 1 1 auto; padding: 1.5rem; max-width: 100rem; width: 100%; }
+@media (min-width: 768px) { .app-topbar { padding: 0 1.5rem; } }
 @media (min-width: 1200px) { .app-content { padding: 2rem 2.25rem; } }
+@media (max-width: 575.98px) { .app-content { padding: 1rem; } .stat-card { flex-direction: column; align-items: flex-start; gap: .5rem; } }
 .flash-stack { margin-bottom: 1rem; }
 .alert { border-radius: var(--chy-radius-sm); border: 0; box-shadow: var(--chy-shadow); }
 
