@@ -450,7 +450,7 @@ Basic Auth refusal, recovery code single use.
 change, admin reset and any 2FA change, reject older sessions in the Flask-Login
 `user_loader`, and drop the user's Basic Auth cache entry at the same points.
 
-## F14. ACME server (shipped as v3.2.0, PR #174 — http-01; dns-01 + wildcards shipped as v3.6.0)
+## F14. ACME server (shipped as v3.2.0, PR #174 — http-01; dns-01 + wildcards shipped as v3.6.0, PR #182)
 
 **dns-01 and wildcard identifiers shipped as v3.6.0 (user request 2026-09-17: a wildcard use case; operator example `examples/acme-dns01/` with BIND 9 + TSIG, verified with lego 5 and certbot).**
 
