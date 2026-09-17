@@ -271,7 +271,7 @@
     <div class="card-header">
         <span><i class="bi bi-file-earmark-lock2" aria-hidden="true"></i>Issued Certificates</span>
         {% if not ca.is_revoked and ca.has_signing_key and ca.approval_status != 'pending' and (not dual_control_active() or current_user.username == config.ADMIN_USERNAME) %}
-        <a href="{{ url_for('certificates.create') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Issue Certificate</a>
+        <a href="{{ url_for('certificates.create', ca_id=ca.id) }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Issue Certificate</a>
         {% endif %}
     </div>
     <div class="table-responsive">
