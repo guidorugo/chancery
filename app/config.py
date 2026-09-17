@@ -227,6 +227,8 @@ class Config:
     # account is exempt from all three (break-glass — e.g. an LDAP outage must
     # not block issuance). See app/services/dual_control_service.py.
     DUAL_CONTROL_ENABLED = os.environ.get("DUAL_CONTROL_ENABLED", "false").lower() == "true"
+    # F19 (3.4.0): an account created/reset by admin X may not approve X's work for this long.
+    DUAL_CONTROL_COOLDOWN_HOURS = int(os.environ.get("DUAL_CONTROL_COOLDOWN_HOURS") or "24")
 
     # Webhook notifications (2.10.0). Selected audit actions are POSTed as
     # JSON to WEBHOOK_URL (fire-and-forget background thread, fail-silent).

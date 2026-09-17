@@ -376,6 +376,38 @@ def reset_2fa_user(username):
         click.echo("REQUIRE_2FA applies to this account: they must enrol an authenticator again at their next login.")
 
 
+@users_cli.command("approve")
+@click.argument("username")
+def approve_user_cli(username):
+    """Break-glass (F19): approve a pending account / promotion from the shell (audited, actor cli)."""
+    from datetime import datetime, timezone
+    from .models.user import User
+    from .services import auth_service
+
+    user = User.query.filter_by(username=username).first()
+    if user is None:
+        raise click.ClickException(f"No user named {username!r}.")
+    if not user.awaits_approval:
+        click.echo(f"{username!r} is not awaiting approval.")
+        return
+    applied = {"activated": False, "role": None, "break_glass": True}
+    if user.pending_role:
+        applied["role"] = user.pending_role
+        user.role = user.pending_role
+        user.pending_role = None
+    if user.is_pending:
+        user.approval_status = "approved"
+        user.is_active_user = True
+        applied["activated"] = True
+        auth_service.clear_lockout(user)
+    user.approved_by = None
+    user.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    user.pending_by = None
+    _cli_audit("approve_user", "user", user.id, applied)
+    db.session.commit()
+    click.echo(f"Approved {username!r}: {json.dumps(applied)}")
+
+
 @users_cli.command("reset-password")
 @click.argument("username")
 @click.option("--new-file", required=True, type=click.Path(dir_okay=False, allow_dash=True),

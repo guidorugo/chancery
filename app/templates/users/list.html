@@ -34,20 +34,29 @@
                 {% endif %}
             </td>
             <td>
-                {% if user.is_active_user %}
+                {% if user.is_pending %}
+                <span class="badge bg-warning text-dark" title="Awaiting approval by a second admin (dual control)">Pending approval</span>
+                {% elif user.is_active_user %}
                 <span class="badge bg-success">Active</span>
                 {% else %}
                 <span class="badge bg-danger">Inactive</span>
                 {% endif %}
+                {% if user.pending_role %}<span class="badge bg-warning text-dark" title="Promotion awaiting approval by a second admin">→ {{ user.pending_role }}</span>{% endif %}
             </td>
             <td>{% if user.totp_enabled %}<span class="badge bg-success">on</span>{% else %}<span class="text-body-secondary small">off</span>{% endif %}</td>
             <td class="text-nowrap">{{ user.created_at.strftime('%Y-%m-%d') }}</td>
             <td class="table-actions">
+                {% if user.awaits_approval %}
+                <form method="POST" action="{{ url_for('users.approve_user', user_id=user.id) }}" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-success" title="Approve the pending activation / promotion (a different admin than the one who set it up)">Approve</button>
+                </form>
+                {% endif %}
                 <a href="{{ url_for('users.edit_user', user_id=user.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
                 {% if not user.is_ldap_user %}
                 <a href="{{ url_for('users.reset_password', user_id=user.id) }}" class="btn btn-sm btn-outline-warning">Reset Password</a>
                 {% endif %}
-                {% if user.id != current_user.id %}
+                {% if user.id != current_user.id and not user.is_pending %}
                 <form method="POST" action="{{ url_for('users.toggle_active', user_id=user.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     {% if user.is_active_user %}

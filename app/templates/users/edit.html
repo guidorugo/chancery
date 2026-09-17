@@ -14,6 +14,14 @@
             membership and re-synced at every login.
         </div>
         {% endif %}
+        {% if user.is_pending %}
+        <div class="alert alert-warning">This account is <strong>awaiting approval</strong> by a second administrator and cannot log in yet.</div>
+        {% endif %}
+        {% if user.pending_role %}
+        <div class="alert alert-warning">A promotion to <strong>{{ user.pending_role }}</strong> awaits approval by a second administrator; the account keeps its current role until then.</div>
+        {% elif dual_control_active() and user.role != 'admin' and current_user.username != config.ADMIN_USERNAME %}
+        <div class="alert alert-info">Dual control is active: granting admin here only <em>requests</em> the promotion — another administrator approves it.</div>
+        {% endif %}
         <form method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">

@@ -39,10 +39,32 @@ class User(UserMixin, db.Model):
     # G6-4/G6-5: bumped on password change, admin reset and any 2FA change;
     # a session carrying an older value is no longer valid.
     session_version = db.Column(db.Integer, nullable=False, default=1)
+    # F19 (3.4.0): dual control for user management. While the mode is active,
+    # an admin's creation, promotion or admin-password-reset leaves the account
+    # `pending` until a *different* admin approves it (`pending_by` = who caused
+    # the pending state; the approver may not be that admin, nor an account that
+    # admin created/reset within DUAL_CONTROL_COOLDOWN_HOURS).
+    approval_status = db.Column(db.String(20), nullable=False, default="approved")   # approved | pending
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    approved_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    pending_role = db.Column(db.String(20), nullable=True)                              # promotion awaiting approval
+    pending_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    password_reset_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    password_reset_at = db.Column(db.DateTime, nullable=True)
 
     @property
     def is_active(self):
         return self.is_active_user
+
+    @property
+    def is_pending(self):
+        return self.approval_status == "pending"
+
+    @property
+    def awaits_approval(self):
+        """Pending activation or a pending promotion — either needs a second admin."""
+        return self.is_pending or bool(self.pending_role)
 
     @property
     def is_admin(self):
@@ -89,6 +111,9 @@ class User(UserMixin, db.Model):
             "auth_source": self.auth_source,
             "must_change_password": self.must_change_password,
             "totp_enabled": self.totp_enabled,
+            "approval_status": self.approval_status,
+            "pending_role": self.pending_role,
+            "created_by": self.created_by,
             "created_at": iso(self.created_at),
         }
 
