@@ -177,6 +177,18 @@ class Config:
     REQUIRE_2FA_FOR_ADMINS = (os.environ.get("REQUIRE_2FA_FOR_ADMINS") or "false").lower() == "true"
     REQUIRE_2FA = (os.environ.get("REQUIRE_2FA") or "off").lower()
     TOTP_ISSUER = os.environ.get("TOTP_ISSUER") or "Chancery"
+    # F14 (3.2.0): ACME server. Off by default; per-CA switches on the CA page.
+    ACME_ENABLED = (os.environ.get("ACME_ENABLED") or "false").lower() == "true"
+    ACME_BASE_URL = os.environ.get("ACME_BASE_URL") or None
+    ACME_RATE_LIMIT = os.environ.get("ACME_RATE_LIMIT") or "300/minute"
+    ACME_HTTP01_PORT = int(os.environ.get("ACME_HTTP01_PORT") or "80")
+    ACME_HTTP01_TIMEOUT_SECONDS = int(os.environ.get("ACME_HTTP01_TIMEOUT_SECONDS") or "10")
+    ACME_VALIDATION_ALLOW_LOOPBACK = (os.environ.get("ACME_VALIDATION_ALLOW_LOOPBACK") or "false").lower() == "true"
+    ACME_VALIDATION_CONNECT_HOST = os.environ.get("ACME_VALIDATION_CONNECT_HOST") or None   # tests only
+    ACME_ORDER_LIFETIME_HOURS = int(os.environ.get("ACME_ORDER_LIFETIME_HOURS") or "168")
+    ACME_NONCE_LIFETIME_MINUTES = int(os.environ.get("ACME_NONCE_LIFETIME_MINUTES") or "60")
+    ACME_DEFAULT_VALIDITY_DAYS = int(os.environ.get("ACME_DEFAULT_VALIDITY_DAYS") or "90")
+    ACME_MAX_IDENTIFIERS = int(os.environ.get("ACME_MAX_IDENTIFIERS") or "100")
     BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "chancery")
     # Verified Basic Auth credentials are cached in memory for this many
     # seconds to avoid an LDAP bind / password-hash check per request (0 = off)

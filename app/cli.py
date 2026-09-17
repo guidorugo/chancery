@@ -698,3 +698,67 @@ def revoke_metrics_token(name_or_id, yes):
         click.confirm(f"Revoke metrics token '{row.name}'?", abort=True)
     metrics_token_service.revoke(row.id)
     click.echo(f"Revoked metrics token '{row.name}'.")
+
+
+acme_cli = AppGroup("acme", help="ACME server utilities (3.2.0, F14).")
+
+
+@acme_cli.command("eab-create")
+@click.option("--ca-id", required=True, type=int, help="CA whose directory the key belongs to.")
+@click.option("--name", default=None, help="Free-text label (e.g. the host or team that gets the key).")
+def acme_eab_create(ca_id, name):
+    """Issue an external-account-binding key for CA_ID; the MAC key is printed once."""
+    from .services.acme import service as acme_service
+
+    ca = db.session.get(CertificateAuthority, ca_id)
+    if ca is None:
+        raise click.ClickException(f"No CA with id {ca_id}.")
+    row, mac = acme_service.create_eab_key(ca, name=name, created_by=None)
+    db.session.commit()
+    click.echo(f"EAB key for CA {ca.id} ({ca.name}):")
+    click.echo(f"  kid:      {row.kid}")
+    click.echo(f"  hmac key: {mac}")
+    click.echo("The MAC key is not stored in clear; it cannot be shown again.")
+
+
+@acme_cli.command("eab-list")
+@click.option("--ca-id", type=int, default=None)
+def acme_eab_list(ca_id):
+    """List EAB keys (kid, CA, status, name)."""
+    from .models.acme import AcmeEabKey
+
+    q = AcmeEabKey.query.order_by(AcmeEabKey.id)
+    if ca_id is not None:
+        q = q.filter_by(ca_id=ca_id)
+    rows = q.all()
+    if not rows:
+        click.echo("No EAB keys.")
+        return
+    for r in rows:
+        click.echo(f"{r.kid}  ca={r.ca_id}  {r.status:7}  created={r.created_at:%Y-%m-%d}  {r.name or ''}")
+
+
+@acme_cli.command("eab-revoke")
+@click.argument("kid")
+def acme_eab_revoke(kid):
+    """Revoke an EAB key (an unused key can no longer register an account)."""
+    from .models.acme import AcmeEabKey
+    from .services.acme import service as acme_service
+
+    row = AcmeEabKey.query.filter_by(kid=kid).first()
+    if row is None:
+        raise click.ClickException(f"No EAB key {kid!r}.")
+    if row.revoked:
+        click.echo("Already revoked.")
+        return
+    acme_service.revoke_eab_key(row, actor="cli")
+    db.session.commit()
+    click.echo(f"Revoked EAB key {kid}.")
+
+
+@acme_cli.command("maintain")
+def acme_maintain():
+    """Expire stale orders/authorizations and prune nonces now (the scheduler does this hourly)."""
+    from .services.acme import service as acme_service
+
+    click.echo(json.dumps(acme_service.maintain()))

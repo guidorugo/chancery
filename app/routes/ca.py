@@ -359,7 +359,15 @@ def detail(ca_id):
     if wants_json():
         return jsonify(ca.to_dict(detail=True))
     chain = ca_service.get_ca_chain(ca)
-    return render_template("ca/detail.html", ca=ca, chain=chain,
+    from ..services.acme import service as acme_service
+    acme_ctx = {
+        "acme_global": bool(current_app.config.get("ACME_ENABLED")),
+        "acme_directory_url": acme_service.acme_url("acme.directory", ca.id),
+        "acme_eab_keys": ca.acme_eab_keys.order_by(db.desc("id")).limit(50).all(),
+        "acme_accounts": ca.acme_accounts.count(),
+        "acme_new_eab": request.args.get("_eab_kid") and None,
+    }
+    return render_template("ca/detail.html", ca=ca, chain=chain, **acme_ctx,
                            profiles=profile_service.list_profiles(),
                            ocsp_delegated=ocsp_service.delegated_enabled(),
                            ocsp_responder=ocsp_service.responder_status(ca),
@@ -895,3 +903,100 @@ def delete_alternate(ca_id, alt_id):
         return jsonify({"deleted": alt_id})
     flash("Alternate certificate removed.", "success")
     return redirect(url_for("ca.detail", ca_id=ca.id))
+
+
+# --- F14: ACME settings and external-account-binding keys -------------------------
+
+def _acme_dual_control_guard(ca):
+    """Enabling ACME is the approved act under dual control: while the mode is
+    active the CA's creator may not switch it on themselves (the bootstrap
+    admin stays exempt, as for CA approval)."""
+    if (dual_control_service.is_active() and not dual_control_service.is_exempt(current_user)
+            and ca.created_by == current_user.id):
+        raise ValueError("Dual control: another administrator must enable ACME on a CA you created.")
+
+
+@ca_bp.route("/<int:ca_id>/acme", methods=["POST"])
+@admin_required
+def set_acme(ca_id):
+    """Update a CA's ACME settings: enabled, profile, require EAB."""
+    ca = db.session.get(CertificateAuthority, ca_id)
+    if not ca:
+        if wants_json():
+            return api_error("CA not found.", 404)
+        flash("CA not found.", "danger")
+        return redirect(url_for("ca.list_cas"))
+    try:
+        enable = request.form.get("acme_enabled") in ("on", "true", "1")
+        if enable and not ca.acme_enabled:
+            _acme_dual_control_guard(ca)
+            if not ca.has_signing_key or ca.is_revoked or ca.approval_status != "approved":
+                raise ValueError("Only an approved, unrevoked CA with a signing key can serve ACME.")
+        raw_profile = (request.form.get("acme_profile") or "").strip()
+        profile = None
+        if raw_profile and raw_profile != "custom":
+            profile = profile_service.lookup(raw_profile)
+            if profile is None:
+                raise ValueError(f"Unknown certificate profile '{raw_profile}'.")
+            allowed = ca.allowed_profile_ids
+            if allowed and profile.id not in allowed:
+                raise ValueError("That profile is not in this CA's allowed profiles.")
+        ca.acme_enabled = enable
+        ca.acme_profile_id = profile.id if profile else None
+        ca.acme_require_eab = request.form.get("acme_require_eab") in ("on", "true", "1")
+        audit_service.log_action("update_ca_acme", target_type="ca", target_id=ca.id,
+                                 details={"enabled": ca.acme_enabled, "profile": profile.key if profile else "custom",
+                                          "require_eab": ca.acme_require_eab})
+        db.session.commit()
+    except ValueError as e:
+        db.session.rollback()
+        if wants_json():
+            return api_error(str(e), 403 if "Dual control" in str(e) else 400)
+        flash(str(e), "danger")
+        return redirect(url_for("ca.detail", ca_id=ca.id))
+    if wants_json():
+        return jsonify(ca.to_dict(detail=True))
+    if ca.acme_enabled and not current_app.config.get("ACME_ENABLED"):
+        flash("ACME settings saved, but ACME_ENABLED is off on this server — set it in .env to serve the directory.", "warning")
+    else:
+        flash("ACME settings saved.", "success")
+    return redirect(url_for("ca.detail", ca_id=ca.id, _anchor="acme"))
+
+
+@ca_bp.route("/<int:ca_id>/acme/eab", methods=["POST"])
+@admin_required
+def create_acme_eab(ca_id):
+    """Issue an EAB key; the MAC key is shown once."""
+    from ..services.acme import service as acme_service
+    ca = db.session.get(CertificateAuthority, ca_id)
+    if not ca:
+        if wants_json():
+            return api_error("CA not found.", 404)
+        flash("CA not found.", "danger")
+        return redirect(url_for("ca.list_cas"))
+    row, mac = acme_service.create_eab_key(ca, name=request.form.get("name"), created_by=current_user.id)
+    db.session.commit()
+    if wants_json():
+        return jsonify({**row.to_dict(), "hmac_key": mac}), 201
+    flash(f"EAB key created. kid: {row.kid} — MAC key (shown once): {mac}", "success")
+    return redirect(url_for("ca.detail", ca_id=ca.id, _anchor="acme"))
+
+
+@ca_bp.route("/<int:ca_id>/acme/eab/<int:key_id>/revoke", methods=["POST"])
+@admin_required
+def revoke_acme_eab(ca_id, key_id):
+    from ..models.acme import AcmeEabKey
+    from ..services.acme import service as acme_service
+    row = db.session.get(AcmeEabKey, key_id)
+    if row is None or row.ca_id != ca_id:
+        if wants_json():
+            return api_error("EAB key not found.", 404)
+        flash("EAB key not found.", "danger")
+        return redirect(url_for("ca.detail", ca_id=ca_id))
+    if not row.revoked:
+        acme_service.revoke_eab_key(row)
+        db.session.commit()
+    if wants_json():
+        return jsonify(row.to_dict())
+    flash(f"EAB key {row.kid} revoked.", "success")
+    return redirect(url_for("ca.detail", ca_id=ca_id, _anchor="acme"))

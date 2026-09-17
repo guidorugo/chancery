@@ -36,6 +36,9 @@ class Certificate(db.Model):
     # F9: the certificate this one renews (NULL for a first issuance). The
     # reverse side, `renewals`, lists its successors (oldest first).
     renewed_from_id = db.Column(db.Integer, db.ForeignKey("certificates.id"), nullable=True)
+    # F14: how the certificate was obtained (NULL = UI/API) and, for ACME, the account.
+    issuance_source = db.Column(db.String(20), nullable=True)
+    acme_account_id = db.Column(db.Integer, db.ForeignKey("acme_accounts.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     requester = db.relationship("User", backref="certificates", foreign_keys=[requested_by])
@@ -96,6 +99,7 @@ class Certificate(db.Model):
             "profile": self.profile.key if self.profile else None,
             "renewed_from_id": self.renewed_from_id,
             "superseded_by_id": self.superseded_by_id,
+            "issuance_source": self.issuance_source or "manual",
             "created_at": iso(self.created_at),
         }
         if detail:

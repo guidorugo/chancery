@@ -296,10 +296,17 @@ def job_ocsp_responders(now):
 
 
 # (name, callable, minimum seconds between successful runs; 0 = every tick)
+def job_acme_maintenance(now):
+    """Hourly (F14): expire stale ACME orders/authorizations, prune nonces."""
+    from .acme import service as acme_service
+    return acme_service.maintain(now.replace(tzinfo=None) if getattr(now, "tzinfo", None) else now)
+
+
 JOBS = (
     ("crl_refresh", job_crl_refresh, 0),
     ("expiry_events", job_expiry_events, DAILY),
     ("ocsp_responders", job_ocsp_responders, 3600),
+    ("acme_maintenance", job_acme_maintenance, 3600),
 )
 
 
