@@ -41,6 +41,8 @@ and PostgreSQL are large but not breaking; they do not force a major on their ow
 | 2.18.0 | Enrollment | F14 ACME (http-01, then dns-01) | XL |
 | 3.0.0 | Defaults | F17 PostgreSQL, the three default flips, compose hardening (G14-2), UPGRADE guide | L |
 
+**3.0.0 shipped 2026-09-17 as the new UI (sidebar shell, redesigned dashboard/lists/detail pages, PR #165) at the user's request; the items in that row — F17 PostgreSQL, the three default flips, compose hardening (G14-2), UPGRADE guide — move to 3.1+.**
+
 Sizes: S ≤ 200 lines + tests, M 200–600, L 600–1500, XL > 1500 (app code only).
 
 Numbering (decided 2026-09-14): **one minor release per feature**, in the order the rows list them; the theme rows group related work, but the version numbers advance per feature (2.13.0 = F1, next minor = F4, then F15, F18, F8, ...). The 3.0 rationale in §1 is unchanged.

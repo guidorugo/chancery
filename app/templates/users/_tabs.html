@@ -1,26 +1,8 @@
-<ul class="nav nav-tabs mb-3">
-    <li class="nav-item">
-        <a class="nav-link {% if active_tab == 'users' %}active{% endif %}"
-           href="{{ url_for('users.list_users') }}">Users</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link {% if active_tab == 'audit' %}active{% endif %}"
-           href="{{ url_for('users.audit_log') }}">Audit Log</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link {% if active_tab == 'ldap' %}active{% endif %}"
-           href="{{ url_for('users.ldap_settings') }}">LDAP</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link {% if active_tab == 'webhooks' %}active{% endif %}"
-           href="{{ url_for('users.webhook_settings') }}">Webhooks</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link {% if active_tab == 'profiles' %}active{% endif %}"
-           href="{{ url_for('users.profiles') }}">Profiles</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link {% if active_tab == 'api_tokens' %}active{% endif %}"
-           href="{{ url_for('users.api_tokens') }}">API Tokens</a>
-    </li>
+<ul class="nav nav-tabs">
+    <li class="nav-item"><a class="nav-link {% if active_tab == 'users' %}active{% endif %}" href="{{ url_for('users.list_users') }}"><i class="bi bi-people me-1" aria-hidden="true"></i>Users</a></li>
+    <li class="nav-item"><a class="nav-link {% if active_tab == 'audit' %}active{% endif %}" href="{{ url_for('users.audit_log') }}"><i class="bi bi-journal-text me-1" aria-hidden="true"></i>Audit Log</a></li>
+    <li class="nav-item"><a class="nav-link {% if active_tab == 'ldap' %}active{% endif %}" href="{{ url_for('users.ldap_settings') }}"><i class="bi bi-building me-1" aria-hidden="true"></i>LDAP</a></li>
+    <li class="nav-item"><a class="nav-link {% if active_tab == 'webhooks' %}active{% endif %}" href="{{ url_for('users.webhook_settings') }}"><i class="bi bi-broadcast me-1" aria-hidden="true"></i>Webhooks</a></li>
+    <li class="nav-item"><a class="nav-link {% if active_tab == 'profiles' %}active{% endif %}" href="{{ url_for('users.profiles') }}"><i class="bi bi-card-checklist me-1" aria-hidden="true"></i>Profiles</a></li>
+    <li class="nav-item"><a class="nav-link {% if active_tab == 'api_tokens' %}active{% endif %}" href="{{ url_for('users.api_tokens') }}"><i class="bi bi-key me-1" aria-hidden="true"></i>API Tokens</a></li>
 </ul>

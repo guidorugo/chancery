@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Certificate Manager{% endblock %}</title>
+    <title>{% block title %}Chancery{% endblock %}</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="any">
     <script nonce="{{ csp_nonce }}">
@@ -17,116 +17,172 @@
     })();
     </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" integrity="sha384-XGjxtQfXaH2tnPFa9x+ruJTuLE3Aa6LhHSWRr1XeTyhezb4abCG4ccI5AkVDxqC+" crossorigin="anonymous">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
-<body class="d-flex flex-column min-vh-100">
-    {% if current_user.is_authenticated %}
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="{{ url_for('dashboard.index') }}">Chancery</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('dashboard.index') }}">Dashboard</a>
-                    </li>
-                    {% if current_user.is_admin %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('ca.list_cas') }}">CAs</a>
-                    </li>
+{% set bp = request.blueprint %}
+{% set ep = request.endpoint or '' %}
+{%- macro nav_item(endpoint, label, icon, active) -%}
+<li class="nav-item">
+    <a class="nav-link{% if active %} active{% endif %}" href="{{ url_for(endpoint) }}"{% if active %} aria-current="page"{% endif %}>
+        <i class="bi bi-{{ icon }}" aria-hidden="true"></i>{{ label }}</a>
+</li>
+{%- endmacro %}
+{%- macro theme_button(extra_class) -%}
+<button type="button" class="{{ extra_class }} theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+    <i class="bi bi-moon-stars theme-icon-moon" aria-hidden="true"></i>
+    <i class="bi bi-sun theme-icon-sun" aria-hidden="true"></i>
+</button>
+{%- endmacro %}
+{% if current_user.is_authenticated %}
+<body class="app-body">
+<div class="app">
+    <aside class="app-sidebar offcanvas-lg offcanvas-start" tabindex="-1" id="app-sidebar" aria-label="Navigation">
+        <div class="sidebar-brand">
+            <a href="{{ url_for('dashboard.index') }}" class="brand-link">
+                <span class="brand-mark"><i class="bi bi-shield-lock-fill" aria-hidden="true"></i></span>
+                <span class="brand-text">Chancery</span>
+            </a>
+            <button type="button" class="btn-close d-lg-none" data-bs-dismiss="offcanvas" data-bs-target="#app-sidebar" aria-label="Close"></button>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section-title">Overview</div>
+            <ul class="nav flex-column">
+                {{ nav_item('dashboard.index', 'Dashboard', 'speedometer2', bp == 'dashboard') }}
+            </ul>
+            <div class="nav-section-title">PKI</div>
+            <ul class="nav flex-column">
+                {% if current_user.is_admin %}
+                {{ nav_item('ca.list_cas', 'Certificate Authorities', 'diagram-3', bp == 'ca') }}
+                {% endif %}
+                {{ nav_item('certificates.list_certs', 'Certificates', 'file-earmark-lock2', bp == 'certificates') }}
+                {{ nav_item('csr.list_csrs', 'Signing Requests', 'file-earmark-plus', bp == 'csr') }}
+            </ul>
+            {% if current_user.is_admin %}
+            <div class="nav-section-title">Administration</div>
+            <ul class="nav flex-column">
+                {{ nav_item('users.list_users', 'Preferences', 'sliders', bp == 'users' and ep not in ('users.api_tokens',)) }}
+            </ul>
+            {% endif %}
+            <div class="nav-section-title">Account</div>
+            <ul class="nav flex-column">
+                {{ nav_item('users.api_tokens', 'API Tokens', 'key', ep == 'users.api_tokens') }}
+                {{ nav_item('auth.two_factor_setup', 'Two-factor', 'shield-check', bp == 'auth' and ep.startswith('auth.two_factor')) }}
+                {% if current_user.has_usable_password() %}
+                {{ nav_item('auth.change_password', 'Change Password', 'lock', ep == 'auth.change_password') }}
+                {% endif %}
+            </ul>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="d-flex align-items-center justify-content-between">
+                <span class="sidebar-version">
+                    {% if app_version %}<small>v{{ app_version }}</small>{% endif %}
+                    {% if update_available %}
+                    <a class="badge text-bg-warning text-decoration-none ms-1" role="button"
+                       href="https://github.com/{{ update_repo }}/releases/latest"
+                       target="_blank" rel="noopener noreferrer"
+                       title="A newer release is available on GitHub">Update available{% if latest_version %} ({{ latest_version }}){% endif %}</a>
                     {% endif %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('certificates.list_certs') }}">Certificates</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('csr.list_csrs') }}">CSRs</a>
-                    </li>
-                    {% if current_user.is_admin %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('users.list_users') }}">Preferences</a>
-                    </li>
-                    {% endif %}
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <button type="button" class="nav-link theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
-                            <svg class="theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M6 .278a.77.77 0 0 1 .08.858 7.2 7.2 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277q.792-.001 1.533-.16a.79.79 0 0 1 .81.316.73.73 0 0 1-.031.893A8.35 8.35 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.75.75 0 0 1 6 .278"/></svg>
-                            <svg class="theme-icon-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0m0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13m8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5M3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8m10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0m-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0m9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707M4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708"/></svg>
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <span class="nav-link">
-                            {{ current_user.username }}
-                            {% if current_user.is_admin %}
-                            <span class="badge bg-primary">Admin</span>
-                            {% else %}
-                            <span class="badge bg-info">CSR Requester</span>
-                            {% endif %}
-                        </span>
-                    </li>
-                    {% if current_user.has_usable_password() %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('auth.change_password') }}">Change Password</a>
-                    </li>
-                    {% endif %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('users.api_tokens') }}">API Tokens</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('auth.two_factor_setup') }}">Two-factor{% if current_user.totp_enabled %} <span class="badge bg-success">on</span>{% endif %}</a>
-                    </li>
-                    <li class="nav-item">
-                        {# TMPL-3: logout is state-changing, so POST it with a CSRF token
-                           (a GET link is forgeable via <img src=.../auth/logout>). #}
-                        <form method="POST" action="{{ url_for('auth.logout') }}" class="d-inline">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="nav-link border-0 bg-transparent">Logout</button>
-                        </form>
-                    </li>
-                </ul>
+                </span>
+                <a href="https://github.com/guidorugo/chancery" class="sidebar-link" target="_blank" rel="noopener noreferrer" title="Chancery on GitHub"><i class="bi bi-github" aria-hidden="true"></i></a>
             </div>
         </div>
-    </nav>
-    {% else %}
-    <div class="position-absolute top-0 end-0 m-2">
-        <button type="button" class="btn btn-sm btn-outline-secondary theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
-            <svg class="theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M6 .278a.77.77 0 0 1 .08.858 7.2 7.2 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277q.792-.001 1.533-.16a.79.79 0 0 1 .81.316.73.73 0 0 1-.031.893A8.35 8.35 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.75.75 0 0 1 6 .278"/></svg>
-            <svg class="theme-icon-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0m0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13m8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5M3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8m10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0m-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0m9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707M4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708"/></svg>
-        </button>
+    </aside>
+
+    <div class="app-main">
+        <header class="app-topbar">
+            <button class="btn btn-icon d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#app-sidebar" aria-controls="app-sidebar" aria-label="Open navigation">
+                <i class="bi bi-list" aria-hidden="true"></i>
+            </button>
+            <div class="topbar-title">{% block topbar %}{% endblock %}</div>
+            <div class="topbar-actions">
+                {{ theme_button('btn btn-icon') }}
+                <div class="dropdown">
+                    <button class="btn user-menu dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <span class="avatar" aria-hidden="true">{{ current_user.username[:1] | upper }}</span>
+                        <span class="user-name d-none d-sm-inline">{{ current_user.username }}</span>
+                        {% if current_user.is_admin %}
+                        <span class="badge bg-primary d-none d-md-inline">Admin</span>
+                        {% else %}
+                        <span class="badge bg-info d-none d-md-inline">CSR Requester</span>
+                        {% endif %}
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><h6 class="dropdown-header">{{ current_user.username }}{% if current_user.totp_enabled %} <span class="badge bg-success">2FA on</span>{% endif %}</h6></li>
+                        {% if current_user.has_usable_password() %}
+                        <li><a class="dropdown-item" href="{{ url_for('auth.change_password') }}"><i class="bi bi-lock me-2" aria-hidden="true"></i>Change Password</a></li>
+                        {% endif %}
+                        <li><a class="dropdown-item" href="{{ url_for('auth.two_factor_setup') }}"><i class="bi bi-shield-check me-2" aria-hidden="true"></i>Two-factor{% if current_user.totp_enabled %} <span class="badge bg-success">on</span>{% endif %}</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('users.api_tokens') }}"><i class="bi bi-key me-2" aria-hidden="true"></i>API Tokens</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            {# TMPL-3: logout is state-changing, so POST it with a CSRF token
+                               (a GET link is forgeable via <img src=.../auth/logout>). #}
+                            <form method="POST" action="{{ url_for('auth.logout') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="dropdown-item"><i class="bi bi-box-arrow-right me-2" aria-hidden="true"></i>Logout</button>
+                            </form>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </header>
+
+        <main class="app-content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-stack">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                <i class="bi {{ {'success': 'bi-check-circle-fill', 'danger': 'bi-exclamation-octagon-fill', 'warning': 'bi-exclamation-triangle-fill'}.get(category, 'bi-info-circle-fill') }} me-2" aria-hidden="true"></i>{{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+{% else %}
+<body class="auth-body">
+<div class="auth-theme">{{ theme_button('btn btn-sm btn-icon') }}</div>
+<div class="auth-layout">
+    <div class="auth-brand">
+        <span class="brand-mark brand-mark-lg"><i class="bi bi-shield-lock-fill" aria-hidden="true"></i></span>
+        <div class="brand-text">Chancery</div>
+        <div class="text-body-secondary">Certificate authority management</div>
+    </div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-stack auth-flash">
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endfor %}
     </div>
     {% endif %}
+    {% endwith %}
+{% endif %}
 
-    <div class="container mt-4 flex-grow-1">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        {% for category, message in messages %}
-        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-            {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-        {% endfor %}
-        {% endif %}
-        {% endwith %}
+{# one content block; the wrappers above/below differ per layout #}
+{% block content %}{% endblock %}
 
-        {% block content %}{% endblock %}
+{% if current_user.is_authenticated %}
+        </main>
     </div>
-
-    <footer class="mt-auto py-3 bg-body-tertiary">
-        <div class="container text-center text-body-secondary">
-            Chancery &mdash; <a href="https://github.com/guidorugo/chancery" class="text-body-secondary">GitHub</a>
-            {% if app_version %}
-            <br><small class="text-body-secondary">v{{ app_version }}</small>
-            {% if update_available %}
-            <a class="badge text-bg-warning text-decoration-none ms-1" role="button"
-               href="https://github.com/{{ update_repo }}/releases/latest"
-               target="_blank" rel="noopener noreferrer"
-               title="A newer release is available on GitHub">Update available{% if latest_version %} ({{ latest_version }}){% endif %}</a>
-            {% endif %}
-            {% endif %}
-        </div>
+</div>
+{% else %}
+    <footer class="auth-footer text-body-secondary">
+        Chancery{% if app_version %} &middot; <small>v{{ app_version }}</small>{% endif %}
+        {% if update_available %}
+        <a class="badge text-bg-warning text-decoration-none ms-1" role="button"
+           href="https://github.com/{{ update_repo }}/releases/latest"
+           target="_blank" rel="noopener noreferrer"
+           title="A newer release is available on GitHub">Update available{% if latest_version %} ({{ latest_version }}){% endif %}</a>
+        {% endif %}
     </footer>
+</div>
+{% endif %}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
     <script nonce="{{ csp_nonce }}">
@@ -138,6 +194,18 @@
                 var next = document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
                 document.documentElement.setAttribute('data-bs-theme', next);
                 try { localStorage.setItem('theme', next); } catch (e) { /* localStorage unavailable */ }
+            });
+        });
+        // Copy buttons: data-copy-target="#id" copies that element's text.
+        document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var el = document.querySelector(btn.getAttribute('data-copy-target'));
+                if (!el || !navigator.clipboard) return;
+                navigator.clipboard.writeText(el.textContent).then(function () {
+                    var old = btn.innerHTML;
+                    btn.innerHTML = '<i class="bi bi-check2" aria-hidden="true"></i> Copied';
+                    setTimeout(function () { btn.innerHTML = old; }, 1500);
+                });
             });
         });
     });

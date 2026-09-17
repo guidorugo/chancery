@@ -1,17 +1,19 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}LDAP Settings - Chancery{% endblock %}
+{% block topbar %}LDAP Settings{% endblock %}
 {% block content %}
 {% set active_tab = 'ldap' %}
 {% include "users/_tabs.html" %}
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2 class="mb-0">LDAP Authentication</h2>
+{% set badges %}
     {% if source == 'db' %}
     <span class="badge bg-primary">Managed here</span>
     {% else %}
     <span class="badge bg-secondary" title="No settings saved from this page yet — the LDAP_* environment variables apply.">Using environment config</span>
     {% endif %}
-</div>
+{% endset %}
+{{ page_header("LDAP Authentication", badges=badges) }}
 
 <p class="text-body-secondary">
     Settings saved here are stored in the database (bind password encrypted with the

@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}Create Certificate - Chancery{% endblock %}
+{% block topbar %}Create Certificate{% endblock %}
 {% block content %}
-<h2>Create Certificate</h2>
+{% set _title %}Create Certificate{% endset %}
+{{ page_header(_title) }}
 
 <form method="POST" class="mt-3">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

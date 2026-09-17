@@ -1,178 +1,216 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_badge %}
+{% from "_macros.html" import status_badge, expiry_badge, csr_status_badge, page_header, empty_row %}
 {% block title %}Dashboard - Chancery{% endblock %}
+{% block topbar %}Dashboard{% endblock %}
 {% block content %}
-<h2>Dashboard</h2>
+
+{% macro stat(href, tone, icon, value, label) -%}
+<div class="col">
+    <a href="{{ href }}" class="card stat-card stat-{{ tone }} h-100">
+        <span class="stat-icon"><i class="bi bi-{{ icon }}" aria-hidden="true"></i></span>
+        <span>
+            <span class="stat-value d-block">{{ value }}</span>
+            <span class="stat-label">{{ label }}</span>
+        </span>
+    </a>
+</div>
+{%- endmacro %}
 
 {% if current_user.is_admin %}
-<div class="row row-cols-2 row-cols-lg-5 g-3 mt-1">
-    <div class="col">
-        <a href="{{ url_for('ca.list_cas', status='active') }}" class="card text-bg-primary h-100 text-decoration-none">
-            <div class="card-body">
-                <h5 class="card-title">Active CAs</h5>
-                <p class="card-text display-6">{{ stats.ca_count }}</p>
-            </div>
-        </a>
-    </div>
-    <div class="col">
-        <a href="{{ url_for('certificates.list_certs', status='active') }}" class="card text-bg-success h-100 text-decoration-none">
-            <div class="card-body">
-                <h5 class="card-title">Active Certificates</h5>
-                <p class="card-text display-6">{{ stats.cert_active }}</p>
-            </div>
-        </a>
-    </div>
-    <div class="col">
-        <a href="{{ url_for('certificates.list_certs', status='expiring') }}" class="card text-bg-warning h-100 text-decoration-none">
-            <div class="card-body">
-                <h5 class="card-title">Expiring Soon</h5>
-                <p class="card-text display-6">{{ stats.cert_expiring_soon }}</p>
-            </div>
-        </a>
-    </div>
-    <div class="col">
-        <a href="{{ url_for('certificates.list_certs', status='revoked') }}" class="card text-bg-danger h-100 text-decoration-none">
-            <div class="card-body">
-                <h5 class="card-title">Revoked Certificates</h5>
-                <p class="card-text display-6">{{ stats.cert_revoked }}</p>
-            </div>
-        </a>
-    </div>
-    <div class="col">
-        <a href="{{ url_for('csr.list_csrs', status='pending') }}" class="card text-bg-warning h-100 text-decoration-none">
-            <div class="card-body">
-                <h5 class="card-title">Pending CSRs</h5>
-                <p class="card-text display-6">{{ stats.csr_pending }}</p>
-            </div>
-        </a>
-    </div>
+{% call page_header("Dashboard", "Overview of your certificate authorities, issued certificates and pending work.") %}
+    <a href="{{ url_for('ca.create') }}" class="btn btn-outline-primary"><i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>Create CA</a>
+    {% if not dual_control_active() or current_user.username == config.ADMIN_USERNAME %}
+    <a href="{{ url_for('certificates.create') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Create Cert</a>
+    {% endif %}
+{% endcall %}
+
+<div class="row row-cols-2 row-cols-md-3 row-cols-xl-6 g-3">
+    {{ stat(url_for('ca.list_cas', status='active'), 'primary', 'diagram-3', stats.ca_count, 'Active CAs') }}
+    {{ stat(url_for('certificates.list_certs', status='active'), 'success', 'file-earmark-lock2', stats.cert_active, 'Active Certificates') }}
+    {{ stat(url_for('certificates.list_certs', status='expiring'), 'warning', 'hourglass-split', stats.cert_expiring_soon, 'Expiring Soon') }}
+    {{ stat(url_for('certificates.list_certs', status='expired'), 'info', 'calendar-x', stats.cert_expired, 'Expired') }}
+    {{ stat(url_for('certificates.list_certs', status='revoked'), 'danger', 'x-octagon', stats.cert_revoked, 'Revoked Certificates') }}
+    {{ stat(url_for('csr.list_csrs', status='pending'), 'warning', 'inbox', stats.csr_pending, 'Pending CSRs') }}
 </div>
 
-<div class="row mt-3" id="dashboard-recent">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Recent CAs</h5>
-                <a href="{{ url_for('ca.create') }}" class="btn btn-sm btn-primary">Create CA</a>
+{% set has_attention = attention.expiring or attention.pending_csrs or attention.pending_cas %}
+<div class="row g-3 mt-1">
+    <div class="col-xl-7">
+        <div class="card h-100">
+            <div class="card-header">
+                <span><i class="bi bi-exclamation-circle" aria-hidden="true"></i>Needs attention</span>
+                <span class="text-body-secondary small fw-normal">within {{ warning_days }} days</span>
             </div>
-            <div class="card-body">
-                {% if recent_cas %}
-                <table class="table table-sm">
-                    <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Created</th></tr></thead>
+            {% if not has_attention %}
+            <div class="card-body"><div class="empty-state mb-0"><i class="bi bi-check2-circle" aria-hidden="true"></i>Nothing pending. All certificates are outside the expiry window and no requests are waiting.</div></div>
+            {% else %}
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
                     <tbody>
-                    {% for ca in recent_cas %}
+                    {% for ca in attention.pending_cas %}
                     <tr>
-                        <td><a href="{{ url_for('ca.detail', ca_id=ca.id) }}">{{ ca.name }}</a></td>
-                        <td>{{ "Root" if ca.is_root else "Intermediate" }}</td>
-                        <td>
-                            {{ status_badge(ca) }}
+                        <td>{{ status_badge(ca) }}</td>
+                        <td><a href="{{ url_for('ca.detail', ca_id=ca.id) }}">{{ ca.name }}</a> <span class="text-body-secondary small">#{{ ca.id }}</span></td>
+                        <td class="text-body-secondary small">created {{ ca.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td class="table-actions"><a href="{{ url_for('ca.detail', ca_id=ca.id) }}" class="btn btn-sm btn-outline-primary">Review</a></td>
+                    </tr>
+                    {% endfor %}
+                    {% for csr in attention.pending_csrs %}
+                    <tr>
+                        <td><span class="badge bg-warning text-dark">CSR</span></td>
+                        <td><a href="{{ url_for('csr.detail', csr_id=csr.id) }}">{{ csr.common_name }}</a>{% if csr.creator %} <span class="text-body-secondary small">by {{ csr.creator.username }}</span>{% endif %}</td>
+                        <td class="text-body-secondary small">waiting since {{ csr.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td class="table-actions">
+                            {% if not dual_control_active() or csr.created_by != current_user.id or current_user.username == config.ADMIN_USERNAME %}
+                            <a href="{{ url_for('csr.sign', csr_id=csr.id) }}" class="btn btn-sm btn-outline-success">Sign</a>
+                            {% else %}<a href="{{ url_for('csr.detail', csr_id=csr.id) }}" class="btn btn-sm btn-outline-primary">View</a>{% endif %}
                         </td>
-                        <td>{{ ca.created_at.strftime('%Y-%m-%d') }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% for cert in attention.expiring %}
+                    <tr class="table-warning">
+                        <td><span class="badge bg-warning text-dark">Expiring</span></td>
+                        <td><a href="{{ url_for('certificates.detail', cert_id=cert.id) }}">{{ cert.common_name }}</a> <span class="text-body-secondary small">via {{ cert.ca.name }}</span></td>
+                        <td class="text-body-secondary small">{{ cert.not_after.strftime('%Y-%m-%d') }} &middot; {{ cert.days_until_expiry }}d left</td>
+                        <td class="table-actions">{% if not cert.renewals %}<a href="{{ url_for('certificates.renew', cert_id=cert.id) }}" class="btn btn-sm btn-outline-success">Renew</a>{% else %}<span class="badge bg-secondary">Superseded</span>{% endif %}</td>
                     </tr>
                     {% endfor %}
                     </tbody>
                 </table>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="col-xl-5">
+        <div class="card h-100">
+            <div class="card-header">
+                <span><i class="bi bi-activity" aria-hidden="true"></i>Recent activity</span>
+                <a href="{{ url_for('users.audit_log') }}" class="small fw-normal">Audit log</a>
+            </div>
+            <div class="card-body">
+                {% if activity %}
+                <ul class="timeline">
+                    {% for e in activity %}
+                    <li>
+                        <span class="when">{{ e.timestamp.strftime('%m-%d %H:%M') }}</span>
+                        <span><strong>{{ e.username or '—' }}</strong> <code>{{ e.action }}</code>{% if e.target_type %} <span class="text-body-secondary">{{ e.target_type }}{% if e.target_id %} #{{ e.target_id }}{% endif %}</span>{% endif %}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
                 {% else %}
-                <p class="text-muted">No CAs yet. <a href="{{ url_for('ca.create') }}">Create one</a>.</p>
+                <div class="empty-state mb-0"><i class="bi bi-activity" aria-hidden="true"></i>No activity recorded yet.</div>
                 {% endif %}
             </div>
         </div>
     </div>
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Recent Certificates</h5>
-                {% if not dual_control_active() or current_user.username == config.ADMIN_USERNAME %}
-                <a href="{{ url_for('certificates.create') }}" class="btn btn-sm btn-primary">Create Cert</a>
-                {% endif %}
+</div>
+
+<div class="row g-3 mt-1" id="dashboard-recent">
+    <div class="col-xl-7">
+        <div class="card h-100">
+            <div class="card-header">
+                <span><i class="bi bi-heart-pulse" aria-hidden="true"></i>Signing CAs</span>
+                <a href="{{ url_for('ca.list_cas') }}" class="small fw-normal">All CAs</a>
             </div>
-            <div class="card-body">
-                {% if recent_certs %}
-                <table class="table table-sm">
-                    <thead><tr><th>CN</th><th>Status</th><th>Created</th><th>Expires</th></tr></thead>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
+                    <thead><tr><th>CA</th><th>Type</th><th>Key</th><th>CRL #</th><th>Issued</th><th>Valid until</th></tr></thead>
+                    <tbody>
+                    {% for ca in signing_cas[:RECENT_SHOWN if RECENT_SHOWN is defined else 8] %}
+                    <tr>
+                        <td><a href="{{ url_for('ca.detail', ca_id=ca.id) }}">{{ ca.name }}</a>{% if ca.key_backend == 'softhsm' %} <span class="badge bg-info text-dark">HSM</span>{% endif %}</td>
+                        <td>{{ "Root" if ca.is_root else "Intermediate" }}</td>
+                        <td class="text-nowrap">{{ ca.key_type }} {{ ca.key_size }}</td>
+                        <td>{{ ca.crl_number }}</td>
+                        <td>{{ ca.certificates.count() }}</td>
+                        <td class="text-nowrap">{{ ca.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(ca) }}</td>
+                    </tr>
+                    {% else %}
+                    {{ empty_row(6, 'No CA can sign yet.', 'diagram-3') }}
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-5">
+        <div class="card h-100">
+            <div class="card-header">
+                <span><i class="bi bi-clock-history" aria-hidden="true"></i>Recent certificates</span>
+                <a href="{{ url_for('certificates.list_certs') }}" class="small fw-normal">All certificates</a>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
+                    <thead><tr><th>CN</th><th>Status</th><th>Expires</th></tr></thead>
                     <tbody>
                     {% for cert in recent_certs %}
                     {# highlight rows for certs expiring within 15 days (or already past) #}
                     <tr{% if not cert.is_revoked and cert.days_until_expiry is not none and cert.days_until_expiry <= 15 %} class="table-warning"{% endif %}>
                         <td><a href="{{ url_for('certificates.detail', cert_id=cert.id) }}">{{ cert.common_name }}</a></td>
-                        <td>
-                            {{ status_badge(cert) }}
-                        </td>
-                        <td>{{ cert.created_at.strftime('%Y-%m-%d') }}</td>
-                        <td>{{ cert.not_after.strftime('%Y-%m-%d') }}</td>
+                        <td>{{ status_badge(cert) }}</td>
+                        <td class="text-nowrap">{{ cert.not_after.strftime('%Y-%m-%d') }}</td>
                     </tr>
+                    {% else %}
+                    {{ empty_row(3, 'No certificates yet.', 'file-earmark-lock2') }}
                     {% endfor %}
                     </tbody>
                 </table>
-                {% else %}
-                <p class="text-muted">No certificates yet.</p>
-                {% endif %}
             </div>
         </div>
     </div>
 </div>
 
 {% else %}
-{# CSR User view #}
-<div class="row mt-4">
-    <div class="col-md-4">
-        <a href="{{ url_for('csr.list_csrs', status='pending') }}" class="card text-bg-warning mb-3 text-decoration-none">
-            <div class="card-body">
-                <h5 class="card-title">Your Pending CSRs</h5>
-                <p class="card-text display-6">{{ stats.csr_pending }}</p>
-            </div>
-        </a>
-    </div>
-    <div class="col-md-4">
-        <a href="{{ url_for('csr.list_csrs', status='approved') }}" class="card text-bg-success mb-3 text-decoration-none">
-            <div class="card-body">
-                <h5 class="card-title">Your Approved CSRs</h5>
-                <p class="card-text display-6">{{ stats.csr_approved }}</p>
-            </div>
-        </a>
-    </div>
-    <div class="col-md-4">
-        <a href="{{ url_for('csr.list_csrs') }}" class="card text-bg-primary mb-3 text-decoration-none">
-            <div class="card-body">
-                <h5 class="card-title">Your Total CSRs</h5>
-                <p class="card-text display-6">{{ stats.csr_total }}</p>
-            </div>
-        </a>
-    </div>
+{# CSR requester view #}
+{% call page_header("Dashboard", "Your signing requests and the certificates issued for them.") %}
+    <a href="{{ url_for('csr.create') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Create CSR</a>
+{% endcall %}
+<div class="row row-cols-1 row-cols-md-3 g-3">
+    {{ stat(url_for('csr.list_csrs', status='pending'), 'warning', 'hourglass-split', stats.csr_pending, 'Your Pending CSRs') }}
+    {{ stat(url_for('csr.list_csrs', status='approved'), 'success', 'check2-circle', stats.csr_approved, 'Your Approved CSRs') }}
+    {{ stat(url_for('csr.list_csrs'), 'primary', 'file-earmark-plus', stats.csr_total, 'Your Total CSRs') }}
 </div>
 
-<div class="row mt-3" id="dashboard-recent">
-    <div class="col-md-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Your Recent CSRs</h5>
-                <a href="{{ url_for('csr.create') }}" class="btn btn-sm btn-primary">Create CSR</a>
-            </div>
-            <div class="card-body">
-                {% if recent_csrs %}
-                <table class="table table-sm">
+<div class="row g-3 mt-1" id="dashboard-recent">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><span><i class="bi bi-file-earmark-plus" aria-hidden="true"></i>Your recent CSRs</span><a href="{{ url_for('csr.list_csrs') }}" class="small fw-normal">All</a></div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
                     <thead><tr><th>Common Name</th><th>Status</th><th>Created</th></tr></thead>
                     <tbody>
                     {% for csr in recent_csrs %}
                     <tr>
                         <td><a href="{{ url_for('csr.detail', csr_id=csr.id) }}">{{ csr.common_name }}</a></td>
-                        <td>
-                            {% if csr.status == 'pending' %}
-                            <span class="badge bg-warning text-dark">Pending</span>
-                            {% elif csr.status == 'approved' %}
-                            <span class="badge bg-success">Approved</span>
-                            {% else %}
-                            <span class="badge bg-secondary">Rejected</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ csr.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td>{{ csr_status_badge(csr) }}</td>
+                        <td class="text-nowrap">{{ csr.created_at.strftime('%Y-%m-%d') }}</td>
                     </tr>
+                    {% else %}
+                    {{ empty_row(3, 'No CSRs yet.', 'file-earmark-plus') }}
                     {% endfor %}
                     </tbody>
                 </table>
-                {% else %}
-                <p class="text-muted">No CSRs yet. <a href="{{ url_for('csr.create') }}">Create one</a>.</p>
-                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><span><i class="bi bi-file-earmark-lock2" aria-hidden="true"></i>Your certificates</span><a href="{{ url_for('certificates.list_certs') }}" class="small fw-normal">All</a></div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
+                    <thead><tr><th>Common Name</th><th>Status</th><th>Expires</th></tr></thead>
+                    <tbody>
+                    {% for cert in recent_certs %}
+                    <tr>
+                        <td><a href="{{ url_for('certificates.detail', cert_id=cert.id) }}">{{ cert.common_name }}</a></td>
+                        <td>{{ status_badge(cert) }}</td>
+                        <td class="text-nowrap">{{ cert.not_after.strftime('%Y-%m-%d') }}{{ expiry_badge(cert) }}</td>
+                    </tr>
+                    {% else %}
+                    {{ empty_row(3, 'No certificates issued for you yet.', 'file-earmark-lock2') }}
+                    {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

@@ -1,9 +1,12 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}Revoke {{ cert.common_name }} - Chancery{% endblock %}
+{% block topbar %}Revoke {{ cert.common_name }}{% endblock %}
 {% block content %}
-<h2>Revoke Certificate</h2>
+{% set _title %}Revoke Certificate{% endset %}
+{{ page_header(_title) }}
 
-<div class="card mt-3">
+<div class="card">
     <div class="card-body">
         <p>Are you sure you want to revoke the certificate <strong>{{ cert.common_name }}</strong>?</p>
         <p>Serial: <code>{{ cert.serial_number }}</code></p>

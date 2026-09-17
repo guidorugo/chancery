@@ -1,11 +1,15 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header, empty_row %}
 {% block title %}Audit Log - Chancery{% endblock %}
+{% block topbar %}Preferences &middot; Audit Log{% endblock %}
 {% block content %}
 {% set active_tab = 'audit' %}
 {% include "users/_tabs.html" %}
-<h2>Audit Log</h2>
+{{ page_header("Audit Log", "Every security-relevant action, newest first.") }}
 
-<table class="table table-sm mt-3">
+<div class="card">
+<div class="table-responsive">
+<table class="table table-sm table-hover mb-0">
     <thead>
         <tr>
             <th>Timestamp</th>
@@ -19,29 +23,31 @@
     <tbody>
     {% for entry in logs.items %}
         <tr>
-            <td>{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}</td>
+            <td class="text-nowrap">{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}</td>
             <td>{{ entry.username }}</td>
             <td><code>{{ entry.action }}</code></td>
-            <td>
+            <td class="text-nowrap">
                 {% if entry.target_type %}
                 {{ entry.target_type }}{% if entry.target_id %} #{{ entry.target_id }}{% endif %}
                 {% else %}-{% endif %}
             </td>
-            <td>{{ entry.ip_address }}</td>
+            <td class="text-nowrap">{{ entry.ip_address }}</td>
             <td>
                 {% if entry.details %}
-                <small class="text-muted">{{ entry.details }}</small>
+                <small class="text-body-secondary text-mono">{{ entry.details }}</small>
                 {% else %}-{% endif %}
             </td>
         </tr>
     {% else %}
-        <tr><td colspan="6" class="text-muted text-center">No audit log entries.</td></tr>
+        {{ empty_row(6, 'No audit log entries.', 'journal-text') }}
     {% endfor %}
     </tbody>
 </table>
+</div>
+</div>
 
 {% if logs.pages > 1 %}
-<nav>
+<nav class="mt-3">
     <ul class="pagination justify-content-center">
         {% if logs.has_prev %}
         <li class="page-item">

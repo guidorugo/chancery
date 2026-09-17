@@ -1,87 +1,110 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}Two-factor authentication - Chancery{% endblock %}
+{% block topbar %}Two-factor authentication{% endblock %}
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-7">
-        <div class="card mt-4">
-            <div class="card-header"><h4 class="mb-0">Two-factor authentication</h4></div>
-            <div class="card-body">
-            {% if new_codes %}
-                <div class="alert alert-warning">
-                    <strong>Recovery codes — save them now.</strong> Each works once, when your authenticator is unavailable. They will not be shown again.
-                    <pre class="mt-2 mb-2 user-select-all" id="recovery-codes">{% for c in new_codes %}{{ c }}
+{{ page_header("Two-factor authentication", "A code from your authenticator app is asked after the password.") }}
+{% if new_codes %}
+<div class="alert alert-warning">
+    <strong>Recovery codes — save them now.</strong> Each works once, when your authenticator is unavailable. They will not be shown again.
+    <pre class="mt-2 mb-2 user-select-all" id="recovery-codes">{% for c in new_codes %}{{ c }}
 {% endfor %}</pre>
-                    <a class="btn btn-sm btn-outline-secondary" id="download-codes" download="chancery-recovery-codes-{{ current_user.username }}.txt" href="#">Download as .txt</a>
-                </div>
-            {% endif %}
-            {% if enabled %}
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-copy-target="#recovery-codes"><i class="bi bi-clipboard" aria-hidden="true"></i> Copy codes</button>
+    <a class="btn btn-sm btn-outline-secondary" id="download-codes" download="chancery-recovery-codes-{{ current_user.username }}.txt" href="#"><i class="bi bi-download" aria-hidden="true"></i> Download as .txt</a>
+</div>
+{% endif %}
+<div class="row g-3">
+{% if enabled %}
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><span><i class="bi bi-shield-check" aria-hidden="true"></i>Status</span></div>
+            <div class="card-body">
                 <p><span class="badge bg-success">Enabled</span> Your account requires a code from your authenticator app at every login.
                     {{ remaining }} recovery code{{ 's' if remaining != 1 }} remaining.{% if enforced %} <span class="badge bg-info text-dark" title="REQUIRE_2FA applies to this account">Required by policy</span>{% endif %}</p>
                 {% if remaining <= low %}
-                <div class="alert alert-danger py-2">Only {{ remaining }} recovery code{{ 's' if remaining != 1 }} left — generate new ones below before you need them.</div>
+                <div class="alert alert-danger py-2">Only {{ remaining }} recovery code{{ 's' if remaining != 1 }} left — generate new ones now, before you need them.</div>
                 {% endif %}
-                <p class="text-body-secondary small">Basic Auth is disabled for this account; use an <a href="{{ url_for('users.api_tokens') }}">API token</a> for scripts.</p>
-                <hr>
-                <h6>Regenerate recovery codes</h6>
-                <form method="POST" action="{{ url_for('auth.two_factor_recovery_codes') }}" class="row g-2 align-items-end mb-3">
+                <p class="text-body-secondary small mb-0">Basic Auth is disabled for this account; use an <a href="{{ url_for('users.api_tokens') }}">API token</a> for scripts.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><span><i class="bi bi-arrow-repeat" aria-hidden="true"></i>Regenerate recovery codes</span></div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('auth.two_factor_recovery_codes') }}" class="row g-2 align-items-end">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="col-md-5">
+                    <div class="col-sm-7">
                         <label for="rc_code" class="form-label">Current code</label>
                         <input type="text" class="form-control" id="rc_code" name="code" required autocomplete="one-time-code" inputmode="numeric">
                     </div>
-                    <div class="col-md-4"><button type="submit" class="btn btn-outline-secondary">New recovery codes</button></div>
+                    <div class="col-sm-5"><button type="submit" class="btn btn-outline-secondary w-100">New recovery codes</button></div>
                 </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header"><span><i class="bi bi-shield-x" aria-hidden="true"></i>Disable</span></div>
+            <div class="card-body">
                 {% if enforced %}
                 <p class="small text-body-secondary mb-0">Two-factor authentication is required for your account and cannot be disabled here. If you lose your authenticator and your recovery codes, an administrator can reset it; you then enrol again at your next login.</p>
                 {% else %}
-                <h6>Disable</h6>
                 <form method="POST" action="{{ url_for('auth.two_factor_disable') }}" class="row g-2 align-items-end">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     {% if current_user.has_usable_password() %}
-                    <div class="col-md-4">
+                    <div class="col-sm-6">
                         <label for="password" class="form-label">Password</label>
                         <input type="password" class="form-control" id="password" name="password" required autocomplete="current-password">
                     </div>
                     {% endif %}
-                    <div class="col-md-4">
+                    <div class="col-sm-6">
                         <label for="dis_code" class="form-label">Current code</label>
                         <input type="text" class="form-control" id="dis_code" name="code" required autocomplete="one-time-code" inputmode="numeric">
                     </div>
-                    <div class="col-md-3"><button type="submit" class="btn btn-outline-danger">Disable 2FA</button></div>
+                    <div class="col-12"><button type="submit" class="btn btn-outline-danger">Disable 2FA</button></div>
                 </form>
                 {% endif %}
-            {% else %}
+            </div>
+        </div>
+    </div>
+{% else %}
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header"><span><i class="bi bi-qr-code" aria-hidden="true"></i>Enrol an authenticator</span></div>
+            <div class="card-body">
                 {% if forced %}
                 <div class="alert alert-warning"><strong>A second factor is required for your account.</strong> Enrol an authenticator to continue; keep the recovery codes somewhere safe — if you lose both, an administrator has to reset your second factor.</div>
                 {% endif %}
-                <ol>
+                <ol class="mb-4">
                     <li>Open your authenticator app (any TOTP app: Aegis, FreeOTP, Google Authenticator, 1Password, …).</li>
                     <li>Scan the QR code, or enter the key manually.</li>
                     <li>Type the 6-digit code it shows to confirm.</li>
                 </ol>
-                <div class="row align-items-center">
+                <div class="row align-items-center g-3">
                     <div class="col-md-5 text-center">
-                        {% if qr_svg %}<div class="bg-white d-inline-block p-2 rounded">{{ qr_svg | safe }}</div>{% endif %}
+                        {% if qr_svg %}<div class="bg-white d-inline-block p-2 rounded-3 border">{{ qr_svg | safe }}</div>{% endif %}
                     </div>
                     <div class="col-md-7">
-                        <p class="mb-1"><strong>Manual key</strong></p>
-                        <p><code class="user-select-all">{{ secret }}</code></p>
+                        <div class="divider-label mb-1">Manual key</div>
+                        <p><code class="user-select-all" id="totp-secret">{{ secret }}</code>
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-1" data-copy-target="#totp-secret"><i class="bi bi-clipboard" aria-hidden="true"></i></button></p>
                         <p class="small text-body-secondary mb-0">Type: time-based (TOTP), SHA-1, 6 digits, 30 seconds.<br>
                             <a href="{{ otpauth }}">Open in an authenticator app</a></p>
                     </div>
                 </div>
-                <form method="POST" class="row g-2 align-items-end mt-2">
+                <form method="POST" class="row g-2 align-items-end mt-3">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="col-md-5">
+                    <div class="col-sm-5">
                         <label for="code" class="form-label">Code from the app</label>
                         <input type="text" class="form-control" id="code" name="code" required autofocus autocomplete="one-time-code" inputmode="numeric" placeholder="123456">
                     </div>
-                    <div class="col-md-4"><button type="submit" class="btn btn-primary">Enable two-factor</button></div>
+                    <div class="col-sm-4"><button type="submit" class="btn btn-primary">Enable two-factor</button></div>
                 </form>
-            {% endif %}
             </div>
         </div>
     </div>
+{% endif %}
 </div>
 {% endblock %}
 

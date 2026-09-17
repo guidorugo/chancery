@@ -1,13 +1,14 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header, empty_row %}
 {% block title %}Certificate Profiles - Chancery{% endblock %}
+{% block topbar %}Preferences &middot; Profiles{% endblock %}
 {% block content %}
 {% set active_tab = 'profiles' %}
 {% include "users/_tabs.html" %}
-<div class="d-flex justify-content-between align-items-center">
-    <h2>Certificate Profiles</h2>
-    <a href="{{ url_for('users.profile_new') }}" class="btn btn-primary">New Profile</a>
-</div>
-<p class="text-body-secondary mt-2">
+{% call page_header("Certificate Profiles", "Server-enforced issuance policy: key usages, validity, key and SAN bounds.") %}
+    <a href="{{ url_for('users.profile_new') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i>New Profile</a>
+{% endcall %}
+<p class="text-body-secondary">
     A profile fixes the Key Usage / Extended Key Usage of the certificates issued under it and can
     bound validity, key type and size, and SAN types. It is enforced server-side, for the forms and
     the API alike. <em>Custom</em> carries no restriction beyond the global policy. Built-in profiles
@@ -15,7 +16,9 @@
     issues under (on the CA page).
 </p>
 
-<table class="table mt-3 align-middle">
+<div class="card">
+<div class="table-responsive">
+<table class="table table-hover align-middle mb-0">
     <thead>
         <tr>
             <th>Name</th>
@@ -25,14 +28,14 @@
             <th>Bounds</th>
             <th>Status</th>
             <th>Used by</th>
-            <th>Actions</th>
+            <th class="table-actions">Actions</th>
         </tr>
     </thead>
     <tbody>
     {% for p in profiles %}
         {% set certs, csrs = usage[p.id] %}
         <tr>
-            <td>{{ p.name }}{% if p.is_builtin %} <span class="badge bg-secondary">built-in</span>{% endif %}
+            <td><span class="fw-semibold">{{ p.name }}</span>{% if p.is_builtin %} <span class="badge bg-secondary">built-in</span>{% endif %}
                 {% if p.description %}<div class="small text-body-secondary">{{ p.description }}</div>{% endif %}</td>
             <td><code>{{ p.key }}</code></td>
             <td class="small">
@@ -43,7 +46,7 @@
                 <br><span class="text-body-secondary">{{ (p.extended_key_usage or []) | join(', ') or '—' }}</span>
                 {% endif %}
             </td>
-            <td class="small">default {{ p.default_validity_days }}d{% if p.max_validity_days %}<br>max {{ p.max_validity_days }}d{% endif %}</td>
+            <td class="small text-nowrap">default {{ p.default_validity_days }}d{% if p.max_validity_days %}<br>max {{ p.max_validity_days }}d{% endif %}</td>
             <td class="small">
                 {% if p.allowed_key_types %}{{ p.allowed_key_types | join('/') }}{% else %}RSA/EC{% endif %}
                 {% if p.min_rsa_bits or p.max_rsa_bits %}<br>RSA {{ p.min_rsa_bits or '' }}–{{ p.max_rsa_bits or '' }}{% endif %}
@@ -53,8 +56,8 @@
                 {% if not p.include_ocsp_aia %}<br>no AIA{% endif %}
             </td>
             <td>{% if p.enabled %}<span class="badge bg-success">Enabled</span>{% else %}<span class="badge bg-secondary">Disabled</span>{% endif %}</td>
-            <td class="small">{{ certs }} cert{{ 's' if certs != 1 }}<br>{{ csrs }} CSR{{ 's' if csrs != 1 }}</td>
-            <td class="text-nowrap">
+            <td class="small text-nowrap">{{ certs }} cert{{ 's' if certs != 1 }}<br>{{ csrs }} CSR{{ 's' if csrs != 1 }}</td>
+            <td class="table-actions">
                 <a href="{{ url_for('users.profile_edit', profile_id=p.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
                 <form method="POST" action="{{ url_for('users.profile_toggle', profile_id=p.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -69,10 +72,12 @@
             </td>
         </tr>
     {% else %}
-        <tr><td colspan="8" class="text-body-secondary text-center">No profiles.</td></tr>
+        {{ empty_row(8, 'No profiles.', 'card-checklist') }}
     {% endfor %}
     </tbody>
 </table>
-<p class="small text-body-secondary">CLI: <code>flask profiles list|export|import &lt;file&gt; [--replace]</code>.
+</div>
+</div>
+<p class="small text-body-secondary mt-3">CLI: <code>flask profiles list|export|import &lt;file&gt; [--replace]</code>.
     Set <code>PROFILES_REQUIRE_SELECTION=true</code> to refuse issuance requests that name no profile.</p>
 {% endblock %}

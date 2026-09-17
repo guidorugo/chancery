@@ -1,7 +1,10 @@
 {% extends "base.html" %}
+{% from "_macros.html" import page_header %}
 {% block title %}Edit User - Chancery{% endblock %}
+{% block topbar %}Edit User{% endblock %}
 {% block content %}
-<h2>Edit User: {{ user.username }}</h2>
+{% set _title %}Edit User: {{ user.username }}{% endset %}
+{{ page_header(_title) }}
 
 <div class="row mt-3">
     <div class="col-md-6">
