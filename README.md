@@ -158,7 +158,7 @@ docker compose pull
 docker compose up -d
 ```
 
-The footer shows an **"Update available"** badge when a newer GitHub release exists (on by default; set `UPDATE_CHECK_ENABLED=false` to disable the outbound check). Check the [release notes](https://github.com/guidorugo/chancery/releases) for any **one-time commands** a version needs (run them as the `app` user — see [CLI Commands](#cli-commands)) — e.g. after upgrading to **2.5.0**, correct the stored expiry on certificates issued by older versions:
+See **[UPGRADE.md](UPGRADE.md)** for the full guide: version-specific one-time steps, the read-only root filesystem note, and the behaviour-changing settings that are left off by default so you can adopt them deliberately. The footer shows an **"Update available"** badge when a newer GitHub release exists (on by default; set `UPDATE_CHECK_ENABLED=false` to disable the outbound check). Check the [release notes](https://github.com/guidorugo/chancery/releases) for any **one-time commands** a version needs (run them as the `app` user — see [CLI Commands](#cli-commands)) — e.g. after upgrading to **2.5.0**, correct the stored expiry on certificates issued by older versions:
 
 ```bash
 docker compose exec -u app app flask certs recompute-expiry
@@ -700,13 +700,13 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `MAX_CERT_VALIDITY_DAYS` | `825` | Cap on issued leaf-cert validity (also clamped to the CA's expiry) |
 | `MAX_CA_VALIDITY_DAYS` | `7305` | Cap on issued CA validity |
 | `MAX_RSA_KEY_SIZE` | `8192` | Largest RSA key accepted for generation and in CSRs |
-| `PROFILES_REQUIRE_SELECTION` | `false` | Refuse issuance requests that name no certificate profile (otherwise they use the unrestricted `custom` profile) |
+| `PROFILES_REQUIRE_SELECTION` | `false` | Refuse issuance requests that name no certificate profile (otherwise they use the unrestricted `custom` profile). A recommended opt-in ([UPGRADE.md](UPGRADE.md)) |
 | `MIN_RSA_KEY_SIZE` | `2048` | Minimum accepted RSA key size |
-| `SIGNATURE_HASH_POLICY` | `legacy` | Digest for new signatures (certificates, CRLs, OCSP responses, generated CSRs): `legacy` = SHA-256 for every RSA/EC key; `match-curve` = SHA-256/SHA-384/SHA-512 for P-256/P-384/P-521 (as the CA/Browser Forum and RFC 5759 profiles expect) and `RSA_SIGNATURE_HASH` for RSA. Ed25519/Ed448 never take a separate digest. Existing objects are untouched. The default flips to `match-curve` in 3.0 |
+| `SIGNATURE_HASH_POLICY` | `legacy` | Digest for new signatures (certificates, CRLs, OCSP responses, generated CSRs): `legacy` = SHA-256 for every RSA/EC key; `match-curve` = SHA-256/SHA-384/SHA-512 for P-256/P-384/P-521 (as the CA/Browser Forum and RFC 5759 profiles expect) and `RSA_SIGNATURE_HASH` for RSA. Ed25519/Ed448 never take a separate digest. Existing objects are untouched. Left at `legacy` by default; `match-curve` is a recommended opt-in ([UPGRADE.md](UPGRADE.md)) |
 | `RSA_SIGNATURE_HASH` | `sha256` | Digest for RSA signatures under `match-curve`: `sha256`, `sha384` or `sha512` |
 | `OCSP_KEY_CACHE_TTL_SECONDS` | `300` | In-memory TTL for the decrypted CA key used by OCSP (`0` disables) |
 | `OCSP_RESPONSE_CACHE_TTL_SECONDS` | `60` | Cache signed OCSP responses per (CA, serial, status) for this long (`0` disables); the status is part of the key, so a revoked certificate is never served `good` from cache |
-| `OCSP_DELEGATED_RESPONDER` | `false` | Sign OCSP responses with a delegated responder certificate (EKU OCSPSigning, id-pkix-ocsp-nocheck) issued by each CA instead of the CA key; responders are renewed by the scheduler and lazily on the request path. Note: every CA's OCSP responder ID changes when this flips. Default flips to `true` in 3.0 |
+| `OCSP_DELEGATED_RESPONDER` | `false` | Sign OCSP responses with a delegated responder certificate (EKU OCSPSigning, id-pkix-ocsp-nocheck) issued by each CA instead of the CA key; responders are renewed by the scheduler and lazily on the request path. Off by default; a recommended opt-in ([UPGRADE.md](UPGRADE.md)). Note: every CA's OCSP responder ID changes when enabled |
 | `OCSP_RESPONDER_VALIDITY_DAYS` | `30` | Validity of a delegated responder certificate (capped at the CA's expiry) |
 | `OCSP_RESPONDER_RENEW_BEFORE_DAYS` | `7` | Renew a responder once it expires within this many days |
 | `SCHEDULER_ENABLED` | `true` | Built-in scheduler that keeps CRLs fresh (one worker holds a lease; safe with any worker count) |
