@@ -38,7 +38,8 @@ credentials. The client commands below stay the same.
    ./examples/acme-dns01/setup.sh
    ```
 
-2. Start Chancery with the overlay. It sets `ACME_ENABLED=true` and
+2. Start Chancery with the overlay, from the repository root (the overlay's
+   paths are resolved from there). It sets `ACME_ENABLED=true` and
    `ACME_DNS_RESOLVERS=dns` on the app and publishes BIND on host port
    `ACME_DNS_PORT` (default `5354`; port 53 is usually taken by
    systemd-resolved or a Pi-hole):
@@ -105,7 +106,7 @@ credentials. The client commands below stay the same.
    **acme.sh** (`dns_nsupdate` uses the `tsig.key` file):
 
    ```bash
-   export NSUPDATE_SERVER=ca.example.lan NSUPDATE_PORT=5354 NSUPDATE_KEY=$PWD/examples/acme-dns01/tsig.key
+   export NSUPDATE_SERVER=ca.example.lan NSUPDATE_SERVER_PORT=5354 NSUPDATE_KEY=$PWD/examples/acme-dns01/tsig.key
    acme.sh --register-account --server https://ca.example.lan/acme/3/directory --eab-kid KID --eab-hmac-key HMAC
    acme.sh --issue --server https://ca.example.lan/acme/3/directory --dns dns_nsupdate -d '*.example.lan' -d example.lan
    ```

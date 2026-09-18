@@ -487,14 +487,18 @@ curl -u admin:PASSWORD "http://localhost:5000/certificates/?status=expiring&page
 | POST | `/ca/detect-parent` | Detect parent CA for an imported certificate (JSON response) |
 | GET | `/ca/<ca_id>` | View CA details |
 | POST | `/ca/<ca_id>/approve` | Approve a pending CA (dual control); while the mode is active the approver must not be the CA's creator |
-| POST | `/ca/<ca_id>/ocsp-responder/rotate` | Admin | Issue a new delegated OCSP responder certificate now (F7) |
-| POST | `/ca/<ca_id>/reissue` | Admin | Re-issue the CA certificate for the same key (`validity_days` optional; F11). Pending under dual control |
-| POST | `/ca/<ca_id>/cross-sign` | Admin | Cross-certificate for this CA's key issued by `issuer_ca_id` (`validity_days` optional). Pending under dual control |
-| POST | `/ca/<ca_id>/certificates/import` | Admin | Attach an externally issued cross-certificate for this CA's key (`cert_pem`) |
-| POST | `/ca/<ca_id>/certificates/<alt_id>/approve`, `…/delete` | Admin | Approve (different admin under dual control) or remove an alternate certificate |
-| GET | `/public/ca/<ca_id>/alt/<alt_id>.crt` | Public | An approved alternate CA certificate (previous primary or cross-certificate) |
+| POST | `/ca/<ca_id>/ocsp-responder/rotate` | Issue a new delegated OCSP responder certificate now (F7) |
+| POST | `/ca/<ca_id>/reissue` | Re-issue the CA certificate for the same key (`validity_days` optional; F11). Pending under dual control |
+| POST | `/ca/<ca_id>/cross-sign` | Cross-certificate for this CA's key issued by `issuer_ca_id` (`validity_days` optional). Pending under dual control |
+| POST | `/ca/<ca_id>/certificates/import` | Attach an externally issued cross-certificate for this CA's key (`cert_pem`) |
+| POST | `/ca/<ca_id>/certificates/<alt_id>/approve`, `…/delete` | Approve (different admin under dual control) or remove an alternate certificate |
+| GET | `/public/ca/<ca_id>/alt/<alt_id>.crt` | No auth: An approved alternate CA certificate (previous primary or cross-certificate) |
 | GET, POST | `/ca/<ca_id>/revoke` | Revoke a CA (also the way to discard an unwanted pending CA) |
 | POST | `/ca/<ca_id>/crl` | Generate a new CRL |
+| POST | `/ca/<ca_id>/acme` | ACME settings of the CA — form fields `acme_enabled`, `acme_require_eab`, `acme_allow_wildcards` (checkbox values) and `acme_profile` (profile key); under dual control the CA's creator cannot switch it on |
+| POST | `/ca/<ca_id>/acme/eab` | Issue an external account binding key (`name` optional); the MAC key is returned once |
+| POST | `/ca/<ca_id>/acme/eab/<key_id>/revoke` | Revoke an unused EAB key |
+| POST | `/ca/<ca_id>/profiles` | Per-CA profile allow-list: repeat `allowed_profiles=<key>` for each permitted profile, none = any |
 | GET, POST | `/ca/<ca_id>/download` | Export CA. `pem`/`chain` via GET; `key`/`pkcs12` are **POST-only** (private-key material). `pkcs12` needs a `password` **form** field; `format=chain&via=<alt_id>` builds the chain through an alternate certificate |
 
 #### Certificate Management
@@ -544,12 +548,14 @@ curl -u admin:PASSWORD -X POST -o cert.key http://localhost:5000/certificates/1/
 | GET, POST | `/users/<user_id>/reset-password` | Reset a user's password |
 | POST | `/users/<user_id>/reset-2fa` | Clear a user's second factor (lost authenticator) and log out their sessions; 409 if not enabled |
 | POST | `/users/<user_id>/approve` | Approve a pending account / promotion (dual control: a different admin than the one who set it up, cool-down applies; 409 when nothing is pending) |
-| GET | `/users/audit-log` | View audit log (paginated, `?page=N`) |
+| GET | `/users/audit-log` | View audit log (paginated, `?page=N`, filters `from`, `to`, `action`, `user`, `target_type`, `target_id`, `q`) |
+| GET | `/users/audit-log/export` | Stream the audit log with the same filters (`?format=csv\|json\|jsonl`; audited) |
+| GET, POST | `/users/profiles`, `/users/profiles/new`, `/users/profiles/<profile_id>/edit`, `…/toggle`, `…/delete` | Certificate profiles admin: list, create, edit, enable/disable, delete (built-ins and referenced profiles cannot be deleted) |
 | GET, POST | `/users/ldap` | View/save LDAP settings (POST `action=test` runs a live connection test) |
 | POST | `/users/ldap/reset` | Remove saved LDAP settings (revert to env config) |
 | GET, POST | `/users/webhooks` | View/save webhook notification settings (POST `action=test` sends a test event) |
-| GET, POST | `/users/api-tokens` | Any | List (admins: all) or create API tokens; a created token's secret is returned once (`token` in the JSON body) |
-| POST | `/users/api-tokens/<id>/revoke` | Any (own) / Admin | Revoke an API token |
+| GET, POST | `/users/api-tokens` | Any signed-in user. List (admins: all) or create API tokens; a created token's secret is returned once (`token` in the JSON body) |
+| POST | `/users/api-tokens/<id>/revoke` | Revoke an API token (own; admins: any) |
 | POST | `/users/webhooks/reset` | Remove saved webhook settings (revert to env config) |
 
 #### Dashboard & Auth
@@ -676,6 +682,7 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `ACME_DEFAULT_VALIDITY_DAYS` | `90` | Validity of ACME-issued certificates (capped by the profile's maximum and the CA's expiry) |
 | `ACME_ORDER_LIFETIME_HOURS` | `168` | How long an order and its authorizations stay pending |
 | `ACME_NONCE_LIFETIME_MINUTES` | `60` | Replay-nonce lifetime |
+| `ACME_MAX_IDENTIFIERS` | `100` | Maximum identifiers in one order |
 | `ACME_CHALLENGE_TYPES` | `http-01,dns-01` | Challenge types offered on every authorization; a wildcard name always gets `dns-01` only |
 | `ACME_DNS_RESOLVERS` | *(container's resolver)* | Comma-separated `host[:port]` servers asked for `dns-01` TXT records; all must agree. Point it at the authoritative server (see `examples/acme-dns01/`) |
 | `ACME_DNS_TIMEOUT_SECONDS` | `5` | Timeout of one `dns-01` lookup |

@@ -22,9 +22,11 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - "cp /zones/*.zone /var/lib/bind/ && chown bind:bind /var/lib/bind/*.zone && exec /usr/sbin/named -u bind -f -c /etc/bind/named.conf"
+    # Paths are relative to the FIRST compose file's directory (the repository
+    # root), which is how Compose resolves them in an overlay.
     volumes:
-      - ./named.conf:/etc/bind/named.conf:ro     # rendered by setup.sh (holds the TSIG secret)
-      - ./zones:/zones:ro
+      - ./examples/acme-dns01/named.conf:/etc/bind/named.conf:ro   # rendered by setup.sh (holds the TSIG secret)
+      - ./examples/acme-dns01/zones:/zones:ro
     ports:
       # Where LAN clients send their updates (lego, certbot, acme.sh, nsupdate).
       # Port 53 on the host usually belongs to systemd-resolved or a Pi-hole,
