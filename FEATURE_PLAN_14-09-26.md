@@ -624,6 +624,69 @@ approver; break-glass exempt; nothing changes while the mode is inactive. README
 
 ---
 
+## F20. Longer validity tiers: 5-year leaves, tiered CA caps (requested 2026-09-22)
+
+**Requested.** Allow leaf certificates beyond the current 825-day ceiling — up to
+**1825 days (5 years)** — and give intermediates and roots distinct caps:
+**3650 days (10 years) for intermediates**, **7300 days (20 years) for roots**.
+
+**Current state.** `policy.bounded_not_after(now, validity_days, ca_not_after=None,
+is_ca=False)` knows only two tiers: leaf (`MAX_CERT_VALIDITY_DAYS`, default **825**)
+and any CA (`MAX_CA_VALIDITY_DAYS`, default **7305** — used for both roots and
+intermediates). `create_root_ca`/`create_intermediate_ca`/`reissue_ca_certificate`
+all call it with `is_ca=True`, so an intermediate may currently run to the same
+7305 as a root. Leaves are additionally clamped to the issuing CA's `not_after`,
+and a profile's `max_validity_days` caps tighter still; those two clamps stay.
+
+**Design.**
+- Raise the leaf default: `MAX_CERT_VALIDITY_DAYS` **825 → 1825**.
+- Split the CA tier in two: keep `MAX_CA_VALIDITY_DAYS` for **roots** (**7305 →
+  7300**) and add **`MAX_INTERMEDIATE_VALIDITY_DAYS`** (default **3650**).
+- Give `bounded_not_after` a three-way kind instead of the `is_ca` bool — e.g.
+  `kind="leaf"|"intermediate"|"root"` (or an `is_intermediate=` flag) — and pick
+  the matching cap. `create_intermediate_ca` (`ca_service.py:194`) passes
+  intermediate; `create_root_ca` (`:67`) passes root; `reissue_ca_certificate`
+  (`:307`) uses the CA's own kind (root vs intermediate), and the reissue/
+  cross-sign paths keep clamping to the issuer's expiry so a child never
+  outlives its parent. `ocsp_service` responder validity is unaffected (its own
+  `OCSP_RESPONDER_VALIDITY_DAYS`, 30).
+- Forms/UI: raise the validity input `max` and helper text on the certificate
+  create/sign and the CA create pages to the new per-kind ceilings; the profile
+  editor's `max_validity_days` is unchanged (it already caps tighter per profile).
+- Forward the new/changed knobs in `docker-compose.yml` and document all three
+  in the README env table.
+
+**Config.**
+- `MAX_CERT_VALIDITY_DAYS` — leaf cap, default **1825** (was 825).
+- `MAX_INTERMEDIATE_VALIDITY_DAYS` — intermediate cap, default **3650** (new).
+- `MAX_CA_VALIDITY_DAYS` — root cap, default **7300** (was 7305).
+
+**Tests.** Extend the policy tests: a leaf > 1825, an intermediate > 3650 and a
+root > 7300 are each refused with the right message; a leaf is still clamped to
+the CA's expiry and a profile's `max_validity_days` still wins when tighter; an
+intermediate is capped at 3650 even though its root allows 7300.
+
+**Notes / judgment calls** (per the 2026-09-18 release-notes rule):
+- **Public trust:** 825 days is the CA/Browser Forum maximum for publicly
+  *trusted* TLS server certificates. 5-year leaves are fine for a private,
+  internally-trusted CA (which Chancery is) but are rejected by browser/public
+  trust programs. This is a deliberate operator choice, called out in the docs.
+- **Default leaf cap rises:** a request for, say, 1500 days that used to be
+  refused will now succeed on a default deployment. Release notes must say so;
+  an operator who wants the old ceiling sets `MAX_CERT_VALIDITY_DAYS=825`.
+- **Intermediates are capped *tighter* than before** (3650 vs the old shared
+  7305) — a deliberate hygiene default, but a behaviour change: a deployment
+  that issued intermediates longer than 10 years must set
+  `MAX_INTERMEDIATE_VALIDITY_DAYS` higher. This one tightening is the item to
+  flag most prominently in the release notes. Existing certificates and CAs are
+  never touched — caps apply only at issuance.
+
+**Release.** A minor (new config + raised defaults); no schema change. Ships
+with the release-notes callouts above and an `UPGRADE.md` note that the leaf and
+intermediate caps moved.
+
+---
+
 ## 4. Assessment findings folded into the plan
 
 Every code-level finding in `SECURITY_ASSESSMENT_29-08-26.md` now has a home in one
