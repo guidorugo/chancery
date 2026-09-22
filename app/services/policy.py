@@ -62,17 +62,25 @@ def enforce_public_key_strength(public_key):
                          "Ed25519 and Ed448.")
 
 
-def bounded_not_after(now, validity_days, ca_not_after=None, is_ca=False):
-    """Return `now + validity_days`, bounded by the configured maximum and by
-    the issuing CA's own expiry (B4). Raises ValueError on violation.
+def bounded_not_after(now, validity_days, ca_not_after=None, is_ca=False, is_intermediate=False):
+    """Return `now + validity_days`, bounded by the configured per-kind maximum
+    and by the issuing CA's own expiry (B4). Raises ValueError on violation.
 
-    `ca_not_after` may be naive (SQLite drops tzinfo) — treated as UTC.
+    Three tiers (F20): a leaf (`is_ca=False`) is capped by `MAX_CERT_VALIDITY_DAYS`
+    (default 1825, 5y); an intermediate (`is_ca=True, is_intermediate=True`) by
+    `MAX_INTERMEDIATE_VALIDITY_DAYS` (3650, 10y); a root (`is_ca=True`) by
+    `MAX_CA_VALIDITY_DAYS` (7300, 20y). `ca_not_after` may be naive (SQLite drops
+    tzinfo) — treated as UTC.
     """
     if validity_days is None or validity_days < 1:
         raise ValueError("Validity (days) must be a positive integer.")
-    max_days = _cfg("MAX_CA_VALIDITY_DAYS", 7305) if is_ca else _cfg("MAX_CERT_VALIDITY_DAYS", 825)
+    if not is_ca:
+        max_days, kind = _cfg("MAX_CERT_VALIDITY_DAYS", 1825), "certificate"
+    elif is_intermediate:
+        max_days, kind = _cfg("MAX_INTERMEDIATE_VALIDITY_DAYS", 3650), "intermediate CA"
+    else:
+        max_days, kind = _cfg("MAX_CA_VALIDITY_DAYS", 7300), "root CA"
     if validity_days > max_days:
-        kind = "CA" if is_ca else "certificate"
         raise ValueError(f"{kind} validity {validity_days} days exceeds the maximum of {max_days} days.")
     not_after = now + timedelta(days=validity_days)
     if ca_not_after is not None:

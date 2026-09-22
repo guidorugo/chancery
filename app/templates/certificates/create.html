@@ -53,9 +53,9 @@
                     </div>
                     <div class="mb-3">
                         <label for="validity_days" class="form-label">Validity (days)
-                            <span class="field-info" data-bs-toggle="tooltip" title="Number of days until this certificate expires. Typical: 365 (1 year).">!</span>
+                            <span class="field-info" data-bs-toggle="tooltip" title="Number of days until this certificate expires. Typical: 365 (1 year); up to 1825 (5 years), and never past the issuing CA's expiry.">!</span>
                         </label>
-                        <input type="number" class="form-control" id="validity_days" name="validity_days" value="365">
+                        <input type="number" class="form-control" id="validity_days" name="validity_days" value="365" min="1" max="1825">
                     </div>
                     <div class="mb-3">
                         <label for="san" class="form-label">Subject Alternative Names

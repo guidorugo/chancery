@@ -624,7 +624,7 @@ approver; break-glass exempt; nothing changes while the mode is inactive. README
 
 ---
 
-## F20. Longer validity tiers: 5-year leaves, tiered CA caps (requested 2026-09-22)
+## F20. Longer validity tiers: 5-year leaves, tiered CA caps (shipped as v3.7.0)
 
 **Requested.** Allow leaf certificates beyond the current 825-day ceiling — up to
 **1825 days (5 years)** — and give intermediates and roots distinct caps:

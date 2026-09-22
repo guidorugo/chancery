@@ -51,8 +51,9 @@ class Config:
 
     # Issuance policy limits (B4). not_after is always additionally clamped to
     # the issuing CA's own not_after in the services.
-    MAX_CERT_VALIDITY_DAYS = int(os.environ.get("MAX_CERT_VALIDITY_DAYS") or "825")
-    MAX_CA_VALIDITY_DAYS = int(os.environ.get("MAX_CA_VALIDITY_DAYS") or "7305")
+    MAX_CERT_VALIDITY_DAYS = int(os.environ.get("MAX_CERT_VALIDITY_DAYS") or "1825")            # 5y leaf (F20)
+    MAX_INTERMEDIATE_VALIDITY_DAYS = int(os.environ.get("MAX_INTERMEDIATE_VALIDITY_DAYS") or "3650")   # 10y intermediate (F20)
+    MAX_CA_VALIDITY_DAYS = int(os.environ.get("MAX_CA_VALIDITY_DAYS") or "7300")               # 20y root (F20)
     # Minimum RSA key size accepted anywhere keys are generated/signed (B5).
     MIN_RSA_KEY_SIZE = int(os.environ.get("MIN_RSA_KEY_SIZE") or "2048")
     # Maximum RSA key size accepted for generation and in CSRs (G7-1): keygen

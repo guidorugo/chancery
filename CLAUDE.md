@@ -183,7 +183,7 @@ Every variable below must also be forwarded in `docker-compose.yml`'s `environme
 - `SESSION_COOKIE_SECURE` - Send session cookie only over HTTPS (default: **true**; the HTTP reference compose overrides to false)
 - `TRUSTED_PROXY_COUNT` - Trusted reverse-proxy hop count for ProxyFix (default: 0 = directly exposed; do not trust XFF)
 - `MAX_CONTENT_LENGTH_BYTES` - Max request body size (default: 1048576)
-- `MAX_CERT_VALIDITY_DAYS` / `MAX_CA_VALIDITY_DAYS` - Issuance validity caps (default: 825 / 7305); certs are also clamped to the issuing CA's expiry
+- `MAX_CERT_VALIDITY_DAYS` / `MAX_INTERMEDIATE_VALIDITY_DAYS` / `MAX_CA_VALIDITY_DAYS` - Issuance validity caps, three tiers (F20, 3.7.0): leaf / intermediate / root, defaults **1825 / 3650 / 7300** days (5y / 10y / 20y); leaves are also clamped to the issuing CA's expiry, and a profile's `max_validity_days` caps tighter still. 825 is the public CA/Browser Forum TLS-server max — the higher leaf default suits a private CA
 - `MIN_RSA_KEY_SIZE` - Minimum RSA key size accepted (default: 2048)
 - `SIGNATURE_HASH_POLICY` / `RSA_SIGNATURE_HASH` - Digest for new signatures: `legacy` (default, SHA-256 everywhere) or `match-curve` (SHA-256/384/512 by NIST curve, `RSA_SIGNATURE_HASH` sha256|sha384|sha512 for RSA); unknown values refuse startup (F6)
 - `MAX_RSA_KEY_SIZE` - Maximum RSA key size accepted for generation and in CSRs (default: 8192; G7-1)
