@@ -697,8 +697,9 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `SESSION_COOKIE_SECURE` | `true` | Send session cookie only over HTTPS (the plain-HTTP reference compose overrides to `false`) |
 | `TRUSTED_PROXY_COUNT` | `0` | Trusted reverse-proxy hops for `ProxyFix` (0 = directly exposed; set to 1 behind one TLS proxy) |
 | `MAX_CONTENT_LENGTH_BYTES` | `1048576` | Maximum request body size |
-| `MAX_CERT_VALIDITY_DAYS` | `825` | Cap on issued leaf-cert validity (also clamped to the CA's expiry) |
-| `MAX_CA_VALIDITY_DAYS` | `7305` | Cap on issued CA validity |
+| `MAX_CERT_VALIDITY_DAYS` | `1825` | Cap on issued leaf-cert validity — 5 years (also clamped to the CA's expiry). Private-CA figure; 825 is the public CA/Browser Forum TLS-server maximum |
+| `MAX_INTERMEDIATE_VALIDITY_DAYS` | `3650` | Cap on issued intermediate-CA validity — 10 years |
+| `MAX_CA_VALIDITY_DAYS` | `7300` | Cap on issued root-CA validity — 20 years |
 | `MAX_RSA_KEY_SIZE` | `8192` | Largest RSA key accepted for generation and in CSRs |
 | `PROFILES_REQUIRE_SELECTION` | `false` | Refuse issuance requests that name no certificate profile (otherwise they use the unrestricted `custom` profile). A recommended opt-in ([UPGRADE.md](UPGRADE.md)) |
 | `MIN_RSA_KEY_SIZE` | `2048` | Minimum accepted RSA key size |

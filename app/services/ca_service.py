@@ -191,7 +191,7 @@ def create_intermediate_ca(name, parent_ca, subject_attrs, key_type, key_size,
 
     now = datetime.now(timezone.utc)
     # B4: bound to the CA maximum and never outlive the parent CA.
-    not_after = bounded_not_after(now, validity_days, parent_ca.not_after, is_ca=True)
+    not_after = bounded_not_after(now, validity_days, parent_ca.not_after, is_ca=True, is_intermediate=True)
     serial = x509.random_serial_number()
 
     builder = (
@@ -304,7 +304,8 @@ def _ca_cert_builder(ca, ca_cert, issuer_cert, validity_days, now, path_length):
     """Certificate for `ca`'s existing key and subject: same extensions as at
     creation (BasicConstraints, CA key usage, SKI, Name Constraints,
     Certificate Policies), issuer/AKI from `issuer_cert`, new serial."""
-    not_after = bounded_not_after(now, validity_days, is_ca=True)  # callers clamp to the issuer's expiry
+    # F20: an intermediate's reissue/cross-cert honours the tighter intermediate cap.
+    not_after = bounded_not_after(now, validity_days, is_ca=True, is_intermediate=not ca.is_root)  # callers clamp to the issuer's expiry
     serial = x509.random_serial_number()
     builder = (
         x509.CertificateBuilder()

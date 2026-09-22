@@ -63,6 +63,7 @@ version. The release notes repeat them for the version that introduces each.
 | **2.5.0** | `flask certs recompute-expiry` | Store the real, CA-clamped `notAfter` on certificates issued by older versions |
 | **2.6.0** | SoftHSM PIN migration — see the [v2.6.0 notes](https://github.com/guidorugo/chancery/releases/tag/v2.6.0) | Raise auto-generated token PINs to 32 chars; existing tokens keep their PINs unless you rotate |
 | **2.11.0** | `flask certs backfill-issuers` (`--dry-run` first) | Fill the new signer/issuer fields on pre-existing CSRs and certificates from the audit log |
+| **3.7.0** | *(none — note only)* | Validity caps became three tiers and their defaults changed: leaf `MAX_CERT_VALIDITY_DAYS` 825 → **1825** (5y), a new `MAX_INTERMEDIATE_VALIDITY_DAYS` **3650** (10y), root `MAX_CA_VALIDITY_DAYS` 7305 → **7300** (20y). Existing certs/CAs are untouched (caps apply only at issuance). A default deployment now accepts longer leaves — set `MAX_CERT_VALIDITY_DAYS=825` to keep the old ceiling; intermediates are capped tighter (3650 vs the old 7305), so raise `MAX_INTERMEDIATE_VALIDITY_DAYS` if you issue intermediates beyond 10 years. |
 
 Nothing since 2.11.0 has needed a one-time command: newer schema columns are
 populated by their migrations, and the audit hash chain (3.3.0) seals existing
