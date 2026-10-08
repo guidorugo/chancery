@@ -5,6 +5,7 @@ certificate key), key change, deactivation, maintenance, admin UI, CLI,
 outbound policy, JSON exposure and migration."""
 import base64
 import json
+import re
 import threading
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -581,12 +582,19 @@ class TestMaintenanceAndCli:
         r = runner.invoke(args=["acme", "eab-create", "--ca-id", str(ca.id), "--name", "cli-host"])
         assert r.exit_code == 0 and "kid:" in r.output and "hmac key:" in r.output, r.output
         kid = [l for l in r.output.splitlines() if "kid:" in l][0].split()[-1]
+        assert re.fullmatch(r"[0-9a-f]{24}", kid), kid   # a leading "-" would make Click reject it below (exit 2)
         r = runner.invoke(args=["acme", "eab-list"])
         assert kid in r.output and "unused" in r.output
         r = runner.invoke(args=["acme", "eab-revoke", kid])
         assert r.exit_code == 0 and "Revoked" in r.output
         assert AuditLog.query.filter_by(action="revoke_acme_eab_key").one().username == "cli"
         assert runner.invoke(args=["acme", "eab-create", "--ca-id", "999"]).exit_code != 0
+
+    def test_eab_kid_never_looks_like_an_option(self):
+        # base64url kids could start with "-", which `flask acme eab-revoke <kid>` fed to Click's
+        # option parser (usage error, exit 2) — roughly one key in 64 was unrevokable from the CLI.
+        kids = {service._new_eab_kid() for _ in range(512)}
+        assert len(kids) == 512 and all(re.fullmatch(r"[0-9a-f]{24}", k) for k in kids)
 
 
 class TestAdminSettings:

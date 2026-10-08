@@ -590,11 +590,21 @@ def revoke(ca, verified, payload):
 
 # --- EAB keys (admin) -------------------------------------------------------------
 
+def _new_eab_kid():
+    """A fresh EAB key identifier: 24 hex characters (96 bits of entropy).
+
+    Hex rather than base64url on purpose: a base64url value can start with ``-``,
+    which Click then reads as an option in ``flask acme eab-revoke <kid>`` (usage
+    error, exit 2) — about one kid in 64 was unrevokable from the CLI.
+    """
+    return secrets.token_hex(12)
+
+
 def create_eab_key(ca, name=None, created_by=None):
     """Issue an EAB key: returns (row, mac_key_b64url). The MAC key is shown once."""
     mac_key = secrets.token_bytes(32)
     mac_b64 = jws.b64url_encode(mac_key)
-    row = AcmeEabKey(ca_id=ca.id, kid=jws.b64url_encode(secrets.token_bytes(12)),
+    row = AcmeEabKey(ca_id=ca.id, kid=_new_eab_kid(),
                      hmac_key_enc=encrypt_secret(mac_b64, current_app.config["MASTER_PASSPHRASE"]),
                      name=(name or "").strip()[:100] or None, created_by=created_by)
     db.session.add(row)
