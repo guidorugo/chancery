@@ -162,6 +162,11 @@ when you plan a deployment's policy:
   active user exists: direct certificate creation is disabled, a CSR's creator
   cannot sign it, new CAs and new user accounts need approval by a different
   admin. The literal `ADMIN_USERNAME` account is exempt as break-glass.
+- **`API_DOCS_ENABLED=false`** (3.8.0) removes the *API Reference* page and the
+  OpenAPI document (`/api/docs`, `/api/openapi.json`), which are on by default
+  behind login; **`API_DOCS_TRY_IT_OUT=read|off`** keeps the page but limits
+  Swagger UI's *Try it out* to `GET` or disables it, for deployments whose policy
+  forbids an interactive API console in the admin UI.
 
 ## Rotating the master passphrase
 

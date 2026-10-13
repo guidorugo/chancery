@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}API Reference - Chancery{% endblock %}
+{% block topbar %}API Reference{% endblock %}
+{% block head %}
+    <link href="{{ swagger_ui.cdn }}{{ swagger_ui.version }}/swagger-ui.css" rel="stylesheet" integrity="{{ swagger_ui.css_sri }}" crossorigin="anonymous">
+{% endblock %}
+{% block content %}
+{{ page_header("API Reference", "The JSON API as an OpenAPI 3.1 document, filtered to your role.") }}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <h6 class="mb-2"><i class="bi bi-key me-1" aria-hidden="true"></i>Authenticate before you try anything</h6>
+                <p class="mb-2">Use <strong>Authorize</strong> with an <a href="{{ url_for('users.api_tokens') }}">API token</a>
+                    (recommended: scoped, expiring, works with two-factor accounts, and a typo cannot lock your account) or
+                    your username and password. <em>Try it out</em> never uses your browser session: a call without
+                    <em>Authorize</em> is answered with <code>401</code>, and nothing you enter is stored.</p>
+                <p class="mb-0 text-body-secondary">Scripts: <code>curl -H "Authorization: Bearer chy_api_…" -H "Accept: application/json" {{ url_for('ca.list_cas') }}</code></p>
+            </div>
+            <div class="col-lg-6">
+                <h6 class="mb-2"><i class="bi bi-shield-exclamation me-1" aria-hidden="true"></i>Executing calls here is real</h6>
+                <p class="mb-2">Every request runs against this Chancery and is audited like any API call.
+                    Operations marked <strong>returns private-key material</strong> display the key in the response panel
+                    on this screen — use <code>curl</code> for those unless that is what you intend.</p>
+                <p class="mb-0 text-body-secondary">
+                    {% if try_it_out_mode == 'off' %}<em>Try it out</em> is switched off on this server (<code>API_DOCS_TRY_IT_OUT=off</code>); the document is read-only here.
+                    {% elif try_it_out_mode == 'read' %}<em>Try it out</em> is limited to <code>GET</code> on this server (<code>API_DOCS_TRY_IT_OUT=read</code>).
+                    {% else %}The machine-readable document is at <a href="{{ url_for('apidocs.openapi_json') }}"><code>{{ url_for('apidocs.openapi_json') }}</code></a> for code generators (same credentials).{% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="swagger-ui" class="swagger-shell" aria-live="polite"></div>
+{% endblock %}
+{% block scripts %}
+    <script src="{{ swagger_ui.cdn }}{{ swagger_ui.version }}/swagger-ui-bundle.js" integrity="{{ swagger_ui.js_sri }}" crossorigin="anonymous"></script>
+    <script nonce="{{ csp_nonce }}">
+    SwaggerUIBundle({
+        url: {{ url_for('apidocs.openapi_json')|tojson }},
+        dom_id: '#swagger-ui',
+        presets: [SwaggerUIBundle.presets.apis],
+        layout: 'BaseLayout',
+        deepLinking: false,
+        queryConfigEnabled: false,
+        persistAuthorization: false,
+        validatorUrl: null,
+        tryItOutEnabled: false,
+        supportedSubmitMethods: {{ submit_methods|tojson }},
+        showExtensions: true,
+        showCommonExtensions: true,
+        defaultModelsExpandDepth: 0,
+        docExpansion: 'list',
+        displayRequestDuration: true,
+        requestInterceptor: function (req) {
+            // Only the document itself is fetched with the browser session; every
+            // "Try it out" call carries exactly the credential typed into Authorize,
+            // and asks for JSON (so an unauthenticated call is a 401 body, not the
+            // login page) unless a response media type was picked explicitly.
+            if (!req.loadSpec) {
+                req.credentials = 'omit';
+                req.headers = req.headers || {};
+                var accept = Object.keys(req.headers).filter(function (k) { return k.toLowerCase() === 'accept'; })[0];
+                if (!accept || req.headers[accept] === '*/*') { req.headers[accept || 'Accept'] = 'application/json'; }
+            }
+            return req;
+        }
+    });
+    </script>
+{% endblock %}

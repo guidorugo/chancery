@@ -270,3 +270,9 @@ pre code { background: transparent; padding: 0; color: inherit; }
 .timeline li { display: flex; gap: .75rem; padding: .55rem 0; border-bottom: 1px solid var(--bs-border-color); font-size: .9rem; }
 .timeline li:last-child { border-bottom: 0; }
 .timeline .when { flex: 0 0 7.5rem; color: var(--bs-secondary-color); font-size: .8rem; white-space: nowrap; }
+
+/* F22: Swagger UI panel (API Reference). Swagger UI ships light-only styles, so
+   the panel keeps a light surface in the dark theme too. */
+.swagger-shell { background: #fff; color-scheme: light; border-radius: var(--chy-radius); border: 1px solid var(--bs-border-color); box-shadow: var(--chy-shadow); padding: .25rem .5rem 1rem; min-height: 12rem; }
+.swagger-shell .swagger-ui .info { margin: 1.5rem 0; }
+.swagger-shell .swagger-ui .scheme-container { box-shadow: none; background: transparent; padding: 0 0 .5rem; }

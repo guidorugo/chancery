@@ -153,6 +153,10 @@ services:
       - METRICS_ENABLED=${METRICS_ENABLED:-false}
       - METRICS_ALLOW_UNAUTHENTICATED=${METRICS_ALLOW_UNAUTHENTICATED:-false}
       - METRICS_INCLUDE_CA_DETAILS=${METRICS_INCLUDE_CA_DETAILS:-false}
+      # OpenAPI document + Swagger UI at /api/docs (3.8.0; on by default, behind
+      # login). API_DOCS_TRY_IT_OUT=all|read|off limits what "Try it out" may run.
+      - API_DOCS_ENABLED=${API_DOCS_ENABLED:-true}
+      - API_DOCS_TRY_IT_OUT=${API_DOCS_TRY_IT_OUT:-all}
       # Dual control (2.10.0; opt-in): four-eyes issuance once the instance is
       # multi-user — see README "Dual control".
       - DUAL_CONTROL_ENABLED=${DUAL_CONTROL_ENABLED:-false}

@@ -52,3 +52,10 @@ def test_basic_auth_flood_is_bounded(rl_client):
 def test_rate_limiting_off_in_default_testconfig(app):
     # The shared suite app pins it off, so app.limiter is None (no throttling).
     assert getattr(app, "limiter", None) is None
+
+
+def test_api_docs_are_rate_limited(rl_client):
+    # F22: the OpenAPI document and the Swagger page sit in the default bucket —
+    # neither is exempt like /health (an anonymous caller gets 302s, then 429s).
+    codes = [rl_client.get("/api/openapi.json").status_code for _ in range(6)]
+    assert 429 in codes and codes.count(429) >= 3

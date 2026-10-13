@@ -41,6 +41,7 @@ A web-based X.509 Certificate Authority management application built with Python
 - **Webhook notifications**: POST selected audit events (certificate issued/revoked, CSR signed, CA created/approved, logins, …) as JSON to any HTTP endpoint (e.g. an n8n workflow) — configurable from the admin UI (Preferences → Webhooks, with a test button) or via `WEBHOOK_*` environment variables; optional HMAC-SHA256 body signature, fire-and-forget delivery that never blocks a request
 - **Expiry events**: A daily scheduler pass reports each certificate and CA once as it enters the `CERT_EXPIRY_WARNING_DAYS` window (`certificate_expiring` / `ca_expiring`) and once more when it expires (`certificate_expired` / `ca_expired`) — audit-logged and delivered through the webhook like any other event, so a renewal reminder needs no external cron or polling
 - **Version & update awareness**: The footer shows the running version; a cached, server-side check (on by default, disable for air-gapped deployments) flags in the footer when a newer GitHub release is available
+- **API reference (OpenAPI 3.1 + Swagger UI)**: *API Reference* in the sidebar opens an interactive Swagger UI of the JSON API at `/api/docs`, generated from the live route map and filtered to your role; the machine-readable document at `/api/openapi.json` feeds code generators. *Try it out* runs real, audited calls with the API credential you enter (never your browser session). Behind login; `API_DOCS_ENABLED=false` removes it, `API_DOCS_TRY_IT_OUT=read|off` restricts the console
 
 ## PKCS Standards
 
@@ -369,6 +370,17 @@ nothing else is needed — the *Create CA* form simply offers HSM per-CA.
 Authenticate programmatic clients with a **scoped API token** (`Authorization: Bearer chy_api_…`, Preferences → API Tokens) rather than Basic Auth: a token carries only the scopes it was given (`read`, `issue`, `revoke`, `admin`), expires, and can be revoked without touching the account password. Basic Auth keeps working — except for an account with two-factor authentication enabled, which is refused with a JSON 403 pointing at API tokens (a bare password must not open an account that asks for a second factor in the browser).
 
 Chancery is a web application with form-based (HTML) endpoints. All authenticated routes use session cookies set at login. Public endpoints require no authentication.
+
+### Interactive documentation (Swagger UI)
+
+Signed-in users find **API Reference** in the sidebar (`/api/docs`): a Swagger UI of every JSON, public and binary endpoint, generated from the running application's route map, so it cannot drift from the code (a test fails when a route is neither documented nor explicitly excluded, and every response schema is validated against the real serializers). The machine-readable OpenAPI 3.1 document is at `GET /api/openapi.json` (same credentials — session, Basic Auth or an API token with the `read` scope) for code generators and API tooling.
+
+- **The document is filtered to your role**: a requester does not see administrator-only operations. Every operation carries `x-chancery-role` and `x-chancery-scope` (the API-token scope it needs).
+- **Try it out uses explicit credentials only.** Click *Authorize* and paste an API token (recommended) or a username/password; the page never sends your browser session (and asks for `application/json` unless you pick another response media type), so a call without *Authorize* is a `401`, and nothing you enter is persisted. Calls are real and audited like any API request.
+- **Operations marked *returns private-key material*** (CA key / PKCS#12 export, escrowed-key download) show the key in the response panel — use `curl` for those unless that is what you intend.
+- **Browser-only actions are not in the document**: login/2FA flows, the HTML forms (`GET …/create`) and the user-management writes that answer with an HTML redirect (create/edit/deactivate/reset password, LDAP and webhook settings). They are listed in the tables below.
+- **Deployment switches**: `API_DOCS_ENABLED=false` makes both routes `404` for everyone and hides the sidebar entry; `API_DOCS_TRY_IT_OUT=read` limits the console to `GET`, `off` makes the page documentation-only.
+- **Security**: the Swagger UI bundle and stylesheet are loaded from jsdelivr pinned to an exact version with sub-resource integrity (the same origin Bootstrap already comes from — the Content-Security-Policy is unchanged), the page has no URL input and ignores `?url=` query configuration, the document contains nothing from the database or the request (no CA names, no hostnames, no `servers` entry), and the routes are rate-limited and subject to the forced password-change / 2FA gate like every other page.
 
 ### Authentication
 
@@ -720,6 +732,8 @@ Exposure is **minimal by default**: certificate/CA counts by state, per-CA expir
 | `METRICS_ENABLED` | `false` | Expose the Prometheus `/metrics` endpoint (opt-in; returns 404 until enabled) |
 | `METRICS_ALLOW_UNAUTHENTICATED` | `false` | Serve `/metrics` without a bearer token (isolated networks only) |
 | `METRICS_INCLUDE_CA_DETAILS` | `false` | Add a `chancery_ca_info` metric with CA names/CNs/key details (default: opaque `ca_id` + counts only) |
+| `API_DOCS_ENABLED` | `true` | Serve the OpenAPI document (`/api/openapi.json`) and Swagger UI (`/api/docs`) to signed-in users; `false` makes both `404` and hides the sidebar entry |
+| `API_DOCS_TRY_IT_OUT` | `all` | What Swagger UI's *Try it out* may execute: `all`, `read` (GET only) or `off` (documentation only). Unknown values refuse startup |
 | `UPDATE_CHECK_REPO` | `guidorugo/chancery` | Repository to check for the latest release |
 | `UPDATE_CHECK_INTERVAL_SECONDS` | `21600` | Cache TTL for the update check (6h) |
 | `UPDATE_CHECK_TIMEOUT_SECONDS` | `4` | HTTP timeout for the update check |

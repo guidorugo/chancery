@@ -19,6 +19,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" integrity="sha384-XGjxtQfXaH2tnPFa9x+ruJTuLE3Aa6LhHSWRr1XeTyhezb4abCG4ccI5AkVDxqC+" crossorigin="anonymous">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    {% block head %}{% endblock %}
 </head>
 {% set bp = request.blueprint %}
 {% set ep = request.endpoint or '' %}
@@ -67,6 +68,9 @@
             <div class="nav-section-title">Account</div>
             <ul class="nav flex-column">
                 {{ nav_item('users.api_tokens', 'API Tokens', 'key', ep == 'users.api_tokens') }}
+                {% if config.API_DOCS_ENABLED %}
+                {{ nav_item('apidocs.docs', 'API Reference', 'braces', bp == 'apidocs') }}
+                {% endif %}
                 {{ nav_item('auth.two_factor_setup', 'Two-factor', 'shield-check', bp == 'auth' and ep.startswith('auth.two_factor')) }}
                 {% if current_user.has_usable_password() %}
                 {{ nav_item('auth.change_password', 'Change Password', 'lock', ep == 'auth.change_password') }}
@@ -197,14 +201,48 @@
             });
         });
         // Copy buttons: data-copy-target="#id" copies that element's text.
+        // navigator.clipboard exists only in secure contexts (HTTPS or localhost);
+        // on a plain-HTTP deployment fall back to a hidden textarea + execCommand,
+        // and if that is refused too, select the text so Ctrl+C / Cmd+C works.
+        function copyText(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                return navigator.clipboard.writeText(text);
+            }
+            return new Promise(function (resolve, reject) {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.setAttribute('aria-hidden', 'true');
+                ta.style.position = 'fixed';
+                ta.style.top = '-1000px';
+                document.body.appendChild(ta);
+                ta.select();
+                var ok = false;
+                try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+                document.body.removeChild(ta);
+                ok ? resolve() : reject(new Error('copy command refused'));
+            });
+        }
+        function flash(btn, html) {
+            var old = btn.innerHTML;
+            btn.innerHTML = html;
+            setTimeout(function () { btn.innerHTML = old; }, 2500);
+        }
         document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var el = document.querySelector(btn.getAttribute('data-copy-target'));
-                if (!el || !navigator.clipboard) return;
-                navigator.clipboard.writeText(el.textContent).then(function () {
-                    var old = btn.innerHTML;
-                    btn.innerHTML = '<i class="bi bi-check2" aria-hidden="true"></i> Copied';
-                    setTimeout(function () { btn.innerHTML = old; }, 1500);
+                if (!el) return;
+                copyText(el.textContent).then(function () {
+                    flash(btn, '<i class="bi bi-check2" aria-hidden="true"></i> Copied');
+                }, function () {
+                    try {
+                        var range = document.createRange();
+                        range.selectNodeContents(el);
+                        var sel = window.getSelection();
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    } catch (e) { /* selection unavailable */ }
+                    flash(btn, '<i class="bi bi-exclamation-circle" aria-hidden="true"></i> Selected \u2014 press Ctrl+C');
                 });
             });
         });
