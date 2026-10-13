@@ -777,9 +777,14 @@ plus the per-cert checkbox. A global `DEFAULT_INCLUDE_CRL_DP` is deliberately
 (default true), plus profile UI and the per-cert form field. No breaking change;
 default behaviour preserved.
 
-## F22. OpenAPI document and Swagger UI — interactive, role-filtered API documentation
+## F22. OpenAPI document and Swagger UI — interactive, role-filtered API documentation (shipped as v3.8.0)
 
-**Status.** Requested 2026-10-13; **planned, not yet implemented.** Security is the
+**Status.** Requested and implemented 2026-10-13, shipped as **v3.8.0** (branch `release/v3.8.0`). The
+spec below is as written before implementation; what shipped follows it, with one addition found in the
+browser smoke test: the *Try it out* interceptor also forces `Accept: application/json` (Swagger UI
+sends `*/*`, which made an unauthenticated call fetch the login page instead of the 401 body), and the
+form-only user-management writes (create/edit/toggle/reset password, LDAP and webhook settings) are
+**excluded** from the document with a reason rather than documented with HTML redirects. Security is the
 design driver: this feature loads a third-party JavaScript bundle into the signed-in
 origin of a CA, so every choice below is made to add **no new attack surface** beyond
 what Bootstrap-from-CDN already represents, and to keep the published document a
