@@ -777,6 +777,310 @@ plus the per-cert checkbox. A global `DEFAULT_INCLUDE_CRL_DP` is deliberately
 (default true), plus profile UI and the per-cert form field. No breaking change;
 default behaviour preserved.
 
+## F22. OpenAPI document and Swagger UI — interactive, role-filtered API documentation
+
+**Status.** Requested 2026-10-13; **planned, not yet implemented.** Security is the
+design driver: this feature loads a third-party JavaScript bundle into the signed-in
+origin of a CA, so every choice below is made to add **no new attack surface** beyond
+what Bootstrap-from-CDN already represents, and to keep the published document a
+**pure function of the code** (never of the database, the request, or a secret).
+Numbers and `file:line` references are against `bccab2e` (v3.7.1).
+
+**Requested.** Swagger-style documentation of the JSON API: a machine-readable
+OpenAPI document that code generators and tooling can consume, and an interactive
+page that lists every operation with its parameters, form fields and response
+shapes, and lets an operator exercise an endpoint with their own API credentials.
+
+**Current state.**
+- The API *is* the web app: every route negotiates HTML vs JSON through
+  `responses.wants_json()` (`app/responses.py:7` — Basic Auth / a bearer token, or
+  `Accept: application/json` outranking `text/html`). Request bodies are
+  **form-encoded** (`request.form`), the CA import additionally **multipart**
+  (`_get_pem_input`, `app/routes/ca.py:25-33`, `p12_file` at `:170`; 64 KB cap).
+  There are 101 route × method pairs across 10 blueprints; 11 serializers
+  (`to_dict`: `ca.py:173`, `certificate.py:82`, `csr.py:28`, `user.py:104`,
+  `audit_log.py:29`, `certificate_profile.py:88`, `api_token.py:108`,
+  `ca_certificate.py:54`, `metrics_token.py:102`, `acme.py:42/:72`) define the
+  response shapes. Errors are `{"error": "..."}` with a 4xx/5xx (`api_error`).
+- The only API documentation is the hand-kept README tables (README "API
+  Reference", ~200 lines), with no mechanical link to the routes — they have drifted
+  before (PR #185 filled gaps). No test enumerates `app.url_map`.
+- Authentication for programmatic clients already maps 1:1 onto OpenAPI security
+  schemes: HTTP Basic (`_setup_basic_auth`, `app/__init__.py:175-265`) and bearer
+  API tokens (`_check_api_token`, `:267-305`; scopes `read|issue|revoke|admin`,
+  `api_token_service.required_scope`, `api_token_service.py:137-151` — any GET on a
+  non-public blueprint needs `read`). Both set `g.basic_auth_used`, which is what
+  bypasses CSRF. A session cookie alone can only *read* through the API: a POST
+  without the CSRF token is a 400 (`_handle_csrf_error`, `app/__init__.py:579`).
+- The CSP (`_setup_security_headers`, `app/__init__.py:522-536`) already allows
+  `https://cdn.jsdelivr.net` for `script-src`/`style-src`/`font-src`, keeps
+  `style-src 'unsafe-inline'`, `img-src 'self' data:`, `connect-src 'self'`, and
+  authorises inline scripts only through the per-request nonce; it is applied with
+  `setdefault`, so a view *could* set its own policy — this feature must **not**.
+  `base.html` pins Bootstrap/Icons with SRI (`:19-20`, `:187`) and
+  `tests/test_security.py::TestSRIHashes` (`:285-308`) checks the pins exist; there
+  is no `{% block head %}` for a page-level stylesheet (`base.html:6/:168/:213`).
+- Guards treat an unknown blueprint as *authenticated surface*: the forced
+  password-change / 2FA gate exempts only `public/health/metrics/acme` and a few
+  endpoints (`app/__init__.py:145-152`), the limiter exempts only `health`/`metrics`
+  (`:69-75`), and bearer tokens are scope-checked everywhere but `/metrics`. Those
+  defaults are exactly right for the new blueprint and need no exemption.
+- `swagger-ui-dist` **5.33.2** is current on jsdelivr (checked 2026-10-13). Static
+  inspection of the bundle: no `eval(`; one `new Function("return this")` inside the
+  webpack `globalThis` shim wrapped in `try/catch` (a CSP without `'unsafe-eval'`
+  makes it throw and fall back to `window` — cosmetic console report only); lodash's
+  `Function("return this")` is short-circuited by `self` in browsers;
+  `localStorage` is touched only behind `persistAuthorization`; the default
+  `validatorUrl` is `validator.swagger.io`; the CSS references only `data:` SVGs and
+  system fonts (no `@import`, no web fonts). Nothing requires relaxing the current
+  CSP; **confirmed in a real browser before release** (see Verification).
+  SRI (sha384, computed from the jsdelivr files 2026-10-13, re-verify at build):
+  `swagger-ui-bundle.js` → `gNnUp++d7WqR9OKX4OMoUmV2w0JxEs1uu6NPXgcynGClIX5DOu6ol4Lp+lINyZcJ`,
+  `swagger-ui.css` → `Ov4/wv3j2bmct8cDc5X4ngJZohVPzEmc6uDPH8WeljUxO5vtoykvMEfbu9Vh6RaW`.
+
+**Design.**
+- **No existing route changes.** The feature is additive: a new blueprint, a new
+  service package, one template, one 1-line `{% block head %}{% endblock %}` in
+  `base.html`, a sidebar entry. No model, schema, CLI, audit-event or webhook-catalog
+  change; no new runtime dependency (the OpenAPI document is plain Python dicts; a
+  validator is added to the **CI-only** lockfile, see Tests).
+- **Why not a library.** `flask-smorest`/`apispec` want marshmallow schemas on
+  MethodViews — a rewrite of the dual HTML/JSON blueprints and of the form-field
+  contract; `flasgger` pulls PyYAML/jsonschema/mistune into the hash-locked runtime
+  lockfile and the pip-audit gate for a loosely maintained package. A
+  code-owned document plus **mechanical drift gates** (below) gives the same result
+  with zero runtime deps and zero touch of security-sensitive route code.
+- **Blueprint `apidocs`** (`app/routes/apidocs.py`, `url_prefix="/api"`), GET only:
+  - `GET /api/openapi.json` — `@login_required`; returns the OpenAPI **3.1.0**
+    document for the caller's role (below); `application/json`,
+    `Cache-Control: no-store`. Always JSON regardless of `Accept`.
+  - `GET /api/docs` — `@login_required`; renders Swagger UI inside the app shell.
+  - A blueprint-level `before_request` returns **404 when `API_DOCS_ENABLED` is
+    false** — before the login decorator runs, so a disabled deployment is
+    indistinguishable from one without the feature (the `metrics` pattern,
+    `app/routes/metrics.py:31-36`).
+  - Under a bearer token both are plain GETs → `required_scope` demands `read`
+    (a token with only `issue` gets the existing scope-denied 403, audited). A
+    metrics token is refused by `_check_api_token` as today. The password-change /
+    2FA gate applies unchanged.
+- **Builder** (`app/services/openapi/` package: `builder.py`, `operations.py`,
+  `schemas.py`):
+  - `build(role)` walks `current_app.url_map.iter_rules()`, skips `static`,
+    `HEAD`/`OPTIONS`, converts `<int:x>` → `{x}` (`schema: integer`, `<path:>` →
+    string) and looks each `endpoint:METHOD` up in `operations.OPERATIONS`
+    (summary, description, tag, `role` = `admin|any|public`, scope, request body
+    — media type + fields with type/enum/required/description —, query parameters,
+    responses with `$ref`s, `x-chancery-key-material`). `operations.EXCLUDED`
+    maps the deliberately undocumented pairs to a **reason string** (HTML form GETs,
+    the browser-session `auth.*` flows, the ten RFC 8555 JWS endpoints — an ACME
+    client speaks those; the directory and new-nonce are documented). A pair in
+    neither is a **test failure** (coverage gate) and, defensively, is **omitted and
+    logged** at run time rather than raising (fail closed, never a 500; in
+    `TESTING` it raises).
+  - **Role filtering.** `admin` operations are present only when
+    `current_user.is_admin`; a `csr_requester` receives `any` + `public`
+    operations (their own CSR/certificate/API-token surface and the public
+    endpoints). Unreferenced tags/schemas are pruned. The document still names the
+    role and token scope of every operation (`x-chancery-role`, `x-chancery-scope`,
+    rendered with `showExtensions`), so the page doubles as an access-control map.
+  - **Static-document rule (security invariant).** The document is a pure function
+    of the code, the running version (`info.version` = the footer's `app_version`,
+    `app/__init__.py:117`) and non-secret policy limits (`MAX_*_VALIDITY_DAYS`,
+    `MIN/MAX_RSA_KEY_SIZE`, the `per_page` cap — the same numbers the forms show).
+    **Never** anything from the database (no CA ids/names, no profile keys as
+    enums — the `profile` field is documented as "a profile key, see
+    `GET /users/profiles`"), never the request (**no `servers` entry** — relative
+    paths only, so the Host header is never reflected into a document a code
+    generator may trust; no `Host`-derived example URLs), never a secret, never a
+    live example value. Descriptions are hand-written Markdown that Swagger UI
+    renders through its sanitizer; the invariant is what makes that safe. Cached
+    per `(role, version)` after the first build (`lru_cache`), so a flood costs a
+    dict lookup.
+  - **Schemas** (`schemas.py`): hand-written JSON Schema 2020-12 components for
+    `Error`, `Page` (the `{items, page, per_page, total, pages}` envelope),
+    `CertificateAuthority` / `…Detail`, `Certificate` / `…Detail`,
+    `Csr` / `…Detail`, `User`, `AuditEntry`, `CertificateProfile`, `ApiToken`
+    (+ `ApiTokenCreated` with the one-time `token`), `CaCertificate` (alternates),
+    `DashboardStats`, `EabKeyCreated`, `DetectParentResult`; downloads documented
+    with their real media types (`application/x-pem-file`, `application/pkix-crl`,
+    `application/pkcs12`, `application/ocsp-response`, …). Every object schema is
+    **`additionalProperties: false`**, so a field added to a `to_dict` later fails
+    the schema↔reality test until it is documented — a reviewer sees every new
+    exposure as a schema diff in the PR.
+  - **Request bodies** stay `application/x-www-form-urlencoded`
+    (`multipart/form-data` for `POST /ca/create` with `cert_file`/`key_file`/
+    `p12_file` as `format: binary`; `application/ocsp-request` for the OCSP
+    POST). Checkbox
+    semantics are documented per field exactly as the route reads them
+    (`"on"`, presence-only `ku_*`/`eku_*`, the `on|1|true|yes` set of `renew`);
+    repeated fields (`allowed_profiles`, `scopes`) as arrays with `explode`.
+  - **Security schemes**: `basicAuth` (http/basic) and `apiToken` (http/bearer,
+    `chy_api_<id>_<secret>`); public endpoints carry `security: []`; `/metrics`
+    its own `metricsToken` scheme. The session cookie is *described* in
+    `info.description` (reads only; writes need the CSRF token the page never
+    exposes) but is **not** offered as a scheme Swagger UI could "authorize" with.
+- **Page** (`app/templates/apidocs/index.html`, extends `base.html`, light panel
+  inside the shell; a few CSS variables for the dark theme are a nice-to-have):
+  - Loads `swagger-ui.css` and `swagger-ui-bundle.js` **only** from
+    `https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.2/…` with `integrity` +
+    `crossorigin="anonymous"` — the same origin and trust decision as Bootstrap,
+    so the CSP is **unchanged**; no `swagger-ui-standalone-preset.js` (its top bar
+    is a URL input — exactly the surface of CVE-2018-25031).
+  - Nonce'd inline init: `url: "/api/openapi.json"` fixed, `dom_id`,
+    `presets: [SwaggerUIBundle.presets.apis]`, `layout: "BaseLayout"`,
+    **`queryConfigEnabled: false`** (no `?url=` / `?configUrl=` takeover),
+    **`persistAuthorization: false`** (credentials typed into *Authorize* live in
+    page memory only — never `localStorage`), **`validatorUrl: null`** (no call to
+    validator.swagger.io; `connect-src 'self'` would block it anyway),
+    `deepLinking: false`, `tryItOutEnabled: false` (explicit click),
+    `supportedSubmitMethods` from `API_DOCS_TRY_IT_OUT`, `showExtensions: true`.
+  - **Explicit credentials only.** A `requestInterceptor` sets
+    `req.credentials = "omit"` on every request **except the spec load**
+    (`req.loadSpec`), so *Try it out* never rides on the browser session: without
+    *Authorize* a call gets the existing JSON 401, with Basic/bearer it is an
+    ordinary API request (audited `basic_auth_success` / token touch, CSRF bypass
+    by design, scope- and role-checked). The docs page therefore cannot become a
+    session-authenticated console even for reads; CSRF on session POSTs stays as
+    defence in depth (verify in the browser that swagger-client honours
+    `credentials`; if it does not, CSRF still blocks session writes and the plan
+    falls back to documenting that reads use the session).
+  - Intro card (static copy): prefer **API tokens** over Basic Auth (scoped,
+    expiring, revocable, work for 2FA accounts, and a typo in *Authorize* cannot
+    trip the `LOGIN_LOCKOUT_THRESHOLD`); writes need *Authorize*; operations marked
+    *returns private-key material* (`POST /ca/{id}/download` key/pkcs12,
+    `POST /certificates/{id}/download` pkcs12, `POST /certificates/{id}/download-key`)
+    display the key **on screen** — use `curl` unless that is intended.
+  - Sidebar: *API reference* under *Account* (`base.html:67-74`), hidden when the
+    flag is off; link from the API-tokens page. Existing headers already forbid
+    framing (`X-Frame-Options: DENY`, `frame-ancestors 'none'`) so the console
+    cannot be clickjacked.
+
+**Security model.**
+
+| Asset | Threat | Control | Gate |
+|---|---|---|---|
+| Admin browser origin / session | Compromised or hijacked CDN script runs in the signed-in origin | Exact-version pin + SRI on both files; CSP unchanged (`script-src` nonce + jsdelivr, no `unsafe-eval`); no standalone preset | SRI/CSP tests; template scan for any un-pinned external resource |
+| Same | XSS through document content rendered by Swagger UI | Static-document rule — nothing from DB/request/secrets | Marker test (CA/profile/user named with a marker never appear); Host-reflection test; byte-identical across requests |
+| Same | Docs page becomes a CSRF-free console for the session | `credentials: "omit"` interceptor; session POSTs still CSRF-protected; GET-only routes added | Interceptor present in page; CSRF 400 on a session POST without token |
+| Typed API credentials | Persisted to disk / replayed later | `persistAuthorization: false`; `no-store` | Config-string tests |
+| API surface / version knowledge | Disclosure to the anonymous internet | `@login_required` on both routes; 404 when disabled; `/health` still version-free | Anonymous 302/401; disabled 404; version only to authenticated callers |
+| Admin-only surface | Disclosure to requesters | Role-filtered document | Requester spec has no `admin` operation (`/users/create` absent, `/csr/` present) |
+| Token least privilege | Any bearer token reads the spec | Existing `required_scope` → `read` | Token with `issue` only → 403; metrics token → 401 |
+| Availability | Spec-generation CPU flood | Built once per role, cached; default per-IP limit applies (not exempt) | 429 after `RATE_LIMIT_DEFAULT` in the limiter test |
+| Operator trust in the document | Drift: routes, fields or shapes change silently | Coverage gate over `url_map`; literal form-key gate; schema↔`to_dict` validation with `additionalProperties: false`; media-type check on downloads; OpenAPI validator | all in `tests/test_openapi.py` |
+| Outbound traffic from an admin browser | Validator badge / telemetry | `validatorUrl: null`; CSP `connect-src 'self'` | Config-string test |
+| Policy guards | New blueprint bypasses them | Nothing exempted: password-change/2FA gate, rate limit, scope check all apply | Guard tests (must-change user redirected; token scope) |
+
+**Config.**
+- `API_DOCS_ENABLED` — default **`true`**; `false` → both routes 404 and the nav
+  entry disappears (`app/config.py` next to `METRICS_ENABLED`; forwarded as
+  `- API_DOCS_ENABLED=${API_DOCS_ENABLED:-true}` in `docker-compose.yml` with a
+  comment; README env row).
+- `API_DOCS_TRY_IT_OUT` — `all` (default) | `read` | `off`: which methods *Try it
+  out* may execute (`supportedSubmitMethods`); `off` makes the page documentation
+  only. Unknown values refuse startup like `REQUIRE_2FA`. Forwarded and documented
+  the same way.
+
+**Tests** (`tests/test_openapi.py`; `openapi-spec-validator` added to
+`requirements-ci.in` → hash-locked `requirements-ci.txt`, CI-only, never in the
+image; the validator tests `importorskip` so a bare venv still runs the rest).
+- *Access:* anonymous browser → 302 to login (both routes); anonymous JSON client →
+  401 JSON; `API_DOCS_ENABLED=false` → 404 for anonymous **and** admin; admin via
+  session, Basic and a `read` token → 200; token with `issue` only → 403; `cmt_`
+  token → 401; a `must_change_password` session → redirected; requester spec
+  contains no admin operation and no admin-only schema, admin spec contains all.
+- *Static document:* create a CA, a profile, a user and an API token whose names
+  carry `ZZMARKERZZ` → the marker is absent from both role variants; request with
+  `Host: evil.example` → absent; no `servers` key; two consecutive fetches are
+  byte-identical; the only URLs in the document are allow-listed documentation
+  links (RFC/datatracker, the project repo).
+- *Validity:* `openapi-spec-validator` passes for both variants; every `$ref`
+  resolves; `operationId`s unique; every `{param}` declared; every operation has
+  `summary`, `tags`, `responses`.
+- *Coverage gates:* every `url_map` rule × method is in `OPERATIONS` or `EXCLUDED`,
+  and neither holds a stale key; the metadata role matches the view's decorator
+  (source inspection: `@admin_required` ⇒ `admin`, `@login_required`/`role_required`
+  ⇒ `any`, neither ⇒ `public`); every documented form/query field name is a literal
+  read in that route module (`request.form|values|files.get(...)`, `getlist`,
+  `"x" in request.form`), and every such literal in `app/routes/*.py` is documented
+  for some operation of that module or listed in `UNDOCUMENTED_FIELDS` with a
+  reason.
+- *Schema ↔ reality:* objects created through the services (CA incl. HSM-less
+  software root with alternates, certificate incl. renewal lineage, CSR, user,
+  profile, API token, audit row, alternate CA certificate) have `to_dict()` /
+  `to_dict(detail=True)` validated with `jsonschema` (Draft 2020-12) against the
+  component schemas; real JSON responses of list/detail/create/paginated
+  endpoints validated against the documented response; download and public
+  endpoints' `Content-Type` equals the documented media type.
+- *Page hardening:* inline init script carries the CSP nonce and the CSP header
+  equals the dashboard's (modulo nonce) — no relaxation; every external `<script>`/
+  `<link>` in **every** template has `integrity` + `crossorigin` (generalises
+  `TestSRIHashes`); the page's pinned version and hashes match one constant;
+  config strings present (`persistAuthorization: false`, `queryConfigEnabled:
+  false`, `validatorUrl: null`, `deepLinking: false`, `credentials = "omit"`), no
+  `standalone-preset`, no `unsafe-eval`; `Cache-Control: no-store` on both; the
+  limiter test gains `/api/openapi.json`; no `bg-light`/`text-muted`.
+- *Deployment files:* `test_compose_hardening` asserts the two variables are
+  forwarded.
+
+**Docs.** README: a *Features* bullet and an *Interactive API documentation*
+subsection at the top of *API Reference* (open `/api/docs`, *Authorize* with a
+token, writes need credentials, key-material warning, codegen from
+`/api/openapi.json`, the two variables); the hand-kept endpoint tables stay for
+now and point at the page as the authoritative list. `CLAUDE.md`: a design bullet
+(static-document rule, the gates, the `head` block, and the **bump procedure** for
+the Swagger UI pin: new version → fetch the two files → `openssl dgst -sha384
+-binary | base64` → update the single constant → tests). `UPGRADE.md`: nothing
+beyond fetch-and-restart; release notes name the page and the two variables.
+Optional: a minimal `package.json` listing `swagger-ui-dist`, `bootstrap` and
+`bootstrap-icons` so **Dependabot** (npm ecosystem, weekly) opens bump PRs for the
+CDN pins too, with a test tying the manifest versions to the template constants —
+the PR goes red until the SRI hashes are refreshed; dockerignored, not installed.
+
+**Notes / judgment calls** (per the 2026-09-18 release-notes rule):
+- **Default on, behind login.** The page adds no unauthenticated surface (an
+  anonymous request sees a redirect/401, a disabled one a 404), the README already
+  publishes the same endpoint list, and the *value* is for operators who are
+  logged in anyway. An operator who wants no third-party script on that page or
+  no API console in the admin UI sets `API_DOCS_ENABLED=false` or
+  `API_DOCS_TRY_IT_OUT=off|read`. Release notes say the page appears.
+- **CDN + SRI rather than vendoring.** Vendoring ~1.8 MB of Swagger UI into
+  `app/static` would remove jsdelivr from this page but not from the app
+  (Bootstrap), would grow the image and the repo, and would need a manual bump
+  script of its own. SRI makes a modified CDN file unexecutable, which is the
+  threat that matters; availability and the CDN seeing the admin's IP are already
+  accepted for Bootstrap. If the trust decision for jsdelivr is ever revisited, it
+  should be revisited for all three bundles together.
+- **Writes from the page are allowed by default** (with explicit API credentials).
+  They are the same actions the UI offers behind its own confirm pages, audited the
+  same way, and never reachable through the session cookie from this page. The
+  `read`/`off` settings exist for deployments whose policy forbids an interactive
+  console.
+- **Requesters see a filtered document, not nothing.** They are legitimate API
+  users (own CSRs/certificates, their tokens); hiding admin operations from them
+  keeps need-to-know without denying them the docs.
+- **The document is role-filtered, not scope-filtered.** A token's scopes are a
+  property of the credential, not the viewer; each operation states the scope it
+  needs instead.
+- **Key-material operations are warned, not hidden.** Swagger UI has no supported
+  per-operation *Try it out* switch; the warning in the summary and the intro card
+  make the on-screen display a conscious act. Hiding them from the document would
+  make it lie.
+
+**Release.** A minor (**3.8.0**): two new config variables with safe defaults, a new
+blueprint, no schema change, no runtime dependency. Size L–XL, almost all of it
+declarative metadata (~1.5k lines of operations/schemas, ~150 builder, ~60 route,
+~100 template; ~500 lines of tests). Order of work: `head` block + blueprint +
+flags → builder + coverage gate (red) → operations module by module (csr,
+certificates, ca, users, public, monitoring, acme) until green → schemas +
+schema↔reality tests → page + hardening tests → docs → release checks.
+**Verification before tagging** (the three-step rule plus one): venv suite;
+SoftHSM-inclusive suite on the pinned `python:3.14-alpine` digest; hardened image
+boot test; and a **browser smoke test** of `/api/docs` against the boot-test
+container — console clean of CSP violations (the caught `new Function` report is
+acceptable), *Authorize* with a `read` token → `GET /ca/` executes, a POST without
+*Authorize* → 401, the spec loads with the session but *Try it out* does not.
+
 ---
 
 ## 4. Assessment findings folded into the plan
