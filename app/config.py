@@ -168,6 +168,12 @@ class Config:
     METRICS_ENABLED = os.environ.get("METRICS_ENABLED", "false").lower() == "true"
     METRICS_ALLOW_UNAUTHENTICATED = os.environ.get("METRICS_ALLOW_UNAUTHENTICATED", "false").lower() == "true"
     METRICS_INCLUDE_CA_DETAILS = os.environ.get("METRICS_INCLUDE_CA_DETAILS", "false").lower() == "true"
+    # F22 (3.8.0): OpenAPI document + Swagger UI at /api/docs. On by default, behind
+    # login and filtered by role; API_DOCS_ENABLED=false makes both routes 404.
+    # API_DOCS_TRY_IT_OUT limits what "Try it out" may execute from the page:
+    # all (default) | read (GET only) | off (documentation only).
+    API_DOCS_ENABLED = (os.environ.get("API_DOCS_ENABLED") or "true").lower() == "true"
+    API_DOCS_TRY_IT_OUT = (os.environ.get("API_DOCS_TRY_IT_OUT") or "all").lower()
 
     BASIC_AUTH_ENABLED = os.environ.get("BASIC_AUTH_ENABLED", "true").lower() == "true"
     # F12 (2.26.0): scoped API tokens (`Authorization: Bearer chy_api_…`); the

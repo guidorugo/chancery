@@ -18,6 +18,14 @@ def test_compose_read_only_rootfs_and_tmpfs():
     assert "./data:/app/data" in compose and "AUDIT_ARCHIVE_DIR=${AUDIT_ARCHIVE_DIR:-}" in compose
 
 
+def test_compose_forwards_api_docs_flags():
+    # F22 (3.8.0): .env only reaches the container through this list; the defaults
+    # are spelled out because config.py reads them with `or`, not `.get(default)`.
+    compose = (ROOT / "docker-compose.yml").read_text()
+    assert "- API_DOCS_ENABLED=${API_DOCS_ENABLED:-true}" in compose
+    assert "- API_DOCS_TRY_IT_OUT=${API_DOCS_TRY_IT_OUT:-all}" in compose
+
+
 def test_entrypoint_access_log_and_worker_tmp():
     entry = (ROOT / "entrypoint-app.sh").read_text()
     assert "--worker-tmp-dir /dev/shm" in entry

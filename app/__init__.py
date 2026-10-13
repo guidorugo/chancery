@@ -35,6 +35,7 @@ def create_app(config_class=Config):
     _check_signature_policy(app)
     _check_require_2fa(app)
     _check_acme_challenge_types(app)
+    _check_api_docs(app)
     _validate_ldap_config(app)
     _validate_key_backend_config(app)
     _configure_session(app)
@@ -53,6 +54,7 @@ def create_app(config_class=Config):
     from .routes.health import health_bp
     from .routes.metrics import metrics_bp
     from .routes.acme import acme_bp
+    from .routes.apidocs import apidocs_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -64,6 +66,9 @@ def create_app(config_class=Config):
     app.register_blueprint(health_bp)
     app.register_blueprint(metrics_bp)
     app.register_blueprint(acme_bp)
+    # F22 (3.8.0): OpenAPI document + Swagger UI. Deliberately NOT exempted from
+    # the limiter, the password-change/2FA gate or the token scope check.
+    app.register_blueprint(apidocs_bp)
 
     # Monitoring probes must not be throttled if rate limiting is enabled.
     if getattr(app, "limiter", None) is not None:
@@ -358,6 +363,16 @@ def _check_acme_challenge_types(app):
         parse_challenge_types(app.config.get("ACME_CHALLENGE_TYPES") or "http-01,dns-01")
     except ValueError as exc:
         print(f"FATAL: {exc}")
+        sys.exit(1)
+
+
+def _check_api_docs(app):
+    """F22 (3.8.0): refuse to start with an unknown API_DOCS_TRY_IT_OUT — a typo
+    must not silently leave "Try it out" fully enabled."""
+    from .routes.apidocs import TRY_IT_OUT_MODES, try_it_out_mode
+    mode = try_it_out_mode(app.config)
+    if mode not in TRY_IT_OUT_MODES:
+        print(f"FATAL: API_DOCS_TRY_IT_OUT={mode!r} is not one of {', '.join(TRY_IT_OUT_MODES)}.")
         sys.exit(1)
 
 

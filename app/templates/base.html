@@ -19,6 +19,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" integrity="sha384-XGjxtQfXaH2tnPFa9x+ruJTuLE3Aa6LhHSWRr1XeTyhezb4abCG4ccI5AkVDxqC+" crossorigin="anonymous">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    {% block head %}{% endblock %}
 </head>
 {% set bp = request.blueprint %}
 {% set ep = request.endpoint or '' %}
@@ -67,6 +68,9 @@
             <div class="nav-section-title">Account</div>
             <ul class="nav flex-column">
                 {{ nav_item('users.api_tokens', 'API Tokens', 'key', ep == 'users.api_tokens') }}
+                {% if config.API_DOCS_ENABLED %}
+                {{ nav_item('apidocs.docs', 'API Reference', 'braces', bp == 'apidocs') }}
+                {% endif %}
                 {{ nav_item('auth.two_factor_setup', 'Two-factor', 'shield-check', bp == 'auth' and ep.startswith('auth.two_factor')) }}
                 {% if current_user.has_usable_password() %}
                 {{ nav_item('auth.change_password', 'Change Password', 'lock', ep == 'auth.change_password') }}
