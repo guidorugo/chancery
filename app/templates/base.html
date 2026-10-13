@@ -201,14 +201,48 @@
             });
         });
         // Copy buttons: data-copy-target="#id" copies that element's text.
+        // navigator.clipboard exists only in secure contexts (HTTPS or localhost);
+        // on a plain-HTTP deployment fall back to a hidden textarea + execCommand,
+        // and if that is refused too, select the text so Ctrl+C / Cmd+C works.
+        function copyText(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                return navigator.clipboard.writeText(text);
+            }
+            return new Promise(function (resolve, reject) {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.setAttribute('aria-hidden', 'true');
+                ta.style.position = 'fixed';
+                ta.style.top = '-1000px';
+                document.body.appendChild(ta);
+                ta.select();
+                var ok = false;
+                try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+                document.body.removeChild(ta);
+                ok ? resolve() : reject(new Error('copy command refused'));
+            });
+        }
+        function flash(btn, html) {
+            var old = btn.innerHTML;
+            btn.innerHTML = html;
+            setTimeout(function () { btn.innerHTML = old; }, 2500);
+        }
         document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var el = document.querySelector(btn.getAttribute('data-copy-target'));
-                if (!el || !navigator.clipboard) return;
-                navigator.clipboard.writeText(el.textContent).then(function () {
-                    var old = btn.innerHTML;
-                    btn.innerHTML = '<i class="bi bi-check2" aria-hidden="true"></i> Copied';
-                    setTimeout(function () { btn.innerHTML = old; }, 1500);
+                if (!el) return;
+                copyText(el.textContent).then(function () {
+                    flash(btn, '<i class="bi bi-check2" aria-hidden="true"></i> Copied');
+                }, function () {
+                    try {
+                        var range = document.createRange();
+                        range.selectNodeContents(el);
+                        var sel = window.getSelection();
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    } catch (e) { /* selection unavailable */ }
+                    flash(btn, '<i class="bi bi-exclamation-circle" aria-hidden="true"></i> Selected \u2014 press Ctrl+C');
                 });
             });
         });
