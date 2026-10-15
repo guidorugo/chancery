@@ -8,4 +8,4 @@ pytest==9.1.1
 pip-audit==2.10.1
 # F22 (3.8.0): validates the generated OpenAPI 3.1 document in tests/test_openapi.py
 # (CI only — the runtime image never carries it; the tests skip when it is absent).
-openapi-spec-validator==0.7.2
+openapi-spec-validator==0.9.0
