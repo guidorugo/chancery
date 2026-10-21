@@ -7,7 +7,7 @@ Handles CA creation, certificate signing/revocation, CSR management, CRL generat
 **Renamed from `cert-manager` to Chancery in 2.12.0** (repo, image, UI branding, metric prefix `chancery_*`, `X-Chancery-Signature` webhook header, Basic-Auth realm). Two on-disk identifiers keep the old name on purpose — the default SQLite filename `cert-manager.db` and the SoftHSM token label `cert-manager` — because renaming either would break existing deployments (empty DB / unreachable HSM token). Do not "modernize" them.
 
 ## Tech Stack
-- Python 3.14, Flask 3.1.3 (Werkzeug 3.1.9), SQLAlchemy 2.0.54, cryptography 50.0.1, dnspython 2.8.0 (ACME dns-01 lookups only) — the pins in `requirements.txt` are authoritative; Dependabot releases move these numbers
+- Python 3.14, Flask 3.1.3 (Werkzeug 3.1.9), SQLAlchemy 2.1.4, cryptography 50.0.2, dnspython 2.9.0 (ACME dns-01 lookups only) — the pins in `requirements.txt` are authoritative; Dependabot releases move these numbers
 - Bootstrap 5 (CDN), Gunicorn, SQLite
 
 ## Project Structure
