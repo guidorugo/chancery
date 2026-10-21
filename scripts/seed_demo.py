@@ -12,9 +12,11 @@ something to show:
 Run it inside the app environment so it sees the real database and the
 MASTER_PASSPHRASE:
 
-    # Deployed box (Docker):
-    docker compose exec app python scripts/seed_demo.py
-    docker compose exec app python scripts/seed_demo.py --reset   # recreate
+    # Deployed box (Docker) — the wrapper streams this file into the container
+    # (scripts/ is not in the image and docker cp is refused on its read-only
+    # root filesystem):
+    ./scripts/seed_demo.sh
+    ./scripts/seed_demo.sh --reset   # recreate
 
     # Local dev (venv active, .env exported):
     python scripts/seed_demo.py [--reset]
@@ -42,8 +44,11 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 # Allow `python scripts/seed_demo.py` from the repo root (add repo root, not
-# the scripts/ dir, to sys.path so `import app` resolves).
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# the scripts/ dir, to sys.path so `import app` resolves). When the wrapper
+# feeds this file over stdin (`python3 -`), __file__ is "<stdin>" and PYTHONPATH
+# already points at /app, so nothing is added.
+if os.path.isfile(__file__):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app  # noqa: E402
 from app.extensions import db  # noqa: E402
