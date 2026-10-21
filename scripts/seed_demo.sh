@@ -51,8 +51,10 @@ if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q t
 fi
 NAME="$(docker inspect -f '{{.Name}}' "$CONTAINER" | sed 's#^/##')"
 
-# Copy the seeder in, run it as the app user with /app importable, clean up.
-docker cp "$HERE/seed_demo.py" "$CONTAINER:/tmp/seed_demo.py"
-trap 'docker exec "$CONTAINER" rm -f /tmp/seed_demo.py 2>/dev/null || true' EXIT
+# Feed the seeder to the container's python over stdin, as the app user with
+# /app importable. Nothing is copied in: `docker cp` is refused for a container
+# whose root filesystem is read-only (the compose file sets `read_only: true`
+# since 3.5.0 — "container rootfs is marked read-only", even for the tmpfs
+# /tmp), and the image does not carry scripts/.
 echo "Using container $NAME"
-docker exec -u 1000 -e PYTHONPATH=/app "$CONTAINER" python3 /tmp/seed_demo.py "$@"
+docker exec -i -u 1000 -e PYTHONPATH=/app "$CONTAINER" python3 - "$@" < "$HERE/seed_demo.py"
