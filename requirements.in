@@ -22,4 +22,4 @@ prometheus-client==0.26.0
 segno==1.6.6
 
 # 3.6.0 (dns-01 validation for the ACME server): TXT lookups, CNAME following.
-dnspython==2.9.0
+dnspython==2.9.1

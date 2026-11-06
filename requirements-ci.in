@@ -4,7 +4,7 @@
 #   docker run --rm -v "$PWD:/w" -w /w python:3.14-alpine sh -c \
 #     "pip install pip-tools && pip-compile --generate-hashes --output-file=requirements-ci.txt requirements-ci.in"
 -c requirements.txt
-pytest==9.1.1
+pytest==9.2.0
 pip-audit==2.10.1
 # F22 (3.8.0): validates the generated OpenAPI 3.1 document in tests/test_openapi.py
 # (CI only — the runtime image never carries it; the tests skip when it is absent).
