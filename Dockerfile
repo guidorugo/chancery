@@ -1,9 +1,9 @@
-# Base image pinned by digest (H2). python:3.14.7-alpine3.24.
+# Base image pinned by digest (H2). python:3.14.10-alpine3.24 (Alpine 3.24.4).
 # Alpine base (musl) replaces debian-slim: the Debian image carried ~200
 # unfixable ("won't fix" in stable) CVEs in Essential packages the app never
 # executes (perl, util-linux, glib2, ncurses, ...) — see IMAGE_VULN_SCAN_12-08-26.md.
 # Update via Dependabot (docker ecosystem) or re-resolve the tag's digest.
-FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS builder
+FROM python:3.14-alpine@sha256:a18b20ad69e74df6cf6d2e1b1a260d7a1ecf5380fd83b310f83ba88c461cf894 AS builder
 
 WORKDIR /build
 # build-base + libffi-dev let C extensions compile from sdist when a musllinux
@@ -15,7 +15,7 @@ COPY requirements.txt .
 # match a pinned sha256, and every dependency (incl. transitive) must be pinned.
 RUN pip install --no-cache-dir --require-hashes --prefix=/install -r requirements.txt
 
-FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72
+FROM python:3.14-alpine@sha256:a18b20ad69e74df6cf6d2e1b1a260d7a1ecf5380fd83b310f83ba88c461cf894
 
 WORKDIR /app
 
