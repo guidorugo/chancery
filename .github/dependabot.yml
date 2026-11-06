@@ -15,6 +15,17 @@ updates:
       interval: weekly
     commit-message:
       prefix: docker
+    # Stay on the pinned Python minor (the `3.14-alpine` tag): a new minor is a
+    # deliberate change — the CI python-version, docs and local venv must follow —
+    # not a weekly bump. While a newer tag exists Dependabot proposes the tag bump
+    # and never the digest refresh of the current tag (3.15-alpine, #214); with the
+    # minor/major bumps ignored it falls back to refreshing the 3.14-alpine digest,
+    # which is what keeps the musl/zlib/CPython fixes flowing (3.8.3).
+    ignore:
+      - dependency-name: python
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
 
   # Python dependencies — bumps requirements.in and regenerates the hash-locked
   # requirements.txt (I1). Grouped to reduce PR noise.
